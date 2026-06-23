@@ -22,3 +22,6 @@ pip install -e . --no-deps
 export SGLANG_PLUGINS=dcu
 sglang serve --model-path <model>
 ```
+
+> **Note:** If `examples/demo_general_plugin` is also installed, set `SGLANG_PLUGINS=dcu`
+> explicitly. When unset, SGLang loads **all** installed general plugins.

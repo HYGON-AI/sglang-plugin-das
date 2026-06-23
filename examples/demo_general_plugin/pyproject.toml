@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sglang-demo-general-plugin"
+version = "0.1.0"
+description = "Example general plugin for SGLang hook framework"
+requires-python = ">=3.10"
+dependencies = ["sglang"]
+
+[project.entry-points."sglang.srt.plugins"]
+demo_general = "demo_general_plugin:register"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["demo_general_plugin*"]
