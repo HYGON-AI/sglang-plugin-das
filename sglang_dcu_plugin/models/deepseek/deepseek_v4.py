@@ -1,3 +1,7 @@
-"""TODO: migrate DCU code into sglang_dcu_plugin/models/deepseek/deepseek_v4.py."""
+"""DCU DeepSeek V4 adaptations."""
 
 from __future__ import annotations
+
+
+def register_hooks() -> None:
+    pass

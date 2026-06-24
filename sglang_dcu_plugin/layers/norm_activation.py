@@ -1,7 +1,9 @@
-"""Hooks for layers/norm_activation."""
+"""DCU norm / activation adaptations."""
 
 import logging
+
 logger = logging.getLogger(__name__)
 
-def register() -> None:
+
+def register_hooks() -> None:
     logger.debug("[sglang_dcu_plugin] norm_activation hooks: placeholder")

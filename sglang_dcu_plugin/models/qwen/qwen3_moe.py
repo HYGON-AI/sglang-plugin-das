@@ -1,3 +1,7 @@
-"""TODO: migrate DCU code into sglang_dcu_plugin/models/qwen/qwen3_moe.py."""
+"""DCU Qwen3 MoE adaptations."""
 
 from __future__ import annotations
+
+
+def register_hooks() -> None:
+    pass

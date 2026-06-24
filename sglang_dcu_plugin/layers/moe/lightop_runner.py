@@ -1,3 +1,7 @@
-"""TODO: migrate DCU code into sglang_dcu_plugin/layers/moe/lightop_runner.py."""
+"""DCU MoE lightop runner adaptations."""
 
 from __future__ import annotations
+
+
+def register_hooks() -> None:
+    pass

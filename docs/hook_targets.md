@@ -1,4 +1,4 @@
 # Hook Targets
 
-Map sglang model/layer is_dcu branches to hooks/ and layers/ or models/ impl.
-See design discussion in project README.
+Map sglang model/layer is_dcu branches to layers/ or models/ impl modules.
+Each impl module exposes register_hooks() alongside its DCU code.

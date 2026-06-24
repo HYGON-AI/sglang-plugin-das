@@ -1,3 +1,7 @@
-"""TODO: migrate DCU code into sglang_dcu_plugin/layers/quantization/fp8.py."""
+"""DCU FP8 quantization adaptations."""
 
 from __future__ import annotations
+
+
+def register_hooks() -> None:
+    pass

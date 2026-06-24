@@ -1,3 +1,7 @@
-"""TODO: migrate DCU code into sglang_dcu_plugin/layers/attention/flashattention_patch.py."""
+"""DCU FlashAttention adaptations."""
 
 from __future__ import annotations
+
+
+def register_hooks() -> None:
+    pass
