@@ -9,6 +9,7 @@ import torch
 from sglang.srt.layers.attention.linear.gdn_backend import MambaPool, fused_gdn_gating
 from sglang.srt.utils import is_cpu, is_npu
 from sglang_dcu_plugin.utils.module_patch import get_original_attr
+from sglang.srt.layers.attention.mamba.causal_conv1d_triton import causal_conv1d_update
 
 
 logger = logging.getLogger(__name__)
@@ -119,7 +120,7 @@ def replacement_forward_decode(self, layer, forward_batch, mixed_qkv, a, b, **kw
 def replacement_forward_extend(self, layer, forward_batch, mixed_qkv, a, b, **kwargs):
     """Replacement for GDNAttnBackend.forward_extend."""
     try:
-        causal_conv1d_update_dcu, causal_conv1d_fn_dcu = _load_causal_conv1d_dcu()
+        _, causal_conv1d_fn_dcu = _load_causal_conv1d_dcu()
     except Exception as exc:
         logger.warning(
             "[sglang_dcu_plugin] DCU causal_conv1d extend is unavailable, fallback: %s",
@@ -157,7 +158,7 @@ def replacement_forward_extend(self, layer, forward_batch, mixed_qkv, a, b, **kw
         mixed_qkv_reshaped = mixed_qkv.view(
             batch_size, draft_token_num, -1
         ).transpose(1, 2)
-        mixed_qkv_processed = causal_conv1d_update_dcu(
+        mixed_qkv_processed = causal_conv1d_update(
             mixed_qkv_reshaped,
             conv_states,
             layer.conv_weights,
