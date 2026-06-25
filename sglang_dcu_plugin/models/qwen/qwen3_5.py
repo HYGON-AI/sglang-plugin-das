@@ -6,7 +6,16 @@ import torch
 from lightop import gammarms_rotary_embedding_fuse_with_kv_store
 
 import logging
+
+from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 logger = logging.getLogger(__name__)
+
+
+def register() -> None:
+    target = "sglang.srt.models.qwen3_5.Qwen3_5AttentionDecoderLayer.self_attention"
+    logger.info("[sglang_dcu_plugin] register REPLACE hook: %s", target)
+    HookRegistry.register(target, replacement_self_attention, HookType.REPLACE)
+
 
 def replacement_self_attention(self, positions, hidden_states, forward_batch):
     """Replacement for Qwen3_5AttentionDecoderLayer.self_attention()."""

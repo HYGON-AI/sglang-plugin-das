@@ -2,6 +2,8 @@
 
 import logging
 
+from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
 import torch
 
 from sglang.srt.layers.attention.linear.gdn_backend import MambaPool, fused_gdn_gating
@@ -12,6 +14,22 @@ from sglang_dcu_plugin.utils.module_patch import get_original_attr
 logger = logging.getLogger(__name__)
 
 _GDN_BACKEND_MODULE = "sglang.srt.layers.attention.linear.gdn_backend"
+
+
+def register() -> None:
+    hooks = (
+        (
+            "sglang.srt.layers.attention.linear.gdn_backend.GDNAttnBackend.forward_decode",
+            replacement_forward_decode,
+        ),
+        (
+            "sglang.srt.layers.attention.linear.gdn_backend.GDNAttnBackend.forward_extend",
+            replacement_forward_extend,
+        ),
+    )
+    for target, hook in hooks:
+        logger.info("[sglang_dcu_plugin] register REPLACE hook: %s", target)
+        HookRegistry.register(target, hook, HookType.REPLACE)
 
 
 def _load_causal_conv1d_dcu():

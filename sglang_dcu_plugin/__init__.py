@@ -1,4 +1,4 @@
-"""SGLang DCU general plugin — model & layer adaptations only."""
+"""SGLang DCU general plugin - model and layer adaptations."""
 
 import logging
 
@@ -7,7 +7,17 @@ logger = logging.getLogger(__name__)
 
 def register() -> None:
     """Entry point for sglang.srt.plugins (called by load_plugins)."""
-    from sglang_dcu_plugin.hooks import register_all_hooks
+    from sglang_dcu_plugin.layers.attention.fla import (
+        layernorm_gated,
+        linear_attention,
+    )
+    from sglang_dcu_plugin.layers.attention.linear import gdn_backend
+    from sglang_dcu_plugin.layers.moe import topk
+    from sglang_dcu_plugin.models.qwen import qwen3_5
 
-    register_all_hooks()
-    logger.info("[sglang_dcu_plugin] All hooks registered")
+    gdn_backend.register()
+    linear_attention.register()
+    layernorm_gated.register()
+    topk.register()
+    qwen3_5.register()
+    logger.info("[sglang_dcu_plugin] optimization hooks registered")

@@ -2,6 +2,8 @@
 
 import logging
 
+from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
 import torch
 import triton
 
@@ -12,6 +14,12 @@ from sglang_dcu_plugin.utils.module_patch import get_original_attr
 logger = logging.getLogger(__name__)
 
 _LAYERNORM_MODULE = "sglang.srt.layers.attention.fla.layernorm_gated"
+
+
+def register() -> None:
+    target = "sglang.srt.layers.attention.fla.layernorm_gated._layer_norm_fwd"
+    logger.info("[sglang_dcu_plugin] register REPLACE hook: %s", target)
+    HookRegistry.register(target, replacement_layer_norm_fwd, HookType.REPLACE)
 
 
 def replacement_layer_norm_fwd(

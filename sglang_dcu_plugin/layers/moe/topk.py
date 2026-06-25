@@ -2,6 +2,8 @@
 
 import logging
 
+from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
 import torch
 
 from sglang_dcu_plugin.utils.module_patch import get_original_attr
@@ -10,6 +12,12 @@ from sglang_dcu_plugin.utils.module_patch import get_original_attr
 logger = logging.getLogger(__name__)
 
 _TOPK_MODULE = "sglang.srt.layers.moe.topk"
+
+
+def register() -> None:
+    target = "sglang.srt.layers.moe.topk.fused_topk"
+    logger.info("[sglang_dcu_plugin] register REPLACE hook: %s", target)
+    HookRegistry.register(target, replacement_fused_topk, HookType.REPLACE)
 
 
 def replacement_fused_topk(

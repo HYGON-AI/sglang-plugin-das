@@ -1,6 +1,8 @@
 """REPLACE hook implementations for AITER linear-attention paths."""
 
 import logging
+
+from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 from typing import Optional, Tuple
 
 import torch
@@ -21,6 +23,30 @@ _CHUNK_DELTA_H_MODULE = "sglang.srt.layers.attention.fla.chunk_delta_h"
 _CHUNK_O_MODULE = "sglang.srt.layers.attention.fla.chunk_o"
 _FUSED_RECURRENT_MODULE = "sglang.srt.layers.attention.fla.fused_recurrent"
 _GDN_TRITON_MODULE = "sglang.srt.layers.attention.linear.kernels.gdn_triton"
+
+
+def register() -> None:
+    hooks = (
+        (
+            "sglang.srt.layers.attention.fla.chunk_delta_h.chunk_gated_delta_rule_fwd_h",
+            replacement_chunk_gated_delta_rule_fwd_h,
+        ),
+        (
+            "sglang.srt.layers.attention.fla.chunk_o.chunk_fwd_o",
+            replacement_chunk_fwd_o,
+        ),
+        (
+            "sglang.srt.layers.attention.fla.fused_recurrent.fused_recurrent_gated_delta_rule_packed_decode",
+            replacement_fused_recurrent_gated_delta_rule_packed_decode,
+        ),
+        (
+            "sglang.srt.layers.attention.linear.kernels.gdn_triton.TritonGDNKernel.target_verify",
+            replacement_triton_gdn_target_verify,
+        ),
+    )
+    for target, hook in hooks:
+        logger.info("[sglang_dcu_plugin] register REPLACE hook: %s", target)
+        HookRegistry.register(target, hook, HookType.REPLACE)
 
 
 def replacement_chunk_gated_delta_rule_fwd_h(
