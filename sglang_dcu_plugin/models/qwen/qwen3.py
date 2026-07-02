@@ -2,53 +2,39 @@
 
 import logging
 
+import torch
+
+from sglang.srt.server_args import get_global_server_args
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
-from sglang_dcu_plugin.utils.module_patch import get_original_attr
+from sglang_dcu_plugin.models.fused_rotary import (
+    fused_rms_rotary_kv_store,
+    use_fused_rms_rotary,
+)
 
 logger = logging.getLogger(__name__)
 
-_TARGET = "sglang.srt.models.qwen3.Qwen3Attention.forward_prepare_native"
-_MODULE = "sglang.srt.models.qwen3"
+_TARGET = "sglang.srt.models.qwen3.Qwen3Attention.forward"
 
 
 def register() -> None:
-    logger.info("[sglang_dcu_plugin] register REPLACE hook: %s", _TARGET)
-    HookRegistry.register(_TARGET, replacement_forward_prepare_native, HookType.REPLACE)
+    logger.info("[sglang_dcu_plugin] register AROUND hook: %s", _TARGET)
+    HookRegistry.register(_TARGET, replacement_forward, HookType.AROUND)
 
 
-def _fused_rms_rotary_kv_store(
-    fused_op, self, positions, q, k, v, forward_batch
-):
-    cos_sin_cache = self.rotary_emb.cos_sin_cache
-    if cos_sin_cache.device != q.device or cos_sin_cache.dtype != q.dtype:
-        cos_sin_cache = cos_sin_cache.to(q.device, dtype=q.dtype, non_blocking=True)
-        self.rotary_emb.cos_sin_cache = cos_sin_cache
-    k_buffer, v_buffer = forward_batch.token_to_kv_pool.get_kv_buffer(self.layer_id)
+def replacement_forward(original_fn, self, positions, hidden_states, forward_batch):
+    if not use_fused_rms_rotary():
+        return original_fn(self, positions, hidden_states, forward_batch)
 
-    return fused_op(
-        positions,
-        q,
-        k,
-        v,
-        cos_sin_cache,
-        self.head_dim,
-        self.page_size,
-        k_buffer,
-        v_buffer,
-        forward_batch.out_cache_loc,
-        is_neox=True,
-        weight_q=self.q_norm.weight,
-        weight_k=self.k_norm.weight,
-        output_dtype=self.kv_cache_dtype,
-        residual_q=None,
-        residual_k=None,
-        k_scale=None,
-        v_scale=None,
-        epsilon=self.q_norm.variance_epsilon,
-    )
+    server_args = get_global_server_args()
+    if (
+        getattr(self, "use_fused_qk_norm_mrope", False)
+        and forward_batch.forward_mode.is_decode()
+        and server_args.rl_on_policy_target is None
+    ):
+        return original_fn(self, positions, hidden_states, forward_batch)
+    if server_args.rl_on_policy_target is not None:
+        return original_fn(self, positions, hidden_states, forward_batch)
 
-
-def replacement_forward_prepare_native(self, positions, hidden_states, forward_batch):
     try:
         from lightop import rms_rotary_embedding_fuse_with_kv_store
     except Exception as exc:
@@ -56,12 +42,11 @@ def replacement_forward_prepare_native(self, positions, hidden_states, forward_b
             "[sglang_dcu_plugin] qwen3 fused RMS rotary is unavailable, fallback: %s",
             exc,
         )
-        original = get_original_attr(_MODULE, "Qwen3Attention.forward_prepare_native")
-        return original(self, positions, hidden_states, forward_batch)
+        return original_fn(self, positions, hidden_states, forward_batch)
 
     qkv, _ = self.qkv_proj(hidden_states)
     q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
-    return _fused_rms_rotary_kv_store(
+    q, k, v = fused_rms_rotary_kv_store(
         rms_rotary_embedding_fuse_with_kv_store,
         self,
         positions,
@@ -69,4 +54,9 @@ def replacement_forward_prepare_native(self, positions, hidden_states, forward_b
         k,
         v,
         forward_batch,
+        self.q_norm,
+        self.k_norm,
     )
+    attn_output = self.attn(q, k, v, forward_batch, save_kv_cache=True)
+    output, _ = self.o_proj(attn_output)
+    return output

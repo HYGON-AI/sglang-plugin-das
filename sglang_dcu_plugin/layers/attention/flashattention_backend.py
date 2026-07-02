@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
-from sglang.srt.utils import get_bool_env_var
+from sglang_dcu_plugin.models.fused_rotary import has_fused_kv_store
+from sglang_dcu_plugin.utils.detection import is_dcu
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ def register() -> None:
 
 
 def _should_skip_kv_store(args, kwargs) -> bool:
-    if not get_bool_env_var("SGLANG_USE_FUSED_RMS_ROTARY"):
+    if not is_dcu():
         return False
 
     # Method args:
@@ -41,7 +42,16 @@ def _should_skip_kv_store(args, kwargs) -> bool:
         return False
 
     k_rope = args[8] if len(args) > 8 else kwargs.get("k_rope")
-    return k_rope is None
+    if k_rope is not None:
+        return False
+
+    layer = args[4] if len(args) > 4 else kwargs.get("layer")
+    forward_batch = args[5] if len(args) > 5 else kwargs.get("forward_batch")
+    if layer is None or forward_batch is None:
+        return False
+
+    layer_id = getattr(layer, "layer_id", None)
+    return layer_id is not None and has_fused_kv_store(forward_batch, layer_id)
 
 
 def _call_without_kv_store(original_fn, *args, **kwargs):
