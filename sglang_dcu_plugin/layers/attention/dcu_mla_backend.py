@@ -8,3 +8,7 @@ class DCUMLABackend:
         raise NotImplementedError(
             "Migrate from sglang.srt.layers.attention.dcu_mla_backend (Phase 1)."
         )
+
+
+def register_hooks() -> None:
+    pass
