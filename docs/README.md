@@ -12,8 +12,8 @@
 | 当前运行时代码与迁入进展 | [hcu_sglang 开发迁移记录](hcu-sglang-development.md) | [hcu-plugin-dev](../skills/hcu-plugin-dev/SKILL.md) |
 | 插件能力开发 | [能力开发指南](plugins.md) | [hcu-plugin-dev](../skills/hcu-plugin-dev/SKILL.md) |
 | 故障诊断与回归修复 | [故障诊断指南](troubleshooting.md) | [hcu-plugin-triage](../skills/hcu-plugin-triage/SKILL.md) |
-| 研发模块盘点与开发计划 | [迁移规划指南](sglang-das-migration-plan.md) / [网页](../migration-plan.html) | [sglang-dcu-plugin-migration](../skills/sglang-dcu-plugin-migration/SKILL.md) |
-| 三方差异审计与迁移 | [三方迁移指南](migration.md) | [sglang-dcu-plugin-migration](../skills/sglang-dcu-plugin-migration/SKILL.md) |
+| 研发模块盘点与开发计划 | [迁移规划指南](sglang-das-migration-plan.md) / [网页](../migration-plan.html) | [sglang-hcu-plugin-migration](../skills/sglang-hcu-plugin-migration/SKILL.md) |
+| 三方差异审计与迁移 | [三方迁移指南](migration.md) | [sglang-hcu-plugin-migration](../skills/sglang-hcu-plugin-migration/SKILL.md) |
 | 官方版本升级与发版 | [版本升级与发版指南](upgrading.md) | [upgrading-sglang-hcu-upstream-first](../skills/upgrading-sglang-hcu-upstream-first/SKILL.md) |
 | 内嵌源码生成与核验 | [源码回溯指南](backtracking.md) | [hcu-plugin-backtrack](../skills/hcu-plugin-backtrack/SKILL.md) |
 

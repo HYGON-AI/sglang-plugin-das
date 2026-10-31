@@ -1,4 +1,4 @@
-"""REPLACE hook implementation for DCU optimized gated layer norm."""
+"""REPLACE hook implementation for HCU optimized gated layer norm."""
 
 import logging
 

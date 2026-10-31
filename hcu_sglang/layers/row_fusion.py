@@ -1,6 +1,6 @@
 from __future__ import annotations
 import sglang.srt.layers.linear as N
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 _use_fused_silu_mul_quant = N.get_bool_env_var("SGLANG_USE_FUSED_SILU_MUL_QUANT")
 _use_fused_silu_mul_fp8_quant = N.envs.SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT.get() or _use_fused_silu_mul_quant
@@ -242,13 +242,13 @@ def forward(
 
     return output, output_bias
 def around_row_forward(original, layer, *args, **kwargs):
-    if is_dcu() and any(name in kwargs for name in ("use_fused_silu_mul_quant", "use_fused_silu_mul_fp8_quant", "input_quant_args")):
+    if is_hcu() and any(name in kwargs for name in ("use_fused_silu_mul_quant", "use_fused_silu_mul_fp8_quant", "input_quant_args")):
         return forward(layer, *args, **kwargs)
     return original(layer, *args, **kwargs)
 
 
 def register_hooks():
-    if not is_dcu():
+    if not is_hcu():
         return
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     N.RowParallelLinear.supports_fused_silu_mul_quant_input = supports_fused_silu_mul_quant_input

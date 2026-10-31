@@ -212,7 +212,7 @@ def main() -> None:
     parser.add_argument("--official-repo", required=True)
     parser.add_argument("--fork-repo", required=True)
     parser.add_argument("--plugin-repo", required=True)
-    parser.add_argument("--plugin-package", choices=("hcu_sglang", "sglang_dcu_plugin"))
+    parser.add_argument("--plugin-package", choices=("hcu_sglang", "sglang_hcu_plugin"))
     parser.add_argument("--hook-targets-file")
     parser.add_argument("--overrides", required=True)
     parser.add_argument("--output-json", required=True)

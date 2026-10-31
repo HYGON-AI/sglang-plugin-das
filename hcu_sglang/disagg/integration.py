@@ -1,11 +1,11 @@
 """Formal HCU PD registration; optional wire fields preserve legacy positions."""
 from __future__ import annotations
 import types
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def register_hooks():
-    if not is_dcu():
+    if not is_hcu():
         return
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     from sglang.srt.disaggregation.base.conn import KVArgs

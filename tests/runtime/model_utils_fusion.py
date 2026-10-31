@@ -19,7 +19,7 @@ class ModelUtilsFusionTests(unittest.TestCase):
         pool.dtype = dtype
         batch = SimpleNamespace(forward_mode=ForwardMode.EXTEND, input_ids=torch.arange(4), dcp_kv_mask=mask)
         strategy = SimpleNamespace(can_apply=lambda count, current: cp and count == 4 and current is batch)
-        with patch.object(plugin.C, '_is_dcu', hcu), patch.object(plugin, '_is_cuda', cuda), \
+        with patch.object(plugin.C, '_is_hcu', hcu), patch.object(plugin, '_is_cuda', cuda), \
              patch.object(plugin, '_is_hip', hip), patch.object(cp_utils, 'get_cp_strategy', return_value=strategy), \
              forward_context(ForwardContext(attn_backend=SimpleNamespace(token_to_kv_pool=pool))):
             self.assertFalse(hasattr(batch, 'token_to_kv_pool'))

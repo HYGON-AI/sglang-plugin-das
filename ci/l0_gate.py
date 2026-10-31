@@ -49,7 +49,7 @@ def main() -> int:
             relative = unquote(target.split("#", 1)[0])
             if relative and not (path.parent / relative).exists():
                 errors.append(f"{path.relative_to(ROOT)}: missing link {target}")
-    for forbidden in ("sglang_dcu_plugin", "sgl_kernel", "sitecustomize.py", "usercustomize.py"):
+    for forbidden in ("sglang_hcu_plugin", "sgl_kernel", "sitecustomize.py", "usercustomize.py"):
         if (ROOT / forbidden).exists():
             errors.append(f"legacy or global startup artifact outside current scope: {forbidden}")
     runtime = ROOT / "hcu_sglang"
@@ -65,7 +65,7 @@ def main() -> int:
             for node in ast.walk(tree):
                 modules = ([node.module or ""] if isinstance(node, ast.ImportFrom) else
                            [alias.name for alias in node.names] if isinstance(node, ast.Import) else [])
-                if any(name == "sglang_dcu_plugin" or name.startswith("sglang_dcu_plugin.") for name in modules):
+                if any(name == "sglang_hcu_plugin" or name.startswith("sglang_hcu_plugin.") for name in modules):
                     errors.append(f"legacy namespace import: {path.relative_to(ROOT)}:{node.lineno}")
     elif (ROOT / "pyproject.toml").exists():
         errors.append("packaging exists without the supported hcu_sglang runtime")

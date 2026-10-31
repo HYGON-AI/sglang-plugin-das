@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 import torch
 from torch.nn.parameter import Parameter
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.moe_runner.base import MoeRunnerConfig
@@ -68,8 +68,8 @@ def around_moe_runner_init(
 ) -> None:
     if not _is_lightop_backend(runner_backend):
         return original(runner, runner_backend, config, lora_enabled)
-    if not is_dcu():
-        raise ValueError("The lightop MoE runner is only available on DCU/HCU.")
+    if not is_hcu():
+        raise ValueError("The lightop MoE runner is only available on HCU/HCU.")
 
     from sglang.srt.layers.moe.moe_runner.base import FusedOpPool
     from sglang.srt.layers.moe.utils import get_moe_a2a_backend

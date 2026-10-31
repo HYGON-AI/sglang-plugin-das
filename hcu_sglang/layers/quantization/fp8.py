@@ -1,4 +1,4 @@
-"""DCU FP8 quantization adaptations."""
+"""HCU FP8 quantization adaptations."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ def around_fallback_scaled_mm(
     bias,
     input_dtype,
 ):
-    from hcu_sglang.utils.detection import is_dcu
+    from hcu_sglang.utils.detection import is_hcu
 
-    if not is_dcu() or qinput.dtype not in (
+    if not is_hcu() or qinput.dtype not in (
         torch.float8_e4m3fn,
         torch.float8_e4m3fnuz,
     ):
@@ -67,9 +67,9 @@ def around_fallback_scaled_mm(
 def around_rms_norm_forward_hip(
     original, self, x, residual=None, post_residual_addition=None, quant_linear=None
 ):
-    from hcu_sglang.utils.detection import is_dcu
+    from hcu_sglang.utils.detection import is_hcu
 
-    if is_dcu():
+    if is_hcu():
         if residual is not None:
             return self.forward_native(x, residual, post_residual_addition, quant_linear)
         if isinstance(x, torch.Tensor) and x.is_cuda and quant_linear is None and post_residual_addition is None:

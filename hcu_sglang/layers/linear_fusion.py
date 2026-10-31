@@ -7,7 +7,7 @@ buffers to an FP8 method, while keeping residual-stream updates identical.
 from __future__ import annotations
 
 import torch
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def normalize_projection_input(hidden, weight, residual=None, eps=1e-6, update=True):
@@ -28,7 +28,7 @@ def around_column_forward(original, layer, input_, rms_weight=None,
                           residual=None, update_hd=True):
     if rms_weight is None:
         return original(layer, input_)
-    if not is_dcu():
+    if not is_hcu():
         raise ValueError("HCU normalization handoff requires a supported HCU device")
     normalized = normalize_projection_input(
         input_, rms_weight, residual, getattr(layer, "eps", 1e-6), update_hd

@@ -78,7 +78,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--official-python", type=Path, required=True)
     parser.add_argument("--plugin-root", type=Path, required=True)
-    parser.add_argument("--plugin-package", choices=("hcu_sglang", "sglang_dcu_plugin"))
+    parser.add_argument("--plugin-package", choices=("hcu_sglang", "sglang_hcu_plugin"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 

@@ -37,11 +37,11 @@ class GeneratedSourceCommentsTests(unittest.TestCase):
     def test_injection_preserves_comments_and_refuses_duplicate_without_markers(self):
         cases = [
             (generator.LOADER_ANCHOR, generator.LOADER_BLOCK, generator.LOADER_BEGIN,
-             generator.LOADER_END, "register_embedded_dcu", False,
+             generator.LOADER_END, "register_embedded_hcu", False,
              'def load_plugins():\n    plugins = {}\n    # Original loader comment.\n'
              '    for name, (func, dist_name) in plugins.items():\n        func()\n'),
             (generator.BOOTSTRAP_ANCHOR, generator.BOOTSTRAP_BLOCK, generator.BOOTSTRAP_BEGIN,
-             generator.BOOTSTRAP_END, "_bootstrap_dcu_aiter_compat", True,
+             generator.BOOTSTRAP_END, "_bootstrap_hcu_aiter_compat", True,
              '"""Original API documentation."""\n# Original API comment.\n'
              'def _redirect_third_party_caches():\n    pass\n_redirect_third_party_caches()\n'),
         ]
