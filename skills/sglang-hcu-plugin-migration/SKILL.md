@@ -1,5 +1,5 @@
 ---
-name: sglang-dcu-plugin-migration
+name: sglang-hcu-plugin-migration
 description: 审计 SGLang official、DAS fork 与HCU plugin，生成差异清单和处置台账并检查版本漂移。用于 fork 同步、插件升级或覆盖审计，同时拆分 adapter/plugin 实现职责并记录所需运行组合。
 ---
 

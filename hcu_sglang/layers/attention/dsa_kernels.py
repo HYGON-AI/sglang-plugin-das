@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def around_tilelang_act_quant(
@@ -15,7 +15,7 @@ def around_tilelang_act_quant(
     block_size: int = 128,
     scale_fmt: str | None = None,
 ):
-    if not is_dcu():
+    if not is_hcu():
         return original(x, block_size, scale_fmt)
 
     assert x.is_contiguous(), "Input tensor must be contiguous"
@@ -42,7 +42,7 @@ def around_tilelang_act_quant(
 
 
 def before_set_k_and_s_triton(*args, **kwargs):
-    if not is_dcu():
+    if not is_hcu():
         return None
 
     if kwargs:

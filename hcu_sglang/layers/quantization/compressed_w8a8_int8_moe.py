@@ -18,7 +18,7 @@ from sglang.srt.layers.quantization.compressed_tensors.schemes import (
 )
 from sglang.srt.utils import get_bool_env_var, set_weight_attrs
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 if TYPE_CHECKING:
     from sglang.srt.layers.moe.token_dispatcher import (
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_use_aiter_moe = is_dcu() and get_bool_env_var(
+_use_aiter_moe = is_hcu() and get_bool_env_var(
     "SGLANG_ROCM_USE_AITER_MOE", default="true"
 )
 

@@ -1,4 +1,4 @@
-"""DCU dp_attention adaptations."""
+"""HCU dp_attention adaptations."""
 
 import logging
 

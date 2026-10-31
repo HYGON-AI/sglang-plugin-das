@@ -8,20 +8,20 @@ from typing import Any, Callable
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def around_rocm_backend_selection(
     original: Callable[..., str], cls, selected_backend, head_size: int, dtype
 ) -> str:
     backend_name = getattr(selected_backend, "name", None)
-    if is_dcu() and backend_name == "SLA_ATTN":
+    if is_hcu() and backend_name == "SLA_ATTN":
         return (
             "hcu_sglang.multimodal_gen.rocm_sparse_linear_attn."
             "RocmSparseLinearAttentionBackend"
         )
     if (
-        is_dcu()
+        is_hcu()
         and backend_name in (None, "FA")
         and dtype in (torch.float16, torch.bfloat16)
         and importlib.util.find_spec("flash_attn") is not None
@@ -47,7 +47,7 @@ def around_aiter_forward_varlen(
     import aiter
     from sglang.multimodal_gen.runtime.platforms.aiter import USE_AITER_GFX942
 
-    if not is_dcu() or USE_AITER_GFX942 or hasattr(aiter, "flash_attn_varlen_func"):
+    if not is_hcu() or USE_AITER_GFX942 or hasattr(aiter, "flash_attn_varlen_func"):
         return original(
             attention_impl,
             query,
@@ -89,7 +89,7 @@ def around_aiter_forward_varlen(
 def around_minimal_a2a_forward(
     original: Callable[..., Any], attention_op, query, key, value, *args, **kwargs
 ):
-    if is_dcu() and attention_op.pg is None:
+    if is_hcu() and attention_op.pg is None:
         from sglang.multimodal_gen.runtime.distributed import get_sp_group
         from sglang.multimodal_gen.runtime.managers.forward_context import (
             get_forward_context,

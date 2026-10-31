@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from sglang.srt.environ import EnvBool, EnvBoolWithAlias, EnvFloat, EnvInt, EnvStr, Envs, _default_hip
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 _ENV_SPECS: dict[str, tuple[type, Any]] = {
@@ -138,6 +138,6 @@ def register_envs() -> None:
     for name, (field_type, default) in _ENV_SPECS.items():
         _install_field(name, field_type, default, replace=False)
 
-    if is_dcu():
+    if is_hcu():
         for name, (field_type, default) in _HCU_DEFAULT_OVERRIDES.items():
             _install_field(name, field_type, default, replace=True)

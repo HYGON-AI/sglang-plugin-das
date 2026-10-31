@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def around_free_swa(
@@ -14,7 +14,7 @@ def around_free_swa(
     allocator: Any,
     free_index: torch.Tensor,
 ) -> Any:
-    if not is_dcu():
+    if not is_hcu():
         return original(allocator, free_index)
     if free_index.numel() == 0:
         return None

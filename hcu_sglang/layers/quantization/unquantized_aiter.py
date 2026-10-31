@@ -6,14 +6,14 @@ from typing import Any, Callable
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def _enabled() -> bool:
     from sglang.srt.utils import get_bool_env_var
 
     return (
-        is_dcu()
+        is_hcu()
         and get_bool_env_var("SGLANG_ROCM_USE_AITER_MOE")
         and not get_bool_env_var("SGLANG_USE_MARLIN_W16A16_MOE")
     )

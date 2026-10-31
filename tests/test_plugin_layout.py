@@ -15,7 +15,7 @@ class PluginLayoutTests(unittest.TestCase):
             root = Path(directory)
             with self.assertRaisesRegex(ValueError, 'expected one'):
                 resolve_plugin_package(root)
-            for name in ('hcu_sglang', 'sglang_dcu_plugin'):
+            for name in ('hcu_sglang', 'sglang_hcu_plugin'):
                 (root / name).mkdir()
                 (root / name / '__init__.py').write_text('')
                 self.assertEqual(resolve_plugin_package(root, name), name)

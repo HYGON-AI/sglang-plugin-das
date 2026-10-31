@@ -2,8 +2,8 @@
 from __future__ import annotations
 import sglang.srt.arg_groups.deepseek_v4_hook as upstream
 globals().update({name:value for name,value in vars(upstream).items() if not name.startswith('__')})
-from hcu_sglang.utils.detection import is_dcu
-_is_hcu=is_dcu()
+from hcu_sglang.utils.detection import is_hcu
+_is_hcu=is_hcu()
 
 def validate_deepseek_v4_cp(server_args: ServerArgs) -> None:
     """Validate DeepSeek V4 context-parallel configuration."""

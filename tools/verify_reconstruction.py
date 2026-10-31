@@ -7,8 +7,8 @@ import hashlib
 import json
 from pathlib import Path
 
-MANIFEST_NAME = ".sglang-dcu-embedded.json"
-MANIFEST_KIND = "sglang-dcu-embedded-source"
+MANIFEST_NAME = ".sglang-hcu-embedded.json"
+MANIFEST_KIND = "sglang-hcu-embedded-source"
 
 
 def verify(output: Path) -> dict:

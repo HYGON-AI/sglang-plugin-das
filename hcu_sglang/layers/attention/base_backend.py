@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def around_forward(
@@ -20,7 +20,7 @@ def around_forward(
     *args,
     **kwargs,
 ) -> Any:
-    if is_dcu() and forward_batch.forward_mode.is_idle():
+    if is_hcu() and forward_batch.forward_mode.is_idle():
         return query.new_empty(
             query.shape[0],
             layer.tp_q_head_num * layer.v_head_dim,

@@ -2,7 +2,7 @@
 
 
 def is_glm5_next_hcu(config) -> bool:
-    from hcu_sglang.utils.detection import is_dcu as is_hcu
+    from hcu_sglang.utils.detection import is_hcu as is_hcu
 
     config = getattr(config, "text_config", config)
     return is_hcu() and getattr(config, "model_type", "") in (
