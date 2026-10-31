@@ -9,8 +9,8 @@ import torch
 from torch.nn.parameter import Parameter
 
 
-_MARKER = "_sglang_dcu_w4a8_int8"
-_QUANT_MODE = "_sglang_dcu_aiter_quant_mode"
+_MARKER = "_sglang_hcu_w4a8_int8"
+_QUANT_MODE = "_sglang_hcu_aiter_quant_mode"
 _W4A8_INT8 = "w4a8_int8"
 _W8A8_INT8 = "w8a8_int8"
 _W8A8_FP8 = "w8a8_fp8"

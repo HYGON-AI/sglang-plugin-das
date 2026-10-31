@@ -126,9 +126,9 @@ from hcu_sglang.models.deepseek.current_v4.hcu_backend.compat import is_dsa_pref
 from sglang.srt.layers.attention.dsa.utils import dsa_use_prefill_cp
 from hcu_sglang.models.deepseek.current_v4.execution.cp_helpers import can_dsa_cp_split
 from hcu_sglang.models.deepseek.current_v4.execution.mm_padding import pad_mm_tokens
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 from sglang.srt.utils import get_bool_env_var
-_is_hcu = is_dcu()
+_is_hcu = is_hcu()
 MHC_POST_MULT_VALUE = mhc.MHC_POST_MULT_VALUE
 _FUSE_MHC_REPEAT_CP_SPLIT = envs.SGLANG_DSV4_FUSE_MHC_REPEAT_CP_SPLIT.get()
 _use_aiter_tilelang_mhc = get_bool_env_var("SGLANG_ROCM_USE_AITER_TILELANG_MHC")

@@ -1,4 +1,4 @@
-"""DCU Qwen model adaptations."""
+"""HCU Qwen model adaptations."""
 
 import logging
 

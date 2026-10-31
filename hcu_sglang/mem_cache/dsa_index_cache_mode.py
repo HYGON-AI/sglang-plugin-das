@@ -17,7 +17,7 @@ import triton
 import triton.language as tl
 
 from sglang.srt.utils import get_bool_env_var
-from hcu_sglang.utils.detection import is_dcu as is_hcu, is_dcu_native_fp8_supported as is_hcu_native_fp8_supported
+from hcu_sglang.utils.detection import is_hcu as is_hcu, is_hcu_native_fp8_supported as is_hcu_native_fp8_supported
 
 INDEX_K_PAGE_SIZE = 64
 INDEX_K_HEAD_DIM = 128

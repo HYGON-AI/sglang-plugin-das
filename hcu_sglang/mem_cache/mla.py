@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def get_key_buffer_deepseek_v2(pool: Any, layer_id: int):
@@ -80,7 +80,7 @@ def around_write_mla_kv_buffer(
     cache_k_nope: torch.Tensor,
     cache_k_rope: torch.Tensor,
 ) -> None:
-    if not is_dcu():
+    if not is_hcu():
         return original(pool, dst_buffer, loc, cache_k_nope, cache_k_rope)
     if pool.dsa_kv_cache_store_fp8:
         _write_lightop(cache_k_nope, cache_k_rope, dst_buffer, loc)

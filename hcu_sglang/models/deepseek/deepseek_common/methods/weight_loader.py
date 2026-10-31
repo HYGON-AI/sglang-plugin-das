@@ -1,4 +1,4 @@
-"""DCU deepseek_common fork methods (auto-extracted for plugin hooks)."""
+"""HCU deepseek_common fork methods (auto-extracted for plugin hooks)."""
 
 from __future__ import annotations
 
@@ -475,7 +475,7 @@ def post_load_weights(
 
             if not use_deep_gemm_bmm:
                 if (
-                    C._is_dcu
+                    C._is_hcu
                     and w.dtype in (torch.float8_e4m3fn, torch.float8_e4m3fnuz)
                     and not (
                         _use_aiter_gfx95

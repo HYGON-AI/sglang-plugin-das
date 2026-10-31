@@ -17,7 +17,7 @@ from hcu_sglang.layers.attention.current_dsa.flashmla_backend import (
     refresh_flashmla_metadata,
 )
 from sglang.srt.utils import is_cuda, is_hip
-from hcu_sglang.utils.detection import is_dcu as is_hcu
+from hcu_sglang.utils.detection import is_hcu as is_hcu
 
 if TYPE_CHECKING:
     from hcu_sglang.layers.attention.current_dsa.dsa_backend_mtp_precompute import (

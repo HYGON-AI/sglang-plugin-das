@@ -15,9 +15,9 @@ globals().update({name: value for name, value in vars(_upstream).items() if not 
 
 
 def after_init(result, backend, *args, **kwargs):
-    from hcu_sglang.utils.detection import is_dcu
+    from hcu_sglang.utils.detection import is_hcu
 
-    if not is_dcu():
+    if not is_hcu():
         return result
     backend.needs_cpu_seq_lens = True
     backend.use_aiter_triton_extend_fwd = False

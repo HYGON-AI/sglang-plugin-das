@@ -64,7 +64,7 @@ curl http://127.0.0.1:30000/v1/chat/completions \
 | 安装已有源码或 wheel，检查是否真正生效 | [安装与启用](docs/installation.md) | [hcu-plugin-install](skills/hcu-plugin-install/SKILL.md) | 安装记录、入口与模块来源、加载及要求的服务验证 |
 | 给已有插件增加融合、后端或专项能力 | [能力开发](docs/plugins.md) | [hcu-plugin-dev](skills/hcu-plugin-dev/SKILL.md) | 实现、注册与回退契约、针对性测试和证据 |
 | 出现错误答案、异常、Graph 或多卡回归 | [故障诊断](docs/troubleshooting.md) | [hcu-plugin-triage](skills/hcu-plugin-triage/SKILL.md) | 最小复现、首次分叉、根因及修复回归 |
-| 比较 official/fork/plugin，整理迁移范围 | [三方迁移](docs/migration.md) | [sglang-dcu-plugin-migration](skills/sglang-dcu-plugin-migration/SKILL.md) | 固定基线、差异清单、处置台账与缺口 |
+| 比较 official/fork/plugin，整理迁移范围 | [三方迁移](docs/migration.md) | [sglang-hcu-plugin-migration](skills/sglang-hcu-plugin-migration/SKILL.md) | 固定基线、差异清单、处置台账与缺口 |
 | 升级指定官方版本，组织交付与验收 | [版本升级](docs/upgrading.md) | [upgrading-sglang-hcu-upstream-first](skills/upgrading-sglang-hcu-upstream-first/SKILL.md) | 补丁接管处置、验收矩阵、产物来源与有效回退版本 |
 | 从 official + plugin 生成内嵌源码 | [源码回溯](docs/backtracking.md) | [hcu-plugin-backtrack](skills/hcu-plugin-backtrack/SKILL.md) | 新源码树、来源清单、哈希核验与独立运行验证记录 |
 | 查设计原则或相似故障经验 | [架构](docs/architecture.md)、[经验索引](docs/development-methodology.md) | 统一入口检索，或直接阅读 | 对应章节、检查方法及适用边界 |
@@ -177,6 +177,6 @@ python3 -m unittest discover -s tests -v
 
 ## 7. 运行时交付与历史证据
 
-当前运行时为 `hcu-sglang-plugin` v0.3.2.dev34，Python 包为 `hcu_sglang`，唯一 general plugin 入口为 `hcu`；固定官方基线为 `baa9befa`。当前迁入、wheel 与分版本模型结果见 [开发迁移记录](docs/hcu-sglang-development.md)，安装命令见 [安装指南](docs/installation.md)。旧 `sglang_dcu_plugin` v0.3.2.dev5 等产物见 [历史交付记录](docs/v3-20261026-development.md#8-最终交付与需求验收)，不作为当前安装示例。本次命名与文档修订不重新声明 GPU、模型精度或性能结果，也不提供公共 PyPI 发布承诺。
+当前运行时为 `hcu-sglang-plugin` v0.3.2.dev34，Python 包为 `hcu_sglang`，唯一 general plugin 入口为 `hcu`；固定官方基线为 `baa9befa`。当前迁入、wheel 与分版本模型结果见 [开发迁移记录](docs/hcu-sglang-development.md)，安装命令见 [安装指南](docs/installation.md)。旧 `sglang_hcu_plugin` v0.3.2.dev5 等产物见 [历史交付记录](docs/v3-20261026-development.md#8-最终交付与需求验收)，不作为当前安装示例。本次命名与文档修订不重新声明 GPU、模型精度或性能结果，也不提供公共 PyPI 发布承诺。
 
 来源与许可见 [来源地图](docs/extraction-map.md) 和 [来源许可证](licenses)。方法查询先使用 [开发经验索引](docs/development-methodology.md)；复核某次交付时再按日期读取实施记录和原始证据。

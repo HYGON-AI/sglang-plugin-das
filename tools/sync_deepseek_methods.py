@@ -18,8 +18,8 @@ else:
 
 
 V2_CONSTANT_MAP = {
-    "_is_hcu": "C._is_dcu",
-    "_is_dcu": "C._is_dcu",
+    "_is_hcu": "C._is_hcu",
+    "_is_hcu": "C._is_hcu",
     **{
         name: f"C.{name}"
         for name in (
@@ -48,8 +48,8 @@ V2_CONSTANT_MAP = {
 }
 
 V4_CONSTANT_MAP = {
-    "_is_hcu": "C._is_dcu",
-    "_is_dcu": "C._is_dcu",
+    "_is_hcu": "C._is_hcu",
+    "_is_hcu": "C._is_hcu",
     **{
         name: f"C.{name}"
         for name in (
@@ -64,31 +64,31 @@ V4_CONSTANT_MAP = {
 V2_HEADER = '''\
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_v2 import constants as C
-from sglang_dcu_plugin.models.deepseek.deepseek_v2.methods._runtime import *
+from sglang_hcu_plugin.models.deepseek.deepseek_v2 import constants as C
+from sglang_hcu_plugin.models.deepseek.deepseek_v2.methods._runtime import *
 
 '''
 
 V4_HEADER = '''\
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_v4 import constants as C
-from sglang_dcu_plugin.models.deepseek.deepseek_v4.methods._runtime import *
+from sglang_hcu_plugin.models.deepseek.deepseek_v4 import constants as C
+from sglang_hcu_plugin.models.deepseek.deepseek_v4.methods._runtime import *
 
 '''
 
 COMMON_HEADER = '''\
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_common import constants as C
-from sglang_dcu_plugin.models.deepseek.deepseek_common.methods._runtime import *
+from sglang_hcu_plugin.models.deepseek.deepseek_common import constants as C
+from sglang_hcu_plugin.models.deepseek.deepseek_common.methods._runtime import *
 
 '''
 
 NEXTN_HEADER = '''\
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_nextn.methods._runtime import *
+from sglang_hcu_plugin.models.deepseek.deepseek_nextn.methods._runtime import *
 
 '''
 
@@ -228,7 +228,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fork-python", type=Path, required=True)
     parser.add_argument("--plugin-root", type=Path, required=True)
-    parser.add_argument("--plugin-package", choices=("hcu_sglang", "sglang_dcu_plugin"))
+    parser.add_argument("--plugin-package", choices=("hcu_sglang", "sglang_hcu_plugin"))
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
@@ -350,7 +350,7 @@ def main() -> int:
                 )
                 for name in ("do_load_weights", "post_load_weights")
             ],
-            {"_is_hcu": "C._is_dcu", "_is_dcu": "C._is_dcu"},
+            {"_is_hcu": "C._is_hcu", "_is_hcu": "C._is_hcu"},
         ),
         (
             plugin_models / "deepseek/deepseek_nextn/methods/model.py",
@@ -364,7 +364,7 @@ def main() -> int:
     ]
 
     try:
-        jobs = [(dest, header.replace("sglang_dcu_plugin", package), specs, mapping)
+        jobs = [(dest, header.replace("sglang_hcu_plugin", package), specs, mapping)
                 for dest, header, specs, mapping in jobs]
         updates = plan_updates(jobs)
     except (ExtractionError, OSError, SyntaxError) as error:

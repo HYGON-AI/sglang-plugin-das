@@ -45,7 +45,7 @@
 | 安装已有插件源码或 wheel | [hcu-plugin-install](../skills/hcu-plugin-install/SKILL.md) | [安装与验证](installation.md#使用-skill-安装与验证插件) | 安装与环境记录、入口及加载报告 |
 | 新增或修改已有插件能力 | [hcu-plugin-dev](../skills/hcu-plugin-dev/SKILL.md) | [能力开发](plugins.md#使用-skill-开发插件能力) | 实现、注册/回退契约、相关测试及证据 |
 | 定位加载后的运行回归 | [hcu-plugin-triage](../skills/hcu-plugin-triage/SKILL.md) | [故障诊断](troubleshooting.md#使用-skill-执行故障诊断) | 最小复现、首次分叉、修复及回归结果 |
-| official / fork / plugin 差异审计 | [sglang-dcu-plugin-migration](../skills/sglang-dcu-plugin-migration/SKILL.md) | [三方迁移](migration.md#使用-skill-执行三方迁移) | 固定基线、差异清单、处置台账 |
+| official / fork / plugin 差异审计 | [sglang-hcu-plugin-migration](../skills/sglang-hcu-plugin-migration/SKILL.md) | [三方迁移](migration.md#使用-skill-执行三方迁移) | 固定基线、差异清单、处置台账 |
 | 指定官方目标升级与发版 | [upgrading-sglang-hcu-upstream-first](../skills/upgrading-sglang-hcu-upstream-first/SKILL.md) | [版本升级](upgrading.md#使用-skill-执行版本升级) | 补丁处置、验收矩阵、产物来源与 last-good |
 | 生成内嵌源码产物 | [hcu-plugin-backtrack](../skills/hcu-plugin-backtrack/SKILL.md) | [源码回溯](backtracking.md#使用-skill-生成与核验内嵌源码) | 新源码树、来源清单、哈希及运行验证记录 |
 

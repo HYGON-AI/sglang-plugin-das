@@ -19,8 +19,8 @@ _use_fused_rmsnorm_rope = get_bool_env_var("SGLANG_USE_FUSED_RMSNORM_ROPE")
 import inspect
 import logging
 logger = logging.getLogger(__name__)
-from hcu_sglang.utils.detection import is_dcu
-_is_hcu = is_dcu()
+from hcu_sglang.utils.detection import is_hcu
+_is_hcu = is_hcu()
 is_fp8 = False
 try:
 

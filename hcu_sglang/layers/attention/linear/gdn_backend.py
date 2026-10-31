@@ -1,4 +1,4 @@
-"""REPLACE hook implementations for DCU GDN backend paths."""
+"""REPLACE hook implementations for HCU GDN backend paths."""
 
 import logging
 
@@ -31,13 +31,13 @@ def register() -> None:
         HookRegistry.register(target, hook, HookType.REPLACE)
 
 
-def _load_causal_conv1d_dcu():
-    from causal_conv1d import causal_conv1d_fn_dcu
+def _load_causal_conv1d_hcu():
+    from causal_conv1d import causal_conv1d_fn_hcu
     from causal_conv1d.causal_conv1d_interface import (
-        causal_conv1d_update as causal_conv1d_update_dcu,
+        causal_conv1d_update as causal_conv1d_update_hcu,
     )
 
-    return causal_conv1d_update_dcu, causal_conv1d_fn_dcu
+    return causal_conv1d_update_hcu, causal_conv1d_fn_hcu
 
 
 def _load_sglang_gdn_symbols():
@@ -64,10 +64,10 @@ def _load_sglang_gdn_symbols():
 def replacement_forward_decode(self, layer, forward_batch, mixed_qkv, a, b, **kwargs):
     """Replacement for GDNAttnBackend.forward_decode."""
     try:
-        causal_conv1d_update_dcu, _ = _load_causal_conv1d_dcu()
+        causal_conv1d_update_hcu, _ = _load_causal_conv1d_hcu()
     except Exception as exc:
         logger.warning(
-            "[hcu_sglang] DCU causal_conv1d decode is unavailable, fallback: %s",
+            "[hcu_sglang] HCU causal_conv1d decode is unavailable, fallback: %s",
             exc,
         )
         original = get_original_attr(_GDN_BACKEND_MODULE, "GDNAttnBackend.forward_decode")
@@ -80,7 +80,7 @@ def replacement_forward_decode(self, layer, forward_batch, mixed_qkv, a, b, **kw
     cache_indices = self.forward_metadata.mamba_cache_indices
 
     assert isinstance(mixed_qkv, torch.Tensor)
-    mixed_qkv = causal_conv1d_update_dcu(
+    mixed_qkv = causal_conv1d_update_hcu(
         mixed_qkv,
         conv_states,
         layer.conv_weights,
@@ -140,10 +140,10 @@ def replacement_forward_extend(self, layer, forward_batch, mixed_qkv, a, b, **kw
     """Replacement for GDNAttnBackend.forward_extend."""
     MambaPool, fused_gdn_gating, causal_conv1d_update = _load_sglang_gdn_symbols()
     try:
-        _, causal_conv1d_fn_dcu = _load_causal_conv1d_dcu()
+        _, causal_conv1d_fn_hcu = _load_causal_conv1d_hcu()
     except Exception as exc:
         logger.warning(
-            "[hcu_sglang] DCU causal_conv1d extend is unavailable, fallback: %s",
+            "[hcu_sglang] HCU causal_conv1d extend is unavailable, fallback: %s",
             exc,
         )
         original = get_original_attr(_GDN_BACKEND_MODULE, "GDNAttnBackend.forward_extend")
@@ -200,7 +200,7 @@ def replacement_forward_extend(self, layer, forward_batch, mixed_qkv, a, b, **kw
             ].transpose(0, 1)
             conv_states[forward_metadata.conv_states_mask_indices] = mixed_qkv_to_track
 
-        mixed_qkv = causal_conv1d_fn_dcu(
+        mixed_qkv = causal_conv1d_fn_hcu(
             mixed_qkv,
             layer.conv_weights,
             layer.bias,
