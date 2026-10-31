@@ -49,7 +49,7 @@ adapter 和 plugin 独立维护、独立验证；同一 SGLang 部署可以使�
 
 ## 4. 处置台账与状态
 
-迁移台账字段及九类处置见 [迁移契约](../skills/sglang-dcu-plugin-migration/references/migration-contract.md)。台账中的“由谁实现”和“以什么组合运行”要分别记录；必要时在风险/证据字段中引用跨仓依赖任务。
+迁移台账字段及九类处置见 [迁移契约](../skills/sglang-hcu-plugin-migration/references/migration-contract.md)。台账中的“由谁实现”和“以什么组合运行”要分别记录；必要时在风险/证据字段中引用跨仓依赖任务。
 
 | 状态 | 最少依据 | 不能推出的结论 |
 |---|---|---|

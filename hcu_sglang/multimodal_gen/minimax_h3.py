@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 logger = logging.getLogger(__name__)
 
 
 def after_adjust_attention_backend(result: Any, server_args: Any) -> Any:
-    if not is_dcu() or server_args.attention_backend != "fa":
+    if not is_hcu() or server_args.attention_backend != "fa":
         return result
 
     from sglang.multimodal_gen.runtime.server_args.server_args import Backend
@@ -37,13 +37,13 @@ def after_adjust_attention_backend(result: Any, server_args: Any) -> Any:
 def around_apply_qk_norm(
     original: Callable[..., Any], q, k, q_norm, k_norm, head_dim: int
 ):
-    if not is_dcu():
+    if not is_hcu():
         return original(q, k, q_norm, k_norm, head_dim)
     return q_norm(q), k_norm(k)
 
 
 def after_post_load_weights(result: Any, model: Any) -> Any:
-    if is_dcu():
+    if is_hcu():
         model._resolve_attention_backend_once()
     return result
 

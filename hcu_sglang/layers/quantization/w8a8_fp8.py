@@ -1,4 +1,4 @@
-"""DCU W8A8 FP8 quantization adaptations."""
+"""HCU W8A8 FP8 quantization adaptations."""
 
 from __future__ import annotations
 

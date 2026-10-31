@@ -1,4 +1,4 @@
-"""Bailing-MoE model hooks for DCU fused RMSNorm + RoPE KV-store."""
+"""Bailing-MoE model hooks for HCU fused RMSNorm + RoPE KV-store."""
 
 import logging
 
@@ -11,7 +11,7 @@ from hcu_sglang.models.fused_rotary import (
     fused_rms_rotary_kv_store,
     use_fused_rms_rotary,
 )
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.utils.module_patch import get_original_attr
 
 logger = logging.getLogger(__name__)
@@ -38,11 +38,11 @@ def register() -> None:
 
 
 def _use_fused_bailing_silu_mul_fp8_quant() -> bool:
-    return is_dcu()
+    return is_hcu()
 
 
 def _num_fused_shared_experts(config) -> int:
-    if not is_dcu():
+    if not is_hcu():
         return 0
     try:
         from sglang.srt.layers.moe.utils import get_moe_a2a_backend
@@ -109,7 +109,7 @@ def replacement_gate_init(original_fn, self, *args, **kwargs):
     config = kwargs.get("config", args[0] if args else None)
     if config is None:
         return
-    if is_dcu() and self.params_dtype == torch.float32:
+    if is_hcu() and self.params_dtype == torch.float32:
         self.weight = nn.Parameter(
             torch.empty(
                 (config.num_experts, config.hidden_size),

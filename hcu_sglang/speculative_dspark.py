@@ -25,7 +25,7 @@ def _handle_dspark(server_args: ServerArgs) -> None:
     # compatibility path.
     cfg = N.resolving_view(server_args)
     _is_npu = cfg.device.startswith("npu")
-    from hcu_sglang.utils.detection import is_dcu as is_hcu
+    from hcu_sglang.utils.detection import is_hcu as is_hcu
 
     _is_hcu_device = is_hcu()
     if not cfg.device.startswith(("cuda", "npu", "xpu")):

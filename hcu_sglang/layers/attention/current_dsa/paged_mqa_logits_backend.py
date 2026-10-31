@@ -4,7 +4,7 @@ from enum import Enum
 
 from sglang.srt.runtime_context import get_platform
 from sglang.srt.utils import is_hip
-from hcu_sglang.utils.detection import is_dcu as is_hcu
+from hcu_sglang.utils.detection import is_hcu as is_hcu
 
 
 class DSAPagedMQALogitsBackend(Enum):

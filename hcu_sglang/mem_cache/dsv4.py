@@ -6,11 +6,11 @@ from typing import Any, Callable, Optional
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 def single_is_bf16_attention_kv_cache(pool: Any) -> bool:
-    return is_dcu() and pool.dtype == torch.bfloat16
+    return is_hcu() and pool.dtype == torch.bfloat16
 
 
 def single_logical_kv_dim(pool: Any) -> int:
@@ -226,7 +226,7 @@ def _install_compat_members() -> None:
 
 
 def register_hooks() -> None:
-    if is_dcu():
+    if is_hcu():
         from hcu_sglang.mem_cache.hcu_v4_integration import register_hooks as register_current
         register_current()
         return

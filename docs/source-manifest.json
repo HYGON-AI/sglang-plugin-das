@@ -25,35 +25,35 @@
   ],
   "copied_files": [
     {
-      "source": "sglang-plugin-das/skills/sglang-dcu-plugin-migration/scripts/audit_repositories.py",
+      "source": "sglang-plugin-das/skills/sglang-hcu-plugin-migration/scripts/audit_repositories.py",
       "source_sha256": "e548fe04664f6695cb0bfcd6148d598fba86815762a9422bfdab572da4a14c94",
       "destination": "tools/audit_repositories.py",
       "destination_sha256": "145544e86cf1158d0aef734271c0bc9c829bb47c8a7b7c8d593f1d6a7bbc17ae",
       "modified": true
     },
     {
-      "source": "sglang-plugin-das/skills/sglang-dcu-plugin-migration/scripts/build_disposition_ledger.py",
+      "source": "sglang-plugin-das/skills/sglang-hcu-plugin-migration/scripts/build_disposition_ledger.py",
       "source_sha256": "1635a8d4bbd35c1159ab808f04e471fb47c733fbcab00048e9c317c141d55d37",
       "destination": "tools/build_disposition_ledger.py",
       "destination_sha256": "c19efe91cf008ecdd6f2d1a05dbfcba7741091807c4237f13b0f5f2afa4227bc",
       "modified": true
     },
     {
-      "source": "sglang-plugin-das/skills/sglang-dcu-plugin-migration/scripts/build_migration_manifest.py",
+      "source": "sglang-plugin-das/skills/sglang-hcu-plugin-migration/scripts/build_migration_manifest.py",
       "source_sha256": "89cd95b2573ec7ecb4fa2a8949b95de85a3de94c3ab69b7c5a3bb23743243bd6",
       "destination": "tools/build_migration_manifest.py",
       "destination_sha256": "b6dc819de9a014d2d0d43b5a0f0e7237be7e42bea94f58f1c389d45a2a4173f9",
       "modified": true
     },
     {
-      "source": "sglang-plugin-das/skills/sglang-dcu-plugin-migration/scripts/sync_deepseek_methods.py",
+      "source": "sglang-plugin-das/skills/sglang-hcu-plugin-migration/scripts/sync_deepseek_methods.py",
       "source_sha256": "7202f65eec9b00d1926931c9fa0604ad04ebfdd6ac1f72e95647c400f2f3f74f",
       "destination": "tools/sync_deepseek_methods.py",
       "destination_sha256": "7202f65eec9b00d1926931c9fa0604ad04ebfdd6ac1f72e95647c400f2f3f74f",
       "modified": false
     },
     {
-      "source": "sglang-plugin-das/skills/sglang-dcu-plugin-migration/scripts/validate_hook_signatures.py",
+      "source": "sglang-plugin-das/skills/sglang-hcu-plugin-migration/scripts/validate_hook_signatures.py",
       "source_sha256": "3ba678c3f6d2fda8812dee1cc0882c4dad958cda620311416ca801c323a68ff1",
       "destination": "tools/validate_hook_signatures.py",
       "destination_sha256": "3ba678c3f6d2fda8812dee1cc0882c4dad958cda620311416ca801c323a68ff1",
@@ -81,9 +81,9 @@
       "modified": true
     },
     {
-      "source": "sglang-plugin-das/skills/sglang-dcu-plugin-migration/references/migration_contract.md",
+      "source": "sglang-plugin-das/skills/sglang-hcu-plugin-migration/references/migration_contract.md",
       "source_sha256": "5ebb5ae655ef2ca7c82d71ff49dcb136b40e0f5e125d57b6f5bcfe4571888032",
-      "destination": "skills/sglang-dcu-plugin-migration/references/migration-contract.md",
+      "destination": "skills/sglang-hcu-plugin-migration/references/migration-contract.md",
       "destination_sha256": "5ebb5ae655ef2ca7c82d71ff49dcb136b40e0f5e125d57b6f5bcfe4571888032",
       "modified": false
     }

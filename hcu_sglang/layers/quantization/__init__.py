@@ -1,4 +1,4 @@
-"""DCU quantization adaptations."""
+"""HCU quantization adaptations."""
 
 import logging
 

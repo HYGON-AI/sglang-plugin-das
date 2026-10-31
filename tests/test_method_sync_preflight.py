@@ -44,19 +44,19 @@ class MethodReferenceSemanticsTests(unittest.TestCase):
     def test_constants_are_identifier_only_and_idempotent(self):
         from tools.sync_deepseek_methods import transform
         source = '''def forward(self):
-    # _is_hcu and _is_dcu are explanatory text.
-    label = "_is_hcu _is_dcu"
-    return _is_hcu, _is_dcu, C._is_dcu, self._is_dcu, label
+    # _is_hcu and _is_hcu are explanatory text.
+    label = "_is_hcu _is_hcu"
+    return _is_hcu, _is_hcu, C._is_hcu, self._is_hcu, label
 '''
-        mapping = {"_is_hcu": "C._is_dcu", "_is_dcu": "C._is_dcu"}
+        mapping = {"_is_hcu": "C._is_hcu", "_is_hcu": "C._is_hcu"}
         first = transform(source, mapping, "Owner")
         self.assertEqual(transform(first, mapping, "Owner"), first)
-        namespace = {"C": type("Flags", (), {"_is_dcu": True})}
+        namespace = {"C": type("Flags", (), {"_is_hcu": True})}
         exec(first, namespace)
-        receiver = type("Receiver", (), {"_is_dcu": "attribute"})()
+        receiver = type("Receiver", (), {"_is_hcu": "attribute"})()
         self.assertEqual(namespace["forward"](receiver),
-                         (True, True, True, "attribute", "_is_hcu _is_dcu"))
-        self.assertIn("# _is_hcu and _is_dcu", first)
+                         (True, True, True, "attribute", "_is_hcu _is_hcu"))
+        self.assertIn("# _is_hcu and _is_hcu", first)
 
     def test_super_keeps_parent_semantics_after_detaching(self):
         from tools.sync_deepseek_methods import transform
@@ -77,7 +77,7 @@ class MethodReferenceSemanticsTests(unittest.TestCase):
         from tools.sync_deepseek_methods import transform
         with self.assertRaisesRegex(ExtractionError, "locally bound"):
             transform("def forward(self, _is_hcu):\n    return _is_hcu\n",
-                      {"_is_hcu": "C._is_dcu"}, "Owner")
+                      {"_is_hcu": "C._is_hcu"}, "Owner")
 
     def test_unknown_class_owner_is_rejected(self):
         from tools.sync_deepseek_methods import transform
@@ -86,9 +86,9 @@ class MethodReferenceSemanticsTests(unittest.TestCase):
 
     def test_unicode_offsets_preserve_executable_text(self):
         from tools.sync_deepseek_methods import transform
-        namespace = {"C": type("Flags", (), {"_is_dcu": True})}
+        namespace = {"C": type("Flags", (), {"_is_hcu": True})}
         output = transform('def forward(self):\n    return "海光", _is_hcu\n',
-                           {"_is_hcu": "C._is_dcu"}, "Owner")
+                           {"_is_hcu": "C._is_hcu"}, "Owner")
         exec(output, namespace)
         self.assertEqual(namespace["forward"](None), ("海光", True))
 

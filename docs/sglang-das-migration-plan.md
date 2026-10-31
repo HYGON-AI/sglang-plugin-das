@@ -46,7 +46,7 @@
 
 ## 使用 Skill 评审并实施迁移任务
 
-主要入口为 [sglang-dcu-plugin-migration](../skills/sglang-dcu-plugin-migration/SKILL.md)。需要实施新增能力时再衔接 [hcu-plugin-dev](../skills/hcu-plugin-dev/SKILL.md)，指定官方升级或 embedded 交付分别按对应专项入口。尚不清楚模块归属时使用 [统一任务助手](../skills/hcu-plugin-assistant/SKILL.md)。
+主要入口为 [sglang-hcu-plugin-migration](../skills/sglang-hcu-plugin-migration/SKILL.md)。需要实施新增能力时再衔接 [hcu-plugin-dev](../skills/hcu-plugin-dev/SKILL.md)，指定官方升级或 embedded 交付分别按对应专项入口。尚不清楚模块归属时使用 [统一任务助手](../skills/hcu-plugin-assistant/SKILL.md)。
 
 **输入**：本轮模块或任务 ID、三方路径与版本、期望行为/支持范围、实际资源和证据位置。可访问版本与日志由 Agent 读取；方法咨询不要求先填写全部环境字段。
 

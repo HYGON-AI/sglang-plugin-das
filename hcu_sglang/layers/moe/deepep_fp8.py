@@ -19,7 +19,7 @@ from typing import Callable
 import sglang.srt.layers.moe.ep_moe.layer as _native_ep
 
 globals().update({name:value for name,value in vars(_native_ep).items() if not name.startswith('__')})
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.layers.moe import deepep_current as D
 from sglang.srt.runtime_context import get_disagg
 from hcu_sglang.layers.moe.deepep_ep_kernels import ep_scatter, ep_gather, build_m_indices_triton
@@ -30,7 +30,7 @@ from lightop.activation import fuse_silu_mul_fp8_quant, fuse_silu_mul_fp8_quant_
 from deepgemm import m_grouped_fp8_gemm_nt_contiguous
 from compressed_tensors.quantization import QuantizationStrategy
 
-_is_hcu = is_dcu()
+_is_hcu = is_hcu()
 _use_deepgemm_moe = get_bool_env_var("SGLANG_USE_DEEPGEMM_MOE")
 _use_fp8_w8a8_moe = get_bool_env_var("SGLANG_USE_FP8_W8A8_MOE")
 _use_lightop_ep_moe_align = get_bool_env_var("SGLANG_USE_LIGHTOP_EP_MOE_ALIGN", "true")

@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import torch
 
-from hcu_sglang.utils.detection import is_dcu
+from hcu_sglang.utils.detection import is_hcu
 
 
 class _MissingQuantConfig:
@@ -19,7 +19,7 @@ class _MissingQuantConfig:
 
 def after_mlp_init(result: Any, mlp, *args, **kwargs) -> Any:
     del args, kwargs
-    if not is_dcu():
+    if not is_hcu():
         return result
     for projection_name in ("gate_up_proj", "down_proj"):
         projection = getattr(mlp, projection_name, None)
@@ -38,7 +38,7 @@ def after_mlp_init(result: Any, mlp, *args, **kwargs) -> Any:
 def around_forward_normal(
     original: Callable[..., Any], moe, hidden_states
 ) -> Any:
-    if not is_dcu():
+    if not is_hcu():
         return original(moe, hidden_states)
 
     routed_scaling_factor = moe.routed_scaling_factor
