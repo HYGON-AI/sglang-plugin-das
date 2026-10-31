@@ -1,0 +1,6 @@
+# HCU-specific dependencies (install from vendor mirrors).
+# See docs/setup.md for download URLs.
+# flash-mla
+# lightop
+# lmslim
+# triton

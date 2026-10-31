@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract DCU fork methods from dcu-sglang-now deepseek_v4.py -> deepseek_v4/methods/."""
+"""Extract HCU fork methods from hcu-sglang-now deepseek_v4.py -> deepseek_v4/methods/."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = (
     ROOT.parent
-    / "dcu-sglang-now/dcu-sglang/python/sglang/srt/models/deepseek_v4.py"
+    / "hcu-sglang-now/hcu-sglang/python/sglang/srt/models/deepseek_v4.py"
 )
-OUT = ROOT / "sglang_dcu_plugin/models/deepseek/deepseek_v4/methods"
+OUT = ROOT / "sglang_hcu_plugin/models/deepseek/deepseek_v4/methods"
 
 CONST_NAMES = [
-    "_is_dcu",
+    "_is_hcu",
     "_use_dpskv4_lightop_rmsnorm",
     "_use_fused_qnorm_rope_kv_rope_quant",
     "_use_aiter_tilelang_mhc",
@@ -41,12 +41,12 @@ EXTRA_SPECS: dict[str, list[tuple[str, str] | tuple[str, str, str]]] = {
 }
 
 FILE_HEADER = '''\
-"""DCU DeepSeek V4 fork methods (auto-extracted for plugin hooks)."""
+"""HCU DeepSeek V4 fork methods (auto-extracted for plugin hooks)."""
 
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_v4 import constants as C
-from sglang_dcu_plugin.models.deepseek.deepseek_v4.methods._runtime import *  # noqa: F403
+from sglang_hcu_plugin.models.deepseek.deepseek_v4 import constants as C
+from sglang_hcu_plugin.models.deepseek.deepseek_v4.methods._runtime import *  # noqa: F403
 
 '''
 
@@ -95,9 +95,9 @@ def main() -> None:
         print(f"wrote {filename} ({len(seen)} methods)")
 
     init = '''\
-"""Extracted DCU fork method bodies for DeepSeek V4 plugin hooks."""
+"""Extracted HCU fork method bodies for DeepSeek V4 plugin hooks."""
 
-from sglang_dcu_plugin.models.deepseek.deepseek_v4.methods import (
+from sglang_hcu_plugin.models.deepseek.deepseek_v4.methods import (
     causal_lm,
     decoder,
     model,

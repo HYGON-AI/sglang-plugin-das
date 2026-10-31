@@ -2,7 +2,7 @@
 """One-shot extractor: legacy deepseek_v2_impl.py -> methods/*.py.
 
 The monolithic impl file was removed in P3. To regenerate methods/, restore
-deepseek_v2_impl.py from git history into sglang_dcu_plugin/models/deepseek/.
+deepseek_v2_impl.py from git history into sglang_hcu_plugin/models/deepseek/.
 """
 
 from __future__ import annotations
@@ -12,11 +12,11 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-IMPL = ROOT / "sglang_dcu_plugin/models/deepseek/deepseek_v2_impl.py"
-OUT = ROOT / "sglang_dcu_plugin/models/deepseek/deepseek_v2/methods"
+IMPL = ROOT / "sglang_hcu_plugin/models/deepseek/deepseek_v2_impl.py"
+OUT = ROOT / "sglang_hcu_plugin/models/deepseek/deepseek_v2/methods"
 
 CONST_NAMES = [
-    "_is_dcu",
+    "_is_hcu",
     "_is_hip",
     "_is_cuda",
     "_is_npu",
@@ -81,12 +81,12 @@ EXTRA_SPECS: dict[str, list[tuple[str, str, str] | tuple[str, str]]] = {
 }
 
 FILE_HEADER = '''\
-"""DCU DeepSeek V2 fork methods (auto-extracted for plugin hooks)."""
+"""HCU DeepSeek V2 fork methods (auto-extracted for plugin hooks)."""
 
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_v2 import constants as C
-from sglang_dcu_plugin.models.deepseek.deepseek_v2.methods._runtime import *  # noqa: F403
+from sglang_hcu_plugin.models.deepseek.deepseek_v2 import constants as C
+from sglang_hcu_plugin.models.deepseek.deepseek_v2.methods._runtime import *  # noqa: F403
 
 '''
 
@@ -136,9 +136,9 @@ def main() -> None:
         print(f"wrote {filename} ({len(seen)} methods)")
 
     init = '''\
-"""Extracted DCU fork method bodies for DeepSeek V2 plugin hooks."""
+"""Extracted HCU fork method bodies for DeepSeek V2 plugin hooks."""
 
-from sglang_dcu_plugin.models.deepseek.deepseek_v2.methods import (
+from sglang_hcu_plugin.models.deepseek.deepseek_v2.methods import (
     attention,
     decoder,
     mlp,

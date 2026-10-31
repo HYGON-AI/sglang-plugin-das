@@ -10,7 +10,7 @@ See `docs/deepseek_v2_hook_plan.md`.
 
 ### deepseek_v4 (started)
 
-- **Upstream baseline**: `dcu-sglang-now/.../models/deepseek_v4.py` reverted to match origin.
+- **Upstream baseline**: `hcu-sglang-now/.../models/deepseek_v4.py` reverted to match origin.
 - **Plugin**: 对称子包 `deepseek_v2/`、`deepseek_v4/`（见 `docs/deepseek_layout.md`）
 - **Depends on v2**: uses patched `DeepseekV2MoE` via `deepseek_v2` module import.
 

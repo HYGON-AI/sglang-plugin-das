@@ -19,9 +19,9 @@ pip install -e . --no-deps
 ## 3. Enable
 
 ```bash
-export SGLANG_PLUGINS=dcu
+export SGLANG_PLUGINS=hcu
 sglang serve --model-path <model>
 ```
 
-> **Note:** If `examples/demo_general_plugin` is also installed, set `SGLANG_PLUGINS=dcu`
+> **Note:** If `examples/demo_general_plugin` is also installed, set `SGLANG_PLUGINS=hcu`
 > explicitly. When unset, SGLang loads **all** installed general plugins.

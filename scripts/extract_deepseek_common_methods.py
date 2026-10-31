@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract DCU fork methods from dcu-sglang-now deepseek_common / deepseek_nextn."""
+"""Extract HCU fork methods from hcu-sglang-now deepseek_common / deepseek_nextn."""
 
 from __future__ import annotations
 
@@ -8,46 +8,46 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NOW = ROOT.parent / "dcu-sglang-now/dcu-sglang/python/sglang/srt/models"
+NOW = ROOT.parent / "hcu-sglang-now/hcu-sglang/python/sglang/srt/models"
 
 COMMON_SOURCE = NOW / "deepseek_common/deepseek_weight_loader.py"
 NEXTN_SOURCE = NOW / "deepseek_nextn.py"
 UTILS_SOURCE = NOW / "utils.py"
 
-COMMON_OUT = ROOT / "sglang_dcu_plugin/models/deepseek/deepseek_common/methods"
-NEXTN_OUT = ROOT / "sglang_dcu_plugin/models/deepseek/deepseek_nextn/methods"
-UTILS_OUT = ROOT / "sglang_dcu_plugin/models/model_utils/methods"
+COMMON_OUT = ROOT / "sglang_hcu_plugin/models/deepseek/deepseek_common/methods"
+NEXTN_OUT = ROOT / "sglang_hcu_plugin/models/deepseek/deepseek_nextn/methods"
+UTILS_OUT = ROOT / "sglang_hcu_plugin/models/model_utils/methods"
 
-COMMON_CONST = ["_is_dcu"]
+COMMON_CONST = ["_is_hcu"]
 NEXTN_CONST: list[str] = []
-UTILS_CONST = ["_is_dcu"]
+UTILS_CONST = ["_is_hcu"]
 
 COMMON_HEADER = '''\
-"""DCU deepseek_common fork methods (auto-extracted for plugin hooks)."""
+"""HCU deepseek_common fork methods (auto-extracted for plugin hooks)."""
 
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_common import constants as C
-from sglang_dcu_plugin.models.deepseek.deepseek_common.methods._runtime import *  # noqa: F403
+from sglang_hcu_plugin.models.deepseek.deepseek_common import constants as C
+from sglang_hcu_plugin.models.deepseek.deepseek_common.methods._runtime import *  # noqa: F403
 
 '''
 
 NEXTN_HEADER = '''\
-"""DCU deepseek_nextn fork methods (auto-extracted for plugin hooks)."""
+"""HCU deepseek_nextn fork methods (auto-extracted for plugin hooks)."""
 
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.deepseek.deepseek_nextn.methods._runtime import *  # noqa: F403
+from sglang_hcu_plugin.models.deepseek.deepseek_nextn.methods._runtime import *  # noqa: F403
 
 '''
 
 UTILS_HEADER = '''\
-"""DCU sglang.srt.models.utils fork methods (auto-extracted for plugin hooks)."""
+"""HCU sglang.srt.models.utils fork methods (auto-extracted for plugin hooks)."""
 
 from __future__ import annotations
 
-from sglang_dcu_plugin.models.model_utils import constants as C
-from sglang_dcu_plugin.models.model_utils.methods._runtime import *  # noqa: F403
+from sglang_hcu_plugin.models.model_utils import constants as C
+from sglang_hcu_plugin.models.model_utils.methods._runtime import *  # noqa: F403
 
 '''
 

@@ -12,7 +12,7 @@ from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
 METHODS_DIR = (
     Path(__file__).resolve().parents[2]
-    / "sglang_dcu_plugin/models/deepseek/deepseek_v2/methods"
+    / "sglang_hcu_plugin/models/deepseek/deepseek_v2/methods"
 )
 
 
@@ -62,7 +62,7 @@ def test_methods_package_has_expected_functions():
 
 
 def test_precise_hooks_not_whole_file_replace():
-    from sglang_dcu_plugin.models.deepseek import deepseek_v2
+    from sglang_hcu_plugin.models.deepseek import deepseek_v2
 
     deepseek_v2.register_hooks()
 
@@ -87,12 +87,12 @@ def test_precise_hooks_not_whole_file_replace():
 
 
 def test_hook_count():
-    from sglang_dcu_plugin.models.deepseek import deepseek_v2
+    from sglang_hcu_plugin.models.deepseek import deepseek_v2
 
     deepseek_v2.register_hooks()
     assert len(HookRegistry._hooks) == 28
 
 
 def test_no_deepseek_v2_impl_module():
-    spec = importlib.util.find_spec("sglang_dcu_plugin.models.deepseek.deepseek_v2_impl")
+    spec = importlib.util.find_spec("sglang_hcu_plugin.models.deepseek.deepseek_v2_impl")
     assert spec is None

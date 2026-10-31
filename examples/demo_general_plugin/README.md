@@ -2,7 +2,7 @@
 
 SGLang 通用插件示例，演示如何通过 Hook 在不修改主仓库代码的情况下扩展行为。
 
-本示例位于 `dcu-sglang-plugin` 仓库；生产 DCU 适配请使用主包 `sglang-dcu-plugin`（`SGLANG_PLUGINS=dcu`）。
+本示例位于 `hcu-sglang-plugin` 仓库；生产 HCU 适配请使用主包 `sglang-hcu-plugin`（`SGLANG_PLUGINS=hcu`）。
 
 ## 功能
 
@@ -15,7 +15,7 @@ SGLang 通用插件示例，演示如何通过 Hook 在不修改主仓库代码�
 
 ## 安装
 
-在 `dcu-sglang-plugin` 仓库根目录下：
+在 `hcu-sglang-plugin` 仓库根目录下：
 
 ```bash
 pip install -e examples/demo_general_plugin --no-deps
@@ -24,8 +24,8 @@ pip install -e examples/demo_general_plugin --no-deps
 ## 启用
 
 
-> **Note:** 若同时安装了 `sglang-dcu-plugin`，请用 `SGLANG_PLUGINS=demo_general` 只加载本示例，
-> 生产环境请用 `SGLANG_PLUGINS=dcu`，避免示例 Hook 影响服务启动。
+> **Note:** 若同时安装了 `sglang-hcu-plugin`，请用 `SGLANG_PLUGINS=demo_general` 只加载本示例，
+> 生产环境请用 `SGLANG_PLUGINS=hcu`，避免示例 Hook 影响服务启动。
 
 ```bash
 # 只加载本插件（推荐，避免加载其他插件）

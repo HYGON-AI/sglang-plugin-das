@@ -9,7 +9,7 @@ import pytest
 
 from sglang.srt.plugins.hook_registry import HookRegistry
 
-PLUGIN = Path(__file__).resolve().parents[2] / "sglang_dcu_plugin/models"
+PLUGIN = Path(__file__).resolve().parents[2] / "sglang_hcu_plugin/models"
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +23,7 @@ def test_deepseek_common_methods_extracted():
     methods_dir = PLUGIN / "deepseek/deepseek_common/methods"
     expected = {
         "weight_loader.py": {"do_load_weights", "post_load_weights"},
-        "attention_backend_handler.py": {"handle_attention_dcu_mla"},
+        "attention_backend_handler.py": {"handle_attention_hcu_mla"},
     }
     for filename, names in expected.items():
         tree = ast.parse((methods_dir / filename).read_text(encoding="utf-8"))
@@ -50,7 +50,7 @@ def test_models_utils_method_extracted():
 
 
 def test_deepseek_common_hook_registration():
-    from sglang_dcu_plugin.models.deepseek import deepseek_common, deepseek_nextn
+    from sglang_hcu_plugin.models.deepseek import deepseek_common, deepseek_nextn
 
     deepseek_common.register_hooks()
     deepseek_nextn.register_hooks()
@@ -68,7 +68,7 @@ def test_deepseek_common_hook_registration():
 
 
 def test_models_utils_hook_registration():
-    from sglang_dcu_plugin.models import utils as model_utils
+    from sglang_hcu_plugin.models import utils as model_utils
 
     model_utils.register_hooks()
     assert "sglang.srt.models.utils.enable_fused_set_kv_buffer" in HookRegistry._hooks

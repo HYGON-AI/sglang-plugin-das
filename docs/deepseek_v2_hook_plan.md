@@ -1,11 +1,11 @@
 # DeepSeek V2 精准 Hook 计划
 
-目标：通过 **method-level REPLACE** + **mixin hook** + **`methods/` 模块** 实现 DCU fork，不修改 upstream 源码。
+目标：通过 **method-level REPLACE** + **mixin hook** + **`methods/` 模块** 实现 HCU fork，不修改 upstream 源码。
 
 ## 当前结构（P1–P3 完成）
 
 ```
-sglang_dcu_plugin/models/deepseek/
+sglang_hcu_plugin/models/deepseek/
   hook_utils.py
   deepseek_v2/ / deepseek_v4/   # 子包 __init__.py 含 register_hooks
   deepseek_v2/
@@ -39,7 +39,7 @@ sglang_dcu_plugin/models/deepseek/
 ### P1 — 非 Attention（当前实施）
 
 ```
-sglang_dcu_plugin/models/deepseek/
+sglang_hcu_plugin/models/deepseek/
   constants.py          # env flags, FORWARD_ABSORB_*, dtype_mapping
   module_funcs.py       # ds_bmm_wrapper, add_forward_absorb_core_attention_backend
   hook_utils.py         # register_method_replaces(), module patch helper

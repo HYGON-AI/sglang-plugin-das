@@ -3,7 +3,7 @@
 DeepSeek 相关插件按模型/模块划分子包：
 
 ```
-sglang_dcu_plugin/models/
+sglang_hcu_plugin/models/
   model_utils/                 # sglang.srt.models.utils
     constants.py
     methods/utils.py           # enable_fused_set_kv_buffer
@@ -24,8 +24,8 @@ sglang_dcu_plugin/models/
 | 上游文件 | 插件 |
 |---------|------|
 | `deepseek_weight_loader.py` | `methods/weight_loader.py` + hooks |
-| `attention_backend_handler.py` | `methods/attention_backend_handler.py` + post-apply 注册 `dcu_mla` |
-| `utils.py` (`_is_dcu`) | `constants.py` + module setattr |
+| `attention_backend_handler.py` | `methods/attention_backend_handler.py` + post-apply 注册 `hcu_mla` |
+| `utils.py` (`_is_hcu`) | `constants.py` + module setattr |
 | `forward_mla.py` (skip_topk) | 已由 `deepseek_v2/methods/attention.py` mixin hook 覆盖 |
 
 ## deepseek_nextn
@@ -45,5 +45,5 @@ sglang_dcu_plugin/models/
 ```bash
 python scripts/extract_deepseek_v2_methods.py
 python scripts/extract_deepseek_v4_methods.py
-python scripts/extract_deepseek_common_methods.py   # 从 dcu-sglang-now fork 读取
+python scripts/extract_deepseek_common_methods.py   # 从 hcu-sglang-now fork 读取
 ```

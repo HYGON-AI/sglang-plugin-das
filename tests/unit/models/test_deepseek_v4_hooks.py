@@ -11,7 +11,7 @@ from sglang.srt.plugins.hook_registry import HookRegistry
 
 METHODS_DIR = (
     Path(__file__).resolve().parents[2]
-    / "sglang_dcu_plugin/models/deepseek/deepseek_v4/methods"
+    / "sglang_hcu_plugin/models/deepseek/deepseek_v4/methods"
 )
 
 
@@ -36,7 +36,7 @@ def test_deepseek_v4_methods_extracted():
 
 
 def test_deepseek_v4_hook_registration():
-    from sglang_dcu_plugin.models.deepseek import deepseek_v4
+    from sglang_hcu_plugin.models.deepseek import deepseek_v4
 
     deepseek_v4.register_hooks()
 
