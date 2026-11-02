@@ -345,7 +345,7 @@ def _run_w8a8(runner_core, runner_input, quant_info):
         if quant_info.expert_map is not None and quant_info.global_num_experts is not None
         else w13_weight.shape[0]
     )
-    routed_scaling_factor = runner_config.routed_scaling_factor or 1.0
+    routed_scaling_factor = (runner_config.routed_scaling_factor if runner_config.routed_scaling_factor is not None else 1.0)
     output = aiter_moe(
         hidden_states=runner_input.hidden_states,
         w1=w13_weight,

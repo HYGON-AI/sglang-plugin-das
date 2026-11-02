@@ -48,9 +48,29 @@ def after_post_load_weights(result: Any, model: Any) -> Any:
     return result
 
 
+def around_apply_rope_qk(original, q, k, cos_sin_cache, positions):
+    if not is_hcu() or not q.is_cuda:
+        return original(q, k, cos_sin_cache, positions)
+    import torch
+    rotary = getattr(torch.ops.sgl_kernel, "minimax_h3_rotary_embedding", None)
+    if rotary is None:
+        raise RuntimeError(
+            "MiniMax-H3 on HCU requires its dedicated RoPE operator; "
+            "rebuild sglang-kernel with setup_hip.py"
+        )
+    rotary(positions, q.view(q.shape[0], -1), k.view(k.shape[0], -1),
+           q.shape[-1], cos_sin_cache, True)
+    return q, k
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    HookRegistry.register(
+        "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk",
+        around_apply_rope_qk,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.server_args.server_args."
         "ServerArgs._adjust_attention_backend",

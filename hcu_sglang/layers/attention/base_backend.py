@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import torch
 
@@ -38,8 +38,25 @@ def around_forward(
     )
 
 
+def get_fused_kv_write_buffers(
+    self, layer: RadixAttention, forward_batch: ForwardBatch
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | None:
+    """Return token-major K/V buffers and physical slots for a fused writer."""
+    return None
+
+def late_layer_num_tokens(self, forward_batch: ForwardBatch) -> Optional[int]:
+    """Rows this rank runs from a late-layer row switch on (DeepSeek-V4.1
+    decoder SWA bounded replay); None for backends without one."""
+    return None
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+    if is_hcu():
+        from sglang.srt.layers.attention.base_attn_backend import AttentionBackend
+        for name in ("get_fused_kv_write_buffers", "late_layer_num_tokens"):
+            if not hasattr(AttentionBackend, name):
+                setattr(AttentionBackend, name, globals()[name])
 
     HookRegistry.register(
         "sglang.srt.layers.attention.base_attn_backend.AttentionBackend.forward",

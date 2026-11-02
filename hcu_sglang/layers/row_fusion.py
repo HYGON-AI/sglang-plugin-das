@@ -242,7 +242,9 @@ def forward(
 
     return output, output_bias
 def around_row_forward(original, layer, *args, **kwargs):
-    if is_hcu() and any(name in kwargs for name in ("use_fused_silu_mul_quant", "use_fused_silu_mul_fp8_quant", "input_quant_args")):
+    extended = any(name in kwargs for name in ("use_fused_silu_mul_quant", "use_fused_silu_mul_fp8_quant", "input_quant_args", "swiglu_limit"))
+    source_positional = len(args) > 4 or (len(args) == 4 and isinstance(args[3], (bool, type(None))))
+    if is_hcu() and (extended or source_positional):
         return forward(layer, *args, **kwargs)
     return original(layer, *args, **kwargs)
 

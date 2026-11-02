@@ -41,12 +41,12 @@ V3 中 merge-base 清单包含大量上游历史，结合当前树等价性与�
 
 ## 当前源码与迁移逻辑核验
 
-来源 SHA 变化后重新检查当前树，不继承旧输出/测试或旧 verified。输出缺失时，从有来源哈希的快照恢复并明确新 Git 历史，再迁移当前 delta。抽取方法比较包括类拥有者、装饰器、模块别名及 collective owner；参考 [本轮案例](../../docs/v3-20261026-development.md#4-源码内嵌与-hcu-逻辑对照)。资源哈希一致、Hook 全量 apply 与整体 fork 逻辑等价分别给结论，未覆盖的新功能显式保留。
+来源 SHA 变化后重新检查当前树，不继承旧输出/测试或旧 verified。输出缺失时，从有来源哈希的快照恢复并明确新 Git 历史，再迁移当前 delta。抽取方法比较包括类拥有者、装饰器、模块别名及 collective owner；参考 [本轮案例](../../docs/hcu-sglang-development.md#2026-10-26-4-源码内嵌与-hcu-逻辑对照)。资源哈希一致、Hook 全量 apply 与整体 fork 逻辑等价分别给结论，未覆盖的新功能显式保留。
 
 
 ## 协议与消费者的逻辑对照
 
-差异审阅包含 async handler，并沿状态生产、wire codec、发布、调用方和下一消费者检查实际数据。来源 AST 一致只证明声明的节点；源实现也可能保留与新描述符语义冲突的旧预检。用修复前反例和实际字节效果解释有意适配差异，保留正常基线，参见 [PD 描述符案例](../../docs/development-methodology.md#13-描述符身份与位置式校验冲突) 与 [本轮记录](../../docs/v3-20261026-development.md#73-pd-描述符生产协商与复制)。
+差异审阅包含 async handler，并沿状态生产、wire codec、发布、调用方和下一消费者检查实际数据。来源 AST 一致只证明声明的节点；源实现也可能保留与新描述符语义冲突的旧预检。用修复前反例和实际字节效果解释有意适配差异，保留正常基线，参见 [PD 描述符案例](../../docs/development-methodology.md#13-描述符身份与位置式校验冲突) 与 [本轮记录](../../docs/hcu-sglang-development.md#2026-10-26-73-pd-描述符生产协商与复制)。
 
 ## 团队模块盘点与研发计划
 
@@ -55,4 +55,6 @@ V3 中 merge-base 清单包含大量上游历史，结合当前树等价性与�
 
 ## 分阶段全量实施
 
-先读取 [执行台账维护](../../docs/migration.md#全量差异执行台账)。保持固定盘点快照，逐路径维护 `plans/sglang-das-decisions.json`，再运行 `tools/build_migration_execution.py` 及 `--check`；未审核路径保持 pending，不按静态 mapping clue 自动完成。按 M0 基线/工具、M1 基础/量化、M2 Attention/KV/模型、M3 通信/PD/扩展、M4 产物/回归逐阶段实施；本仓能力直接进入 `hcu_sglang`，不从 DAS 动态导入。每阶段本地提交并更新开发记录；用户要求仅本地时不推送。当前 Hook 合同为 `docs/hcu-sglang-targets.json`，迁入 manifest 保留历史快照。
+先读取 [执行台账维护](../../docs/migration.md#全量差异执行台账)。保持固定盘点快照，逐路径维护 `plans/sglang-das-decisions.json`，再运行 `tools/build_migration_execution.py` 及 `--check`；未审核路径保持 pending，不按静态 mapping clue 自动完成。按 M0 基线/工具、M1 基础/量化、M2 Attention/KV/模型、M3 通信/PD/扩展、M4 产物/回归逐阶段实施；本仓能力直接进入 `hcu_sglang`，不从 DAS 动态导入。每阶段本地提交并更新开发记录；用户要求仅本地时不推送。当前 Hook 合同为 `tests/contracts/hcu_source_alignment_targets.json`，迁入 manifest 保留历史快照。
+
+按需复核与官方原样的Python代码时，使用[代码复用证据](../../docs/migration.md#原样-python-代码的复用证据)和 `audit_python_equivalence.py`。匹配必须是固定Git对象的完整AST与调用入口/权限一致；代码级upstream保留依赖/行为验收边界，已有人工记录不覆盖，不能据此自动关闭运行时或整模块缺口。

@@ -122,7 +122,7 @@ def around_forward_cuda(
         activation="silu" if config.activation == "silu" else "gelu",
         block_shape=None,
         global_num_experts=num_experts,
-        routed_scaling_factor=config.routed_scaling_factor or 1.0,
+        routed_scaling_factor=(config.routed_scaling_factor if config.routed_scaling_factor is not None else 1.0),
     )
     return StandardCombineInput(hidden_states=output)
 

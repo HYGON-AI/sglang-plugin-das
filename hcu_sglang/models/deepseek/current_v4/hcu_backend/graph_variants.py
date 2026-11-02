@@ -37,6 +37,10 @@ def create_attention_graph_variants(hf_config) -> Optional[AttentionGraphVariant
     from hcu_sglang.utils.detection import is_hcu as is_hcu
     from sglang.srt.utils import is_hip
     _is_hcu = is_hcu()
+    if _is_hcu:
+        from hcu_sglang.models.deepseek.deepseek_common.model_types import is_glm5_next_hcu
+        if is_glm5_next_hcu(hf_config):
+            return None
     if is_hip() and is_deepseek_dsa(hf_config):
         if get_dsa_index_kpool(hf_config) > 1:
             return None

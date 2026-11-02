@@ -273,7 +273,7 @@ def _hcu_arch_supports_tilelang_mmac() -> bool:
 def _fused_rmsnorm_fp8_quant(hidden_states, weight, eps, e8m0: bool = False):
     if e8m0:
         # Consumers run the e8m0 mxscale GEMM (SGLANG_DSV4_DENSE_MXSCALE).
-        from sglang.kernels.ops.layernorm.rmsnorm_fp8_e8m0 import (
+        from hcu_sglang.kernels.rmsnorm_fp8_e8m0 import (
             rmsnorm_fp8_e8m0_quant,
         )
 

@@ -4,7 +4,7 @@
 
 ## 1. V1 抽取基线与来源
 
-日期：2026-10-20。所有来源为历史验证节点的本地快照，未拉取网络版本。各树读取时均干净。机器可读基线与文件来源见 [source-manifest](source-manifest.json)，DAS 的 25 个 skill 全量索引、原始描述、SHA256、取舍与目的地见 [source-inventory](source-inventory.json)。
+日期：2026-10-20。所有来源为历史验证节点的本地快照，未拉取网络版本。各树读取时均干净。机器可读基线与文件来源见 [source-manifest](hcu-sglang-development.md#历史-json-快照)（`source-manifest.json`），DAS 的 25 个 skill 全量索引、原始描述、SHA256、取舍与目的地见 [source-inventory](hcu-sglang-development.md#历史-json-快照)（`source-inventory.json`）。
 
 | 来源 | 抽取对象 | 新仓落点 |
 |---|---|---|
@@ -65,7 +65,7 @@ hcu-sglang-plugin 方法与工具抽取，2026-10-20。
 
 迁移审计脚本、迁移证据契约来自 sglang-plugin-das；回溯生成器与原始测试来自 agent_work/plugin_work。
 文档组织与部分方法参考 hcu-sglang-adapter，插件测试/排障方法参考 sglang-das/.claude/skills。
-来源基线、原始文件哈希及改写说明见 [source-manifest.json](source-manifest.json)、[source-inventory.json](source-inventory.json) 和本文。
+来源基线、原始文件哈希及改写说明见 [source-manifest.json](hcu-sglang-development.md#历史-json-快照)（`source-manifest.json`）、[source-inventory.json](hcu-sglang-development.md#历史-json-快照)（`source-inventory.json`） 和本文。
 保留源文件已有声明；三个参考仓库的许可原文分别位于 [licenses/](../licenses)。
 本次未复制插件运行时、vendor 二进制或模型权重。
 
