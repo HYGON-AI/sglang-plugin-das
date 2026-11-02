@@ -23,7 +23,7 @@ from typing import Iterable, Sequence
 
 MANIFEST_NAME = ".sglang-hcu-embedded.json"
 MANIFEST_KIND = "sglang-hcu-embedded-source"
-GENERATOR_VERSION = 4
+GENERATOR_VERSION = 5
 
 PLUGIN_PACKAGE = Path("sglang_hcu_plugin")
 UPSTREAM_PLUGIN_LOADER = Path("python/sglang/srt/plugins/__init__.py")
@@ -196,7 +196,16 @@ def _add_package_data(path: Path, package: str = "sglang_hcu_plugin") -> None:
     source = path.read_text(encoding="utf-8")
     data_line = PACKAGE_DATA_LINE.replace("sglang_hcu_plugin", package)
     if package == "hcu_sglang":
-        data_line = '\"hcu_sglang\" = [\"jit_overlay/**/*\", \"models/deepseek/current_v4/hcu_backend/csrc/*\"]\n'
+        patterns = [
+            "mem_cache/cpp_utils/*.cpp",
+            "mem_cache/rust_tree_core/crate/**/*",
+            "mem_cache/rust_tree_core/crate/.gitignore",
+            "jit_overlay/**/*",
+            "models/deepseek/current_v4/hcu_backend/csrc/*",
+            "models/deepseek/current_v4/execution/aiter_intree_configs/**/*",
+            "layers/attention/linear/csrc/*",
+        ]
+        data_line = '"hcu_sglang" = ' + json.dumps(patterns) + "\n"
     if data_line.strip() in source:
         raise ReconstructionError(f"HCU package-data entry already exists: {path}")
     if source.count(PACKAGE_DATA_TABLE) != 1:

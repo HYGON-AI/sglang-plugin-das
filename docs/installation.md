@@ -1,6 +1,6 @@
 # HCU 插件安装与启用指南
 
-> **本文用途**：安装当前 `hcu-sglang-plugin`，核对 `hcu` 入口和实际加载来源，再按模型配方启动服务。本文命令均使用当前包；旧 `sglang_hcu_plugin` 的历史产物与验证保留在 [V3 实践记录](v3-runtime-validation.md) 和 [2026-10-26 交付记录](v3-20261026-development.md)。
+> **本文用途**：安装当前 `hcu-sglang-plugin`，核对 `hcu` 入口和实际加载来源，再按模型配方启动服务。本文命令均使用当前包；旧 `sglang_hcu_plugin` 的历史产物与验证保留在 [V3 实践记录](v3-runtime-validation.md) 和 [2026-10-26 交付记录](hcu-sglang-development.md#2026-10-26-v3-2026-10-26-实施与验证记录)。
 
 ## 使用 Skill 安装与验证插件
 
