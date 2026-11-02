@@ -1509,3 +1509,15 @@ python3 tools/validate_plugin_runtime.py \
 已核实的误报不作修改：盘点 JSON 实际受 Git 跟踪；hidden chunk 异常由 decode 队列捕获并标记单请求失败。本轮修改不声称完整模型或 GPU/PD 服务重新通过。验证结果随本次 PR 修复提交记录。
 
 本次复验：L0 的 556 个 Python 文件和 8 个 Skill 通过；117 项仓库测试中 104 项通过、13 项需专用运行环境而跳过；243 个 Markdown 锚点、导览/迁移规划/执行台账快照及 diff 空白检查通过。已检查实际桌面、390px 窄屏渲染和文档跳转。未执行专用层运行时、GPU 或完整 PD/模型服务复验。
+
+## 2026-11-02 fa3 混合线性模型 paged KV 池判定修复
+
+完成模块/行为：`hcu_sglang/layers/attention/flashattention_backend.py` 的 `around_get_paged_mha_kv_cache` 钩子补齐混合线性注意力模型形态。此类模型（qwen3_5 等）的 `backend.token_to_kv_pool` 是上游 `HybridLinearKVPool` 聚合池，HCU page-major 池挂在其 `full_kv_pool` 属性上；原判定只认裸 `HCUMHATokenToKVPool`，混合形态下判定不成立、放行上游 `get_paged_mha_kv_cache`，上游按 HND 校验拒绝 HCU 转置 V 布局，prefill 图捕获首个全注意力层 warmup 即断言退出。改动后直接形态或 `full_kv_pool` 内池形态均可认出；取数仍走聚合池 `get_kv_buffer`，保留其全局层号到全注意力稠密层号的映射，不能用内池直接取数。非 HCU、纯 MHA 模型、`SGLANG_KV_LAYOUT_HCU_FA=false`（内池为上游布局）三种场景判定与放行行为不变。
+
+问题来源：dev34 期即发现（B4 崩于 `paged_kv_view` HND 断言）；当前 develop 复现同签名，属一直未覆盖的混合形态，与仓库内既有 `full_kv_pool` 解包写法（disagg/utils.py、disagg/prefill.py、mem_cache/cache_builder.py 等）对齐。
+
+实际验证（Qwen3.6-27B，TP2 gfx936，fa3，page_size=64，develop + current_dsa 导入修复，本机日志 dev77-fix1/fix2/fix3 对照）：HND 断言由每次启动 3 次降为 0 次；prefill 图捕获 58 个形状全部完成（修复前死于首个形状 warmup 后约 2 秒），decode 图捕获 bs=1/2/4/8/12 全部完成；修复后服务推进至下一独立死点（disagg 初始化调用上游已移除的 `Scheduler._init_waiting_queue_prefetch_runtime`，AttributeError），与本修复无关，待单独处理。
+
+未验证模式：纯 MHA 模型回归（判定为等价改写）、SWAKVPool 聚合形态、PD 分离模式、`SGLANG_KV_LAYOUT_HCU_FA=false` 显式组合、八卡代表服务复验。
+
+已知限制与下一步：disagg/scheduler.py:93 对上游 Scheduler 方法名的假设需加守卫或对齐新名；混合模型状态池并发上限（mamba 槽位）与 KV 配比未调优。
