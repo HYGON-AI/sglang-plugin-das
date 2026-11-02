@@ -31,7 +31,7 @@
 |---|---|---|
 | 社区输入 | `input-code/sglang`；`baa9befa381511cd4d56f83980951e5a45fffc6d` | 干净来源，提供当前框架和正式插件接口 |
 | HCU 输入 | `input-code/sglang-das`；`15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e` | 干净来源；较上轮增加 139 个文件改动 |
-| 插件输出 | `output-code/sglang-plugin`；v0.3.1，`39038d5394c23e6b918e6e50911ee5292a1e4d34` | 独立包 `sglang_hcu_plugin`，入口 `hcu` |
+| 插件输出 | `output-code/sglang-plugin`；v0.3.1，`39038d5394c23e6b918e6e50911ee5292a1e4d34` | 独立包 `sglang_dcu_plugin`，入口 `dcu` |
 | 回溯输出 | `output-code/sglang-das` | 由上述社区与插件两个干净输入生成，清单记录来源 SHA |
 | 方法库 | `hcu-sglang-plugin` | 本文、Skill、抽取工具修正与验证记录 |
 | 执行容器 | 历史验证容器 | Python 3.10.12；宿主 Python 3.6 不用于工具执行 |
@@ -293,7 +293,7 @@ BF16 设备复验在修复配置读取后进一步暴露 SWA 视图的单位错�
 |---|---|---|
 | 源码插件 | `output-code/sglang-plugin` | v0.3.2.dev5，干净提交 `afc6205dd1a0f1979cfab9bf1f3272d2db14f46c` |
 | 内嵌源码 | `output-code/sglang-das` | official `baa9befa381511cd4d56f83980951e5a45fffc6d` + 上述插件；538 项清单、532 个插件文件逐项核验 |
-| wheel | `output-code/dist/sglang_hcu_plugin-0.3.2.dev5-py3-none-any.whl` | SHA256 `c2260d30015e932faf33c09082758dee675113785353717a2750f75775544fac`；独立 CPU 安装/加载已验证 |
+| wheel | `output-code/dist/sglang_dcu_plugin-0.3.2.dev5-py3-none-any.whl` | SHA256 `c2260d30015e932faf33c09082758dee675113785353717a2750f75775544fac`；独立 CPU 安装/加载已验证 |
 | v0.3.1 回退 | 插件分支 `validated/v0.3.1-before-v3-1026`；`output-code/.sglang-das-v0.3.1-validated-backup` | 旧插件 `39038d5` 和原 448 项内嵌文件保留 |
 
 #### 2026-10-26 8.1 最终验证矩阵
@@ -1397,7 +1397,7 @@ git show de390225d615381d3fd02b8d3eed639e5ef529b5:docs/hcu-sglang-targets.json
 
 ## DAS 分支逻辑对齐（2026-11-02）
 
-需求为 plugin-v3-fix，固定来源、方法处置、证据和未验证项见 [本轮对齐记录](source-alignment-20261102.md)。提交按模块组成同一变更系列，存在模块间依赖，使用完整系列进行集成验收。来源只读；仅本地提交。
+需求为 plugin-v3-fix，本节汇总固定来源的模块处置、验证范围与未完成条件；原独立对齐记录已整合到本开发记录。提交按模块组成同一变更系列，存在模块间依赖，使用完整系列进行集成验收。来源只读；仅本地提交。
 
 ### 公共运行时与调度
 
@@ -1447,7 +1447,7 @@ git show de390225d615381d3fd02b8d3eed639e5ef529b5:docs/hcu-sglang-targets.json
 | distribution / 开发版本 | `hcu-sglang-plugin` / `0.3.2.dev62` |
 | general plugin entry point | `hcu = hcu_sglang:register` |
 | 显式服务入口 | `python3 -m hcu_sglang` 或 `hcu-sglang-serve`，参数传给官方 launcher |
-| 来源插件版本 | `afc6205dd1a0f1979cfab9bf1f3272d2db14f46c`，原包 `sglang_hcu_plugin` |
+| 来源插件版本 | `afc6205dd1a0f1979cfab9bf1f3272d2db14f46c`，原包 `sglang_dcu_plugin` |
 | 官方接口基线 | `baa9befa381511cd4d56f83980951e5a45fffc6d`，SGLang 0.5.22 |
 | 来源清单 | [逐文件迁入快照](hcu-sglang-development.md#历史-json-快照)（`hcu-sglang-import-manifest.json`），用于本次迁入审计，不是未来文件完整性锁 |
 
@@ -1499,3 +1499,13 @@ python3 tools/validate_plugin_runtime.py \
 | DeepSeek-V4 FP8 | dev37 | TP8/DP8/EP8、DSPARK、DeepEP、context32768、graph32 | 6/6 stop，自有进程为空、端口关闭 |
 
 全量代码/依赖审阅仍在进行，不把四类代表服务或文件标签数记作整个DAS已完成。
+
+## 2026-11-02 PR #4 审核修复与目标分支整合
+
+恢复历史 wheel 的 `sglang_dcu_plugin` 文件名、原入口及版本归属，保留历史 SHA256，不把当前 `hcu` 命名追溯为旧产物重建。修正 `group_concurrent_contiguous` 的返回注解为两组 Python 整数列表，保留 `.tolist()`、空输入与长度校验。失效的独立对齐记录链接改到本记录已有章节。
+
+合入目标 develop 的既有提交，保留其命名调整和 adapter 姊妹仓文档；冲突处采用本 PR 较新的实现，保留已整合或明确删除的旧文档状态，重新生成导览。目标分支运行时改动已核对仅为命名替换；本轮不回退 PR 的新增运行时功能。
+
+已核实的误报不作修改：盘点 JSON 实际受 Git 跟踪；hidden chunk 异常由 decode 队列捕获并标记单请求失败。本轮修改不声称完整模型或 GPU/PD 服务重新通过。验证结果随本次 PR 修复提交记录。
+
+本次复验：L0 的 556 个 Python 文件和 8 个 Skill 通过；117 项仓库测试中 104 项通过、13 项需专用运行环境而跳过；243 个 Markdown 锚点、导览/迁移规划/执行台账快照及 diff 空白检查通过。已检查实际桌面、390px 窄屏渲染和文档跳转。未执行专用层运行时、GPU 或完整 PD/模型服务复验。

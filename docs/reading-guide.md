@@ -69,3 +69,29 @@
 团队需要将 DAS 按模块转为插件时，先查看 [模块盘点与开发计划网页](../migration-plan.html) 和 [维护说明](sglang-das-migration-plan.md)，再用三方迁移 Skill 评审本轮范围。网页的 78 条建议项需认领和裁剪，不能按静态映射计数推定已迁移或未支持。
 
 按阶段实施全量 DAS 迁移时，三方迁移 Skill 维护 [执行台账](migration.md#全量差异执行台账)，开发 Skill 实施本仓 `hcu_sglang`；每个阶段的实现与验证结果写入 [开发记录](hcu-sglang-development.md)。
+
+## 5. 与 adapter 仓的文档分工
+
+插件运行在 `adapter-das` 仓（影子库 + `hcu_adapter` 运行时桥）之上，两仓
+文档不互为备份：**机制层事实以 adapter 仓为准**（加载时序、影子库、平台
+语义、算子档位与目录、环境键、后端选择）；**插件策略层与开发流程以本仓
+为准**（Hook 注册契约与 `original_fn` 语义、工程与迁移台账、组合验证
+矩阵）。跨仓引用写"仓坐标"（仓 + 文档路径 + 节号），不放跨仓相对链接。
+
+同名文档分工对照（6 对）：
+
+| 文档 | adapter-das 仓 | 本仓 |
+|---|---|---|
+| architecture.md | 机制分层：影子库 / is_cuda 语义 / 三档路由 / 桥结构 | 插件架构 + 未来运行时目录规划 |
+| governance.md | 治理宪法：双仓判别（真相源）、裁决链、§7 共建 | 组合兼容契约：目标所有权、验证矩阵（本仓 §2-§4） |
+| bootstrap.md | **宿主**新容器部署手册（依赖钉 / tvm-ffi 预热 / 自检） | 方法库开发环境准备 |
+| ci.md | L0/L1/L2 宿主门禁体系 | 方法仓 CI 阶段约束 |
+| plugins.md | 需求登记表 P1-P10：**哪些项必须走 plugin** | 能力开发指南：**拿到项之后怎么做** |
+| reading-guide.md | 机制侧导航 | 插件方法侧导航（本页） |
+
+归仓判据（一项工作归哪仓）以 adapter-das `docs/governance.md` §0 判别
+问句为准；本仓 [治理 §1](governance.md) 与 adapter 仓 `docs/plugins.md`
+§0 是它的两个应用视角，三处任一改动同笔同步。典型路由：行为还原 / 内核
+/ 函数换绑 / 配置与环境键类问题去 adapter 仓（从其 `docs/reading-guide.md`
+进入）；新增能力经 §0 判定落本仓后回到 [工程初始化](first-plugin.md) 或
+[能力开发](plugins.md)。

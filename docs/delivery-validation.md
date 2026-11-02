@@ -1,5 +1,8 @@
 # 交付验证记录：版本、范围与证据
 
+> 命名说明：本页历史产物保留交付时的 `sglang_dcu_plugin` / `dcu` 名称、版本及 SHA256；当前插件使用 `hcu_sglang` / `hcu`，没有对历史 wheel 重新构建或改名。
+
+
 > **本文用途**：记录每次交付实际改变了什么、做了哪些检查、结果适用于什么环境。用于验收和交接，不代替 [CI 规则](ci.md) 或 [验证方法](validation.md)。历史结果保持原版本含义。
 
 ## 1. V2 文档与架构修订（2026-10-21）
@@ -71,7 +74,7 @@ V2 修订基于 `331f10c`，包含 26 个已有文件修改和 4 个新文件；
 
 | 需求 | 当前交付与证据 | 状态 |
 |---|---|---|
-| 1. 用给定社区/HCU 输入完善 plugin | `output-code/sglang-plugin`，干净提交 `69841761fcda60931685e7e4ce835d4250222726`；0.3.0/hcu，206 目标与 3 个具名 seam | 代码与 CPU 接线已交付，完整模型仍需后续验收 |
+| 1. 用给定社区/HCU 输入完善 plugin | `output-code/sglang-plugin`，干净提交 `69841761fcda60931685e7e4ce835d4250222726`；0.3.0/dcu，206 目标与 3 个具名 seam | 代码与 CPU 接线已交付，完整模型仍需后续验收 |
 | 2. 两输入回溯为 sglang-das | `output-code/sglang-das`，generator v2、440 vendored、446 文件 SHA256；来源 official baa9befa38 + plugin 6984176 | passed（生成/来源/哈希与隔离接线） |
 | 3. 指定容器空闲 GPU 测两份代码 | 修复前外部/内嵌 GPU 各 3 passed；最终 6984176 两份 CPU 各 231 passed/3 GPU skipped，包含真实 KV pool 构造 | 最终 GPU/完整服务 pending；之前 GPU 结果按其原提交范围保留 |
 | 4. 原 d.sh 服务 | 首次完成权重加载后 KV descriptor ValueError、未 ready，配方退出 137；6984176 已修复；attempt2 准入因 GPU 忙退出 75，未重复加载 | pending：需要完整 8 卡空闲窗口重跑原配方 |
@@ -89,7 +92,7 @@ V2 修订基于 `331f10c`，包含 26 个已有文件修改和 4 个新文件；
 | 外部最终接线 | `plugin-runtime-final.json`：206 registered/applied、3 具名 seam、errors 空 |
 | 内嵌最终接线 | `embedded-runtime-final.json`：禁用全部外部 entry points，206 applied，框架和插件来源均为输出 python |
 | 回溯保护与哈希 | 替换前旧清单 446 哈希通过，全部 Git 变化属于允许生成集合；重建后 446 哈希通过 |
-| wheel | `wheels/6984176/sglang_hcu_plugin-0.3.0-py3-none-any.whl`，SHA256 `c41b4d2ef01759b814d257060ccc515fb316193804a009f15eed5a6b036a260d` |
+| wheel | `wheels/6984176/sglang_dcu_plugin-0.3.0-py3-none-any.whl`，SHA256 `c41b4d2ef01759b814d257060ccc515fb316193804a009f15eed5a6b036a260d` |
 | wheel 内容 | `wheel-kvfix-resources.json`：283 native + 1 许可资源哈希通过，KV 修复源码与工作树一致 |
 | 输入与原配方 | official baa9befa38、HCU 5f67ce01c3 与 plugin 6984176 均干净；d.sh SHA256 `127a6a1f2822a1087126ce45a3c973f285f408b0ced00cad9e1df023ea8c83d4` 未改 |
 
@@ -157,7 +160,7 @@ validate_minimax_tp4.py 在指定容器中固定卡 0–3，记录并核对可�
 | 三形态严格接线 | plugin-rotaryfix-runtime.json、embedded-rotaryfix-runtime.json、wheel-rotaryfix-runtime.json：各 207 applied、errors 空；内嵌屏蔽外部 entry points |
 | 两形态 GPU | tp4-validation-rotaryfix/plugin-gpu.log、embedded-gpu.log：各 6 passed/4 warnings、exit 0，显式 card 0 与两个 visibility=0 |
 | 回溯保护/哈希 | reconstruction-rotaryfix-verify.json：447 checked/passed；旧 446 哈希与全部 Git 变化集合先核验 |
-| wheel 内容 | wheel-rotaryfix-content.json：441 tracked package 文件及 usercustomize 字节一致；wheels/62b5b7f/sglang_hcu_plugin-0.3.0-py3-none-any.whl，SHA256 8c2f533e7454b6bf130bc8cfb8135461fa60500b3fdcf287d3cf84bf69febaa6 |
+| wheel 内容 | wheel-rotaryfix-content.json：441 tracked package 文件及 usercustomize 字节一致；wheels/62b5b7f/sglang_dcu_plugin-0.3.0-py3-none-any.whl，SHA256 8c2f533e7454b6bf130bc8cfb8135461fa60500b3fdcf287d3cf84bf69febaa6 |
 | RoPE 定向回归 | rotaryfix-targeted-cpu.log：10 passed；rotaryfix-native-gpu.log：真实算子/Graph 3 passed |
 
 服务工作流 validate_minimax_tp4_rotaryfix.py，状态 tp4-validation-rotaryfix/state.json。仅使用卡 0–3，controller 核对实际可见 GPU=4；外部 plugin-tp4-attempt2 通过并清理后，内嵌 embedded-tp4-attempt1 才启动。续接须核对当前实际 PID/工具会话，不根据旧 JSON 重复启动。原 TP8 等待流程已由用户 TP4 授权替代，不能继续把旧截止时间当成当前服务状态。
@@ -195,7 +198,7 @@ validate_minimax_tp4.py 在指定容器中固定卡 0–3，记录并核对可�
 | GPU | tp4-validation-readoutfix/plugin-gpu.log、embedded-gpu.log：各 8 passed、exit 0，card 0 |
 | 授权 TP4 服务 | 第四次四个 rank 完成全部 20 个 decode Graph 后，Cargo 1.75 构建失败并清理；Rust 1.92 两形态预编译已通过。第五次模型启动前 pending_busy；本轮有时限等待已到期，未启动第六次 |
 | 方法迭代 | V3 实践 §13、test-contract 补真实 readout 变体、第三参数及额外张量语义 |
-| 当前 wheel | wheels/0688960/sglang_hcu_plugin-0.3.0-py3-none-any.whl；441 包文件及 usercustomize 与源码一致，SHA256 b69c19066b99ed5437f21ee3c614df2f5715574b842271e0062b302ea83c4de5 |
+| 当前 wheel | wheels/0688960/sglang_dcu_plugin-0.3.0-py3-none-any.whl；441 包文件及 usercustomize 与源码一致，SHA256 b69c19066b99ed5437f21ee3c614df2f5715574b842271e0062b302ea83c4de5 |
 | wheel 隔离门禁 | wheel-readoutfix-isolated-runtime.json：208 applied、plugin 来自该轮隔离安装目录；wheel-readoutfix-isolated-cpu-tests.log：276 passed/8 skipped、18 warnings |
 
 完整服务仍未验收，不能将上述 CPU/GPU 门禁当作服务 ready/输出正确的证明。第四次的 owned health、三次实际请求、完整响应和清理结果须独立保留。
