@@ -84,6 +84,15 @@ class ReconstructionTest(unittest.TestCase):
         old = self.plugin / "sglang_hcu_plugin"
         old.rename(self.plugin / "hcu_sglang")
         _write(self.plugin / "hcu_sglang/models/deepseek/current_v4/hcu_backend/csrc/kernel.cu", "native data\n")
+        resources = {
+            "mem_cache/cpp_utils/hash.cpp": "int value = 1;\n",
+            "mem_cache/rust_tree_core/crate/src/lib.rs": "pub fn value() {}\n",
+            "mem_cache/rust_tree_core/crate/.gitignore": "target/\n",
+            "models/deepseek/current_v4/execution/aiter_intree_configs/tuned.csv": "m,n\n1,1\n",
+            "layers/attention/linear/csrc/state.cu": "native state data\n",
+        }
+        for relative, content in resources.items():
+            _write(self.plugin / "hcu_sglang" / relative, content)
         _run("git", "add", "-A", cwd=self.plugin)
         _run("git", "commit", "-qm", "hcu namespace", cwd=self.plugin)
         reconstruct_sglang_das(self.upstream, self.plugin, self.output)
@@ -93,6 +102,11 @@ class ReconstructionTest(unittest.TestCase):
         self.assertFalse((self.output / "python/sglang_hcu_plugin").exists())
         metadata = (self.output / "python/pyproject.toml").read_text()
         self.assertIn('"models/deepseek/current_v4/hcu_backend/csrc/*"', metadata)
+        patterns = json.loads(metadata.split('"hcu_sglang" = ', 1)[1].splitlines()[0])
+        for relative, content in resources.items():
+            self.assertEqual((self.output / "python/hcu_sglang" / relative).read_text(), content)
+            package_root = self.output / "python/hcu_sglang"
+            self.assertTrue(any(package_root / relative in package_root.glob(pattern) for pattern in patterns), relative)
         subprocess.run(
             [sys.executable, "-c",
              "import runpy,sys; from pathlib import Path; "

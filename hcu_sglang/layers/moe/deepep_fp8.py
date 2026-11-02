@@ -572,6 +572,11 @@ def forward_groupgemm_w8a8_fp8_masked(
 
 def around_ep_init(original, layer, *args, **kwargs):
     result = original(layer, *args, **kwargs)
+    if _is_hcu:
+        import inspect
+        from hcu_sglang.layers.moe.deepep_int8 import configure_layer
+        bound = inspect.signature(original).bind(layer, *args, **kwargs)
+        configure_layer(layer, bound.arguments.get("quant_config"))
     if _use_hcu_legacy_channel_fp8_deepep(layer):
         layer.deprecate_flag = False
         layer.use_fp8_w8a8 = True
@@ -592,6 +597,9 @@ def around_process_weights(original, scheme, layer):
 
 
 def around_run_moe_core(original, layer, dispatch_output, *args, **kwargs):
+    if _is_hcu and getattr(layer, "use_int8_w8a8_deepgemm", False):
+        from hcu_sglang.layers.moe.deepep_int8 import run_moe_core
+        return run_moe_core(layer, dispatch_output)
     if not _use_hcu_legacy_channel_fp8_deepep(layer):
         return original(layer, dispatch_output, *args, **kwargs)
     from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker

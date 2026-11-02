@@ -16,13 +16,17 @@ def around_rocm_backend_selection(
 ) -> str:
     backend_name = getattr(selected_backend, "name", None)
     if is_hcu() and backend_name == "SLA_ATTN":
+        if dtype not in (torch.float16, torch.bfloat16):
+            raise ValueError("ROCm SLA attention requires fp16 or bf16 inputs.")
+        if head_size not in (64, 128):
+            raise ValueError("ROCm SLA attention supports head sizes 64 and 128.")
         return (
             "hcu_sglang.multimodal_gen.rocm_sparse_linear_attn."
             "RocmSparseLinearAttentionBackend"
         )
     if (
         is_hcu()
-        and backend_name in (None, "FA")
+        and backend_name in (None, "FA", "FA2")
         and dtype in (torch.float16, torch.bfloat16)
         and importlib.util.find_spec("flash_attn") is not None
     ):

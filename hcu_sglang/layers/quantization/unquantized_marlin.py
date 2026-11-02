@@ -189,7 +189,7 @@ def around_forward_cuda(
         topk_ids=topk_ids,
         num_experts=method.moe_runner_config.num_experts,
         intermediate_size=layer.w13_weight.N,
-        routed_scaling_factor=method.moe_runner_config.routed_scaling_factor or 1.0,
+        routed_scaling_factor=(method.moe_runner_config.routed_scaling_factor if method.moe_runner_config.routed_scaling_factor is not None else 1.0),
         inplace=method.moe_runner_config.inplace,
     )
     return StandardCombineInput(hidden_states=output)

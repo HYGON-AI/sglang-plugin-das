@@ -114,3 +114,22 @@ class MethodDecoratorSemanticsTests(unittest.TestCase):
             source.write_text('class Owner:\n    @classmethod\n    def forward(cls):\n        return cls\n')
             with self.assertRaisesRegex(ExtractionError, 'descriptor'):
                 extract_method(source, 'Owner', 'forward')
+
+
+class ReplacementNamespaceTests(unittest.TestCase):
+    def test_provider_and_owner_aliases_cannot_shadow_local_dimensions(self):
+        from tools.sync_deepseek_methods import transform
+        with self.assertRaisesRegex(ExtractionError, "Replacement names are locally bound: N"):
+            transform("def forward(self, x):\n    N = 2\n    return helper(x) + N\n", {"helper": "N.helper"})
+        with self.assertRaisesRegex(ExtractionError, "Replacement names are locally bound: N"):
+            transform("def __init__(self):\n    N = 2\n    super().__init__()\n", {}, "N.Owner")
+
+    def test_distinct_provider_alias_executes_and_remains_idempotent(self):
+        from types import SimpleNamespace
+        from tools.sync_deepseek_methods import transform
+        source = "def forward(self, x):\n    N = 2\n    return helper(x) + N\n"
+        mapped = transform(source, {"helper": "native_provider.helper"})
+        namespace = {"native_provider": SimpleNamespace(helper=lambda value: value * 3)}
+        exec(mapped, namespace)
+        self.assertEqual(namespace["forward"](None, 7), 23)
+        self.assertEqual(transform(mapped, {"helper": "native_provider.helper"}), mapped)

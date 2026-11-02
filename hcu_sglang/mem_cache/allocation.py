@@ -9,6 +9,29 @@ import torch
 from hcu_sglang.utils.detection import is_hcu
 
 
+_LIGHTOP_ALLOC_EXTEND_KERNEL = None
+_LIGHTOP_ALLOC_EXTEND_KERNEL_CHECKED = False
+
+
+def _get_lightop_alloc_extend_kernel():
+    global _LIGHTOP_ALLOC_EXTEND_KERNEL, _LIGHTOP_ALLOC_EXTEND_KERNEL_CHECKED
+
+    if _LIGHTOP_ALLOC_EXTEND_KERNEL_CHECKED:
+        return _LIGHTOP_ALLOC_EXTEND_KERNEL
+
+    _LIGHTOP_ALLOC_EXTEND_KERNEL_CHECKED = True
+    try:
+        from lightop import op as lightop_op
+
+        _LIGHTOP_ALLOC_EXTEND_KERNEL = getattr(
+            lightop_op, "hcu_alloc_extend_kernel", None
+        )
+    except Exception:
+        _LIGHTOP_ALLOC_EXTEND_KERNEL = None
+
+    return _LIGHTOP_ALLOC_EXTEND_KERNEL
+
+
 def _enabled(name: str) -> bool:
     from sglang.srt.utils import get_bool_env_var
 
@@ -72,7 +95,10 @@ def around_assign_req_to_token_pool(
 
 def after_paged_allocator_init(result: Any, allocator: Any, *args, **kwargs) -> Any:
     if is_hcu():
+        from sglang.srt.environ import envs
+
         allocator.sglang_kvalloc_kernel = _enabled("SGLANG_KVALLOC_KERNEL")
+        allocator.lightop_kvalloc_kernel = envs.SGLANG_LIGHTOP_KVALLOC_KERNEL.get()
     return result
 
 
@@ -107,19 +133,30 @@ def around_alloc_extend(
         )
 
     batch_size = len(prefix_lens)
-    if (
-        allocator.need_sort
-        and extend_num_tokens // allocator.page_size + batch_size + 1
-        > len(allocator.free_pages)
-    ):
+    max_new_pages = extend_num_tokens // allocator.page_size + batch_size + 1
+    if max_new_pages > len(allocator.free_pages):
         allocator.merge_and_sort_free()
+    if max_new_pages > len(allocator.free_pages):
+        if num_new_pages is None:
+            num_new_pages = get_num_new_pages(
+                seq_lens=seq_lens_cpu,
+                page_size=allocator.page_size,
+                prefix_lens=prefix_lens_cpu,
+            )
+        if num_new_pages > len(allocator.free_pages):
+            return None
 
     out_indices = torch.empty(
         (extend_num_tokens,),
         dtype=torch.int64,
         device=allocator.device,
     )
-    _load_kvcacheio().hcu_alloc_extend_kernel(
+    kernel = None
+    if getattr(allocator, "lightop_kvalloc_kernel", False):
+        kernel = _get_lightop_alloc_extend_kernel()
+    if kernel is None:
+        kernel = _load_kvcacheio().hcu_alloc_extend_kernel
+    kernel(
         pre_lens_ptr=prefix_lens.to(torch.int64),
         seq_lens_ptr=seq_lens.to(torch.int64),
         last_loc_ptr=last_loc.to(torch.int64),
@@ -168,8 +205,16 @@ def around_alloc_decode(
         )
 
     batch_size = len(seq_lens)
-    if allocator.need_sort and batch_size > len(allocator.free_pages):
+    if batch_size > len(allocator.free_pages):
         allocator.merge_and_sort_free()
+
+    num_new_pages = get_num_new_pages(
+        seq_lens=seq_lens_cpu,
+        page_size=allocator.page_size,
+        decode=True,
+    )
+    if num_new_pages > len(allocator.free_pages):
+        return None
 
     out_indices = torch.empty(
         (batch_size,),
@@ -188,14 +233,6 @@ def around_alloc_decode(
     if allocator.debug_mode:
         assert len(torch.unique(out_indices)) == len(out_indices)
 
-    num_new_pages = get_num_new_pages(
-        seq_lens=seq_lens_cpu,
-        page_size=allocator.page_size,
-        decode=True,
-    )
-    if num_new_pages > len(allocator.free_pages):
-        return None
-
     allocator.free_pages = allocator.free_pages[num_new_pages:]
     return out_indices
 
@@ -210,18 +247,14 @@ def around_free(
     if free_index.numel() == 0:
         return None
 
-    if allocator.is_not_in_free_group:
+    if allocator.free_group is None:
         free_page_indices = torch.unique(free_index // allocator.page_size)
         free_page_indices = free_page_indices[free_page_indices > 0]
         if free_page_indices.numel() == 0:
             return None
         free_page_indices = free_page_indices[
-            ~torch.isin(free_page_indices, allocator.free_pages)
+            ~torch.isin(free_page_indices, allocator.get_all_free_pages())
         ]
-        if allocator.release_pages.numel() > 0:
-            free_page_indices = free_page_indices[
-                ~torch.isin(free_page_indices, allocator.release_pages)
-            ]
         if free_page_indices.numel() == 0:
             return None
         allocator._release_page_ids(free_page_indices)
@@ -234,6 +267,8 @@ def around_free(
 
 
 def register_hooks() -> None:
+    from hcu_sglang.mem_cache import mamba_pool
+    mamba_pool.register_hooks()
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     HookRegistry.register(

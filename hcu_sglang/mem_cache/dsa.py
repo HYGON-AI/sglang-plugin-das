@@ -325,6 +325,10 @@ def _install_compat_members() -> None:
 
 
 def register_hooks() -> None:
+    if not is_hcu():
+        return
+    from hcu_sglang.mem_cache import dsa_cache_layer_split
+    dsa_cache_layer_split.register_hooks()
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     _install_compat_members()

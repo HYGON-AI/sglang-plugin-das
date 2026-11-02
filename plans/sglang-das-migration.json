@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "plan_signature": "ec531762aec5d96b52bf7fa64850ac021509801e26f71f75cc2220a4e0627d32",
+  "plan_signature": "58f5dc18c599e608e2037a27621fddeaca4508b070ebdb0afb03d57b5fa78c41",
   "title": "sglang-das → sglang-plugin 迁移盘点与开发计划",
   "collected_at": "2026-10-28T07:16:35.832963+00:00",
   "plan_reviewed_on": "2026-10-28",
@@ -137014,7 +137014,7 @@
           "function"
         ],
         [
-          "TestBuildCustomBlockAdapter",
+          "TestBuilhCustomBlockAdapter",
           347,
           "class"
         ],
@@ -235595,17 +235595,17 @@
           "class"
         ],
         [
-          "DedupedCudaGraph",
+          "DedupehCudaGraph",
           193,
           "class"
         ],
         [
-          "DedupedCudaGraphRegistry",
+          "DedupehCudaGraphRegistry",
           205,
           "class"
         ],
         [
-          "DedupedCudaGraphMixin",
+          "DedupehCudaGraphMixin",
           288,
           "class"
         ]
@@ -264232,7 +264232,7 @@
           "class"
         ],
         [
-          "EAGLEDraftExtendCudaGraphRunner",
+          "EAGLEDraftExtenhCudaGraphRunner",
           110,
           "class"
         ]
@@ -264759,17 +264759,17 @@
           "class"
         ],
         [
-          "MultiLayerEagleDraftExtendCudaGraphRunner",
+          "MultiLayerEagleDraftExtenhCudaGraphRunner",
           141,
           "class"
         ],
         [
-          "MultiLayerEagleMultiStepDraftExtendCudaGraphRunner",
+          "MultiLayerEagleMultiStepDraftExtenhCudaGraphRunner",
           525,
           "class"
         ],
         [
-          "OneGraphMultiLayerEagleMultiStepDraftExtendCudaGraphRunner",
+          "OneGraphMultiLayerEagleMultiStepDraftExtenhCudaGraphRunner",
           962,
           "class"
         ]
@@ -267432,7 +267432,7 @@
           "class"
         ],
         [
-          "_ImportedCudaVmmPool",
+          "_ImportehCudaVmmPool",
           694,
           "class"
         ],
@@ -275805,7 +275805,7 @@
           "function"
         ],
         [
-          "EagleDraftExtendCudaGraphRunnerAdapter",
+          "EagleDraftExtenhCudaGraphRunnerAdapter",
           410,
           "class"
         ],
@@ -326840,7 +326840,7 @@
           "class"
         ],
         [
-          "TestOpenAIServerWithHiddenStatesEnabledAndCUDAGraphDisabled",
+          "TestOpenAIServerWithHiddenStatesEnabledAnhCUDAGraphDisabled",
           250,
           "class"
         ]
@@ -357857,7 +357857,7 @@
           "class"
         ],
         [
-          "TestOpenAIServerWithHiddenStatesEnabledAndCUDAGraphDisabled",
+          "TestOpenAIServerWithHiddenStatesEnabledAnhCUDAGraphDisabled",
           255,
           "class"
         ],

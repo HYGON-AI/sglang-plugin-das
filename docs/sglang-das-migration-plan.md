@@ -42,7 +42,7 @@
 | M3 | CP/EP/PD、推测解码及多模态等扩展 | 按实际拓扑、模型和完整配方执行专项验证 |
 | M4 | 源码/wheel/embedded 与持续交付 | 本轮必测闭合、产物身份、CI、许可及回退记录 |
 
-阶段不要求将所有扩展都纳入同一版本。当前已有 MiniMax TP4 历史配置结果；完整 DeepSeek 引擎、完整 CP/PD 模型、DSpark streaming/source-event/ACK、W4A8/DeepEP 共享专家、FP4 AOT 和全部 native/gfx 分支仍需独立验收，范围以 [V3 最终交付](v3-20261026-development.md#8-最终交付与需求验收) 为准。本轮未重新执行模型、GPU 或 Hook apply。
+阶段不要求将所有扩展都纳入同一版本。当前已有 MiniMax TP4 历史配置结果；完整 DeepSeek 引擎、完整 CP/PD 模型、DSpark streaming/source-event/ACK、W4A8/DeepEP 共享专家、FP4 AOT 和全部 native/gfx 分支仍需独立验收，范围以 [V3 最终交付](hcu-sglang-development.md#2026-10-26-8-最终交付与需求验收) 为准。本轮未重新执行模型、GPU 或 Hook apply。
 
 ## 使用 Skill 评审并实施迁移任务
 

@@ -55,3 +55,8 @@
 分别报告条目总数、各处置/状态分布、AST 候选数、runtime-export 注册数、成功 apply 数、未解析目标、静态 pass/fail、运行 lane pass/pending 及 native/package 缺口。
 
 当前台账工具只区分 AST 和 runtime-export 计数，没有自动产生完整 apply/语义统计；后两者需要相应集成验证另留证据。不从默认自动分类直接得出“全量 fork 等价”。
+
+
+## 5. 文件代码审阅与逐行为处置
+
+全量文件执行台账中的Python代码级 `upstream` 可以引用完整AST、Git对象与入口/权限比对，表示本文件无需复制一份相同Python代码。该证据没有执行相对依赖、native资源或读取的配置数据，不能直接变成本节逐行为台账的Already upstream/verified。依赖发生变化时沿真实消费者追踪并完成其独立处置；最终全量验收同时复核代码、依赖、接口与运行证据，不把文件标签数作为功能完成率。

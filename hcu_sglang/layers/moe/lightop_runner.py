@@ -293,7 +293,7 @@ class LightOpRunnerCore:
     ) -> LightOpRunnerOutput:
         if hooks is not None:
             raise NotImplementedError("LightOp MoE does not support LoRA hooks")
-        routed_scaling_factor = self.config.routed_scaling_factor or 1.0
+        routed_scaling_factor = (self.config.routed_scaling_factor if self.config.routed_scaling_factor is not None else 1.0)
 
         if quant_info.use_fp8_w8a8:
             if (

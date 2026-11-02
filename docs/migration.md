@@ -152,3 +152,19 @@ python3 tools/build_migration_execution.py --check
 ```
 
 新增实现须记录目标文件、理由、测试和验证范围；validated 必须有证据。来源变化后重新采集盘点并复审决定，不能仅重建旧台账继承完成结论。具体实施与阶段退出条件见 [当前开发记录](hcu-sglang-development.md)。
+
+
+### 原样 Python 代码的复用证据
+
+使用 [audit_python_equivalence.py](../tools/audit_python_equivalence.py) 核对固定盘点中两边都有的 changed Python 文件。工具读取Git tree/blob，不导入或执行来源代码；要求HEAD与盘点一致，核对对象ID、regular-file mode和shebang，完整AST保留imports、guards、decorators、docstrings、常量及type comments。差异、解析失败、调用入口/权限漂移保持待审；记录输入HEAD/index前后哈希。
+
+```bash
+python3 tools/audit_python_equivalence.py \
+  --official-repo "$OFFICIAL" --fork-repo "$FORK" \
+  --plan plans/sglang-das-migration.json \
+  --report "$ARTIFACTS/python-equivalence.json"
+```
+
+复核匹配路径和报告后，可在同一命令增加 `--apply-decisions plans/sglang-das-decisions.json`，只为尚无人工记录的匹配文件添加代码级 `upstream`。不会覆盖任何已有决定；dirty来源允许commit-only报告但拒绝自动回填，输出不能覆盖盘点/决定或写入来源树。随后重建执行台账。
+
+当前可提交报告为 [Python代码等价审阅](../plans/sglang-das-python-equivalence.json)。该状态只关闭本文件的Python代码差异：相对导入、编译资源、配置数据、依赖实现和运行结果仍由各自路径/行为台账复核，不据此宣称完整模块或全DAS行为等价。不能把代码级upstream继承为逐行为的Already upstream/verified。

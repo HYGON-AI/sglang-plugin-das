@@ -250,3 +250,8 @@ def _handle_dspark(server_args: ServerArgs) -> None:
             "scheduler, which is off under SGLANG_RAGGED_VERIFY_MODE=static; it "
             "will be a no-op."
         )
+
+
+def register_hooks():
+    from hcu_sglang import speculative_dspark_worker
+    speculative_dspark_worker.register_hooks()

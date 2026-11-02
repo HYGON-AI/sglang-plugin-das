@@ -5,11 +5,10 @@ from __future__ import annotations
 from sglang.srt.model_executor.forward_context import get_token_to_kv_pool
 
 import logging
-import os
+from sglang.srt.utils import get_bool_env_var
 
 from hcu_sglang.models.fused_rotary import (
     get_kv_cache_dtype,
-    mark_fused_kv_store,
 )
 from hcu_sglang.utils.detection import is_hcu
 
@@ -31,8 +30,7 @@ def after_init(result, attention, *args, **kwargs):
 def around_forward(original, attention, positions, hidden_states, forward_batch):
     if (
         not is_hcu()
-        or os.getenv("SGLANG_USE_FUSED_SPLIT_QKV_RMS_ROTARY_EMBEDDING", "0")
-        != "1"
+        or not get_bool_env_var("SGLANG_USE_FUSED_SPLIT_QKV_RMS_ROTARY_EMBEDDING")
     ):
         return original(attention, positions, hidden_states, forward_batch)
 
@@ -62,7 +60,7 @@ def around_forward(original, attention, positions, hidden_states, forward_batch)
         page_size=attention.page_size,
         k_buffer=k_buffer,
         v_buffer=v_buffer,
-        kv_cache_loc=forward_batch.out_cache_loc,
+        kv_cache_loc=None,
         is_neox=True,
         weight_q=None,
         weight_k=None,
@@ -84,8 +82,7 @@ def around_forward(original, attention, positions, hidden_states, forward_batch)
     v = v.contiguous().view(
         num_tokens, attention.kv_size // attention.head_dim, attention.head_dim
     )
-    mark_fused_kv_store(forward_batch, attention.layer_id)
-    attn_output = attention.attn(q, k, v, forward_batch, save_kv_cache=False)
+    attn_output = attention.attn(q, k, v, forward_batch)
     output, _ = attention.o_proj(attn_output)
     return output
 

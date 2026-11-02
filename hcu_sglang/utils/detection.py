@@ -16,7 +16,7 @@ _FP8_ARCHS = ("gfx938",)
 
 @lru_cache(maxsize=1)
 def is_hcu() -> bool:
-    if not getattr(torch.version, "hip", None):
+    if getattr(torch.version, "hip", None) is None:
         return False
     try:
         props = torch.cuda.get_device_properties(0)
@@ -29,14 +29,10 @@ def is_hcu() -> bool:
 
 @lru_cache(maxsize=1)
 def is_hcu_native_fp8_supported() -> bool:
-    if not is_hcu():
+    if not is_hcu() or not torch.version.hip:
         return False
-    try:
-        gcn_arch = getattr(torch.cuda.get_device_properties(0), "gcnArchName", "")
-        return any(gfx in gcn_arch for gfx in _FP8_ARCHS)
-    except Exception as e:
-        logger.warning("HCU native FP8 detection failed: %s", e)
-        return False
+    gcn_arch = torch.cuda.get_device_properties(0).gcnArchName
+    return any(gfx in gcn_arch for gfx in _FP8_ARCHS)
 
 
 def get_gcn_arch(device_id: int = 0) -> str:
