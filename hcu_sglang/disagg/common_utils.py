@@ -234,7 +234,7 @@ class AuxDataCodec:
 
 def group_concurrent_contiguous(
     src_indices: npt.NDArray[np.int32], dst_indices: npt.NDArray[np.int32]
-) -> Tuple[List[npt.NDArray[np.int32]], List[npt.NDArray[np.int32]]]:
+) -> Tuple[List[List[int]], List[List[int]]]:
     """Vectorised NumPy implementation."""
     # src/dst indices are transferred pairwise, so an empty side means there is
     # nothing to transfer. Guarding both sides (not just src) avoids a cryptic

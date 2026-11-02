@@ -1,8 +1,11 @@
 # V3 实践：固定输入、插件输出与源码回溯
 
+> 命名说明：本页历史产物保留交付时的 `sglang_dcu_plugin` / `dcu` 名称、版本及 SHA256；当前插件使用 `hcu_sglang` / `hcu`，没有对历史 wheel 重新构建或改名。
+
+
 相似故障的经验索引见 [开发经验与排障索引](development-methodology.md)；本页保留固定版本的失败、修复和原始证据，不把历史设备、拓扑与数字作为默认配置。
 
-> **本文用途**：记录 2026-10-22 指定源码与容器上的实际开发流程、已发现的兼容问题、可重复验证命令和资源限制。该历史阶段方法库尚未内置业务包，运行时代码交付在独立 `output-code` 仓库；当前本仓已包含 `hcu_sglang`，安装请使用 [当前 HCU 指南](installation.md)。本页的旧 `hcu` 命令仅复现当时版本。结论按接线、CPU、GPU 和服务分别记录。
+> **本文用途**：记录 2026-10-22 指定源码与容器上的实际开发流程、已发现的兼容问题、可重复验证命令和资源限制。该历史阶段方法库尚未内置业务包，运行时代码交付在独立 `output-code` 仓库；当前本仓已包含 `hcu_sglang`，安装请使用 [当前 HCU 指南](installation.md)。本页的旧 `dcu` 命令仅复现当时版本。结论按接线、CPU、GPU 和服务分别记录。
 
 ## 1. 输入与交付目录
 
@@ -13,7 +16,7 @@
 | 社区输入 | `input-code/sglang`；`baa9befa381511cd4d56f83980951e5a45fffc6d` | 固定官方框架与插件接口 |
 | HCU 输入 | `input-code/sglang-das`；`5f67ce01c3ec1894916d16627eaca4959fbe2d90` | HCU 方法、模型和 native source 来源 |
 | 插件起点 | 旧 `sglang-plugin-das`；`ce870e225df6b6d3db9e019cdbc620517f53648a` | 继承已有能力并修复版本漂移 |
-| 运行时输出 | `output-code/sglang-plugin`；包名保留 `sglang_hcu_plugin`，版本 0.3.0 | 独立插件与测试；entry point 为 `hcu` |
+| 运行时输出 | `output-code/sglang-plugin`；包名保留 `sglang_dcu_plugin`，版本 0.3.0 | 独立插件与测试；entry point 为 `dcu` |
 | 回溯输出 | `output-code/sglang-das` | 由干净社区树与运行时输出生成 |
 | 方法库 | `hcu-sglang-plugin` | 本文、skill 和审计/回溯/验证工具 |
 | 原始配方 | 工作根上级的 `minimax-debug/d.sh` | MiniMax M2.5 FP8、TP8、FA3、FP8 KV、30001 |
@@ -34,7 +37,7 @@
 | 原配方 `--cuda-graph-max-bs` 产生歧义 | 精确兼容别名指向 decode 参数，保留独立 prefill 参数 | 解析别名与未设置默认值测试 |
 | MiniMax decoder residual 参数与边界接口变化 | 使用当前 residual stream 方法，停用时保留当前签名 | residual 更新与共享 plan 不变测试 |
 | 来源 INT8 fused projection 与 FP8 quant_method 不兼容 | RMS 交接保留配置的 FP8 quantizer，不把 INT8 buffer 塞入 FP8 方法 | 数值/状态对拍；不宣称此兼容分支有 INT8 融合性能 |
-| 旧 native overlay 的头文件/实现已漂移 | 同步固定 HCU 来源的 283 个 native 文件，记录逐文件 SHA256 | 输出 `sglang_hcu_plugin/jit_overlay/source-provenance.json`、wheel 与回溯清单检查 |
+| 旧 native overlay 的头文件/实现已漂移 | 同步固定 HCU 来源的 283 个 native 文件，记录逐文件 SHA256 | 输出 `sglang_dcu_plugin/jit_overlay/source-provenance.json`、wheel 与回溯清单检查 |
 | 原回溯 package-data 只包含 `.h/.cuh` | 生成器 v2 使用 `jit_overlay/**/*`，覆盖 `.cu/.cpp/.hpp` | native 资源回溯/哈希测试 |
 | MiniMax 权重加载后 KV pool 构造失败：page 缓存继承 NHD token-row 描述 | 覆盖 `_kv_tokens_per_row` 返回实际 page_size，沿用官方描述符与 byte-span 计算 | 真实 CPU 构造及 K/V 不同 head_dim 的 descriptor/transfer span 回归 |
 | DeepSeek 类拆分导致同步脚本 StopIteration | 源符号和生成语法全部预检，再逐文件替换；明确报告缺失类/方法 | 后续 job 漂移时前面的输出也不能被改写 |
@@ -61,7 +64,7 @@ SITE=$(mktemp -d)
 python3 -m pip install -e "$PLUGIN" \
   --target "$SITE" --no-deps --no-build-isolation
 export PYTHONPATH="$OFFICIAL/python:$PLUGIN:$SITE"
-export SGLANG_PLUGINS=hcu
+export SGLANG_PLUGINS=dcu
 python3 tools/validate_plugin_runtime.py \
   --official-python "$OFFICIAL/python" \
   --plugin-root "$PLUGIN" \
