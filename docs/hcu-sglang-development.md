@@ -1509,3 +1509,15 @@ python3 tools/validate_plugin_runtime.py \
 已核实的误报不作修改：盘点 JSON 实际受 Git 跟踪；hidden chunk 异常由 decode 队列捕获并标记单请求失败。本轮修改不声称完整模型或 GPU/PD 服务重新通过。验证结果随本次 PR 修复提交记录。
 
 本次复验：L0 的 556 个 Python 文件和 8 个 Skill 通过；117 项仓库测试中 104 项通过、13 项需专用运行环境而跳过；243 个 Markdown 锚点、导览/迁移规划/执行台账快照及 diff 空白检查通过。已检查实际桌面、390px 窄屏渲染和文档跳转。未执行专用层运行时、GPU 或完整 PD/模型服务复验。
+
+## 2026-11-02 disagg 调度钩子对官方 sglang 缺失方法的 setdefault 兜底
+
+完成模块/行为：`hcu_sglang/disagg/scheduler.py` 的 `register_hooks` 注册期对 `Scheduler` 做方法级 setdefault。b4ae852 引入的 `init_disaggregation` 整体替换钩子在一切 disaggregation_mode 检查之前无条件调用 `self._init_waiting_queue_prefetch_runtime()`；该方法本仓无定义、官方 sglang 无此 API，仅内部 sglang fork 提供。上游 `Scheduler.__init__` 对 NULL 模式也会调用 `init_disaggregation`，REPLACE 钩子又使上游原版不再执行，导致官方 sglang 上任意模型、任意模式启动即在 scheduler 初始化处 AttributeError。
+
+兜底方式与 `layers/quantization/registry.py` 的 `install_quantization_method` 同范式（探针、填坑、宿主优先，极性反转）：`hasattr(Scheduler, ...)` 为真（内部 fork 或未来官方实现）时不做任何修改，为假时安装 no-op 默认实现并记录一条 warning。调用点不改；提供该方法的 sglang 构建上行为逐字节不变。
+
+实际验证（Qwen3.6-27B，TP2 gfx936，官方 sglang v0.5.22 线，NULL 模式，本机日志 dev77-fix3 与 dev77-fix4-disagg-guard 对照）：修复前双 rank 在 `init_disaggregation` 内 AttributeError、服务不可启动；修复后双 rank 各一条 warning、初始化通过，Uvicorn 监听后输出 ready，冒烟请求 health 200、两道确定性问答回答正确（temperature=0）。门禁：L0、仓库测试与导览快照检查通过（见本记录门禁口径）。
+
+未验证模式：PD 模式在官方 sglang 上（decode/prefill 集成可能仍依赖更多内部 fork API，需同范式逐个探测或声明仅支持内部 fork）；内部 fork 环境回归（hasattr 短路，理论零扰动）；纯 MHA 等其他模型逐一回归（本问题与模型无关，崩点在 scheduler 初始化）。
+
+已知限制与下一步：b4ae852 的 PD 集成面向内部 fork API 面，建议对官方 sglang 的兼容矩阵单独盘查；非 PD 服务路径经本修复在官方 v0.5.22 线端到端恢复。
