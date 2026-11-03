@@ -273,6 +273,19 @@ def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     from hcu_sglang.disagg.utils import resolve_disagg_metadata_config
 
+    def _waiting_queue_prefetch_runtime_default(self):
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Scheduler._init_waiting_queue_prefetch_runtime is not provided"
+            " by this sglang build; waiting-queue prefetch stays disabled"
+        )
+
+    if not hasattr(native.Scheduler, "_init_waiting_queue_prefetch_runtime"):
+        native.Scheduler._init_waiting_queue_prefetch_runtime = (
+            _waiting_queue_prefetch_runtime_default
+        )
+
     native.resolve_disagg_metadata_config = resolve_disagg_metadata_config
     adapted = types.FunctionType(init_disaggregation.__code__, vars(native),
         'init_disaggregation', init_disaggregation.__defaults__)
