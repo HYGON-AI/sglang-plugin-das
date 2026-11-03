@@ -4,6 +4,8 @@
 
 ## 任务入口
 
+Qwen3.8-Flash-Next 的 W4A8/INT8 PLE 组合适配见 [Qwen4-Exp W4A8](qwen4-w4a8.md)。
+
 | 任务 | 操作文档 | 执行 Skill |
 |---|---|---|
 | 问题检索与任务匹配 | [统一入口说明](reading-guide.md#统一入口与输入补全) | [hcu-plugin-assistant](../skills/hcu-plugin-assistant/SKILL.md) |

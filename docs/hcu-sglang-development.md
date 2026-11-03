@@ -1538,6 +1538,8 @@ python3 tools/validate_plugin_runtime.py \
 已知限制与下一步：b4ae852 的 PD 集成面向内部 fork API 面，建议对官方 sglang 的兼容矩阵单独盘查；非 PD 服务路径经本修复在官方 v0.5.22 线端到端恢复。
 
 
+
+
 ## 2026-11-03 投机首启崩溃修复（draft_swa_window 垫值）
 
 官方基线投机路径首跑（TP2、NEXTN、fa3、page64、Qwen3.6-27B）在 Scheduler.__init__ → build_kv_cache 的 AROUND 钩子崩溃：cache_retention.py 读取 draft.draft_swa_window，官方 v0.5.22 的 EAGLEWorkerV2 无该属性（官方树全仓 0 命中，系内部 fork 表面属性）。非投机路径 draft 为 None 不触发，故此前的非 spec 服务全绿。
@@ -1546,6 +1548,18 @@ python3 tools/validate_plugin_runtime.py \
 
 验证：L0 门禁 556 Python 文件 + 8 Skill 零错误；117 项测试 104 过 13 跳（与基线一致）；build_guide 重建与 --check 通过。真机 TP2 NEXTN（日志 dev77-spec-fix1.log）13:55:37 ready，冒烟两题 巴黎/323 全对，accept len 2.48 / accept rate 0.49（Stage C 健康区间 2.4~2.9 / 0.48~0.62）。未验证：DFlash 等非 EAGLE draft worker、SWA 目标模型上的非零窗口语义（官方树无该属性来源，恒为 0）、PD 模式。
 
+
+## 2026-11-03 Qwen4-Exp W4A8 与 PR 586 适配
+
+从 `sglang_v0.5.22` 的 plugin `fa592b5` / adapter `8bed438` 创建 `adapt/qwen38-flash-next-w4a8`，目标官方 `baa9befa381511cd4d56f83980951e5a45fffc6d`。DAS 来源为 `35719b43ce247a2ddb72297a62f95554d828f56a` 与用户指定的 compact/local-INT8/MM patch；来源哈希和职责拆分见 [模型适配说明](qwen4-w4a8.md)。原始来源仓库的既有精度性能结果不计为本次验证。
+
+迁入 PLE INT8 行 scale 与 DTK mapped-view lookup、ETP reduce-scatter、纯 prefill SUM_LEN/idle 一行、量化前局部 routing、INT8 codes/scales 单次交接、native route sort、QSA/FLA host 元数据、MTP quantized projection 与 grouped norm。当前 StageBoundary 继续处理 FFN 输出归约和 residual。补齐 QSA 从插件 HCU FA 四维 KV 到 BF16 scratch 的提取与 prefix packing。修复 v0.5.22 已删除的 EP 查询 API、官方 EAGLEWorkerV2 无 draft_swa_window 时 cache builder 的默认零窗口、官方通信模块 Gatherv 开关读法，以及 compact idle rank 的三轴 MRoPE 初始化。已有调度器替换调用当前注册的 gather-update seam，使 AFTER 标记 Hook 生效；ScheduleBatch 显式保存并复制纯 prefill 标记。
+
+adapter 姊妹分支提供 mapped-host DTK provider、Graph-safe QSA scatter、HIP 非 CUDA JIT 的 QSA prep、Torch MQA 路由和 gfx936 QSA prefill LDS 配置护栏。官方已有的 MM embedding padding、MTP packed mapping、draft graph 框架沿用当前实现；不将 DAS 整层旧 forward 覆盖新版边界。
+
+执行资源为用户指定四卡窗口，使用独立 venv、三仓工作树和 TP4/DP4/EP4、EAGLE3/4、INT8 PLE offload、E5M2 KV、full decode Graph、disabled prefill Graph。实际模块路径核实为固定官方树与本分支 plugin/adapter。adapter 基线 bootstrap 自带源码/JIT portability 改写，另存 diff；本任务新增运行时迁移通过 plugin Hook 与 adapter rebind/provider 接入。
+
+当前证据：INT8/BF16/FP8 mapped-host live-ID Graph 3 项通过；native sort 20 种 token/block 组合逐 route 覆盖通过；目标/MTP 公共 loader、MTP grouped fusion、compact policy、QSA scatter/metadata 与 HCU KV 数学/Graph 回归通过。目标 verify、draft decode、draft extend full Graph 捕获完成；本次 32/32 smoke（28 文本，4 图像）及 5/5 扩展请求通过。扩展请求包括四条并发 54–150-token 完整序列输出、10538-token 输入的 8192+2346 分块 prefill。日志确认四 rank compact counts=[122,1,1,1]、local=True/int8_direct=True、E129/topk10 native sort。未进行全量精度与性能对比；TP/DP/EP 其他规模、CP、TBO、A2A、file offload 未验收。
 
 ## 2026-11-04 HCU MHA KV 单流构造试验
 

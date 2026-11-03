@@ -199,6 +199,8 @@ def register() -> None:
     qwen3.register()
     qwen3_moe.register()
     qwen3_5.register()
+    from hcu_sglang.models.qwen import qwen4_exp
+    qwen4_exp.register_hooks()
     from hcu_sglang import speculative_dspark
     speculative_dspark.register_hooks()
     logger.info("[hcu_sglang] optimization hooks registered")

@@ -4,6 +4,8 @@
 
 ## 1. 当前工具的路径配置
 
+Qwen4-Exp compact prefill、局部 routing 与 INT8 transport 的开关、限制和回退见 [模型适配配置](qwen4-w4a8.md#配置与有效基线)。
+
 | 名称 | 含义 | 要求 |
 |---|---|---|
 | `REPO` | 当前方法库 | 在仓库根目录用 `pwd -P` 获取；执行 L0、工具测试和脚本的位置 |
