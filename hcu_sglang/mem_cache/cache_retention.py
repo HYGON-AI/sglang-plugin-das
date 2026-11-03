@@ -83,10 +83,13 @@ def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     from sglang.srt.mem_cache.base_prefix_cache import BasePrefixCache
     from sglang.srt.mem_cache.unified_cache.components import swa
+    from sglang.srt.speculative.base_spec_worker import BaseSpecWorker
     import types
 
     BasePrefixCache.draft_swa_window = 0
     BasePrefixCache.swa_retain_window = property(swa_retain_window)
+    if not hasattr(BaseSpecWorker, 'draft_swa_window'):
+        BaseSpecWorker.draft_swa_window = 0
     _SOURCE_MATCH_VALIDATOR[:] = [types.FunctionType(
         source_create_match_validator.__code__, vars(swa),
         'create_match_validator', source_create_match_validator.__defaults__)]
