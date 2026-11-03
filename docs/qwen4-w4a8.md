@@ -31,6 +31,20 @@ plugin 负责 INT8 PLE 表/逐行 scale、ETP reduce-scatter、compact prefill�
 
 验收配方使用 TP4/DP4/EP4、INT8 ngram PLE pinned offload、BF16 计算、FP8 E5M2 KV 存储、fa3、EAGLE 3 steps/4 draft tokens、full decode Graph、prefill Graph disabled。HCU 上 FP8 KV 先转换到 BF16 scratch 再做注意力计算。paged decode 提取传入 layer scale；当前 prefix packing API 没有 scale 参数，本轮 E5M2 checkpoint 使用 unit scale。非 unit-scale FP8 prefix 尚未支持，不能从 paged decode 的非 unit-scale 数学测试推导该能力。pinned PLE 后端受支持；file offload 调用时明确拒绝。
 
+## 128K 性能路径修复
+
+初次功能适配的 CLI 请求 fa3，但官方 `_attention_backend_fa3_fp8_fallback` 将 E5M2 KV 切到 triton；adapter 同时关闭了 in-tree TileLang MQA，实际使用 Torch reference。bw47 四卡、C1、131072 输入/1024 输出、seed42、零缓存命中的预热后三次中位数为 45.825 s TTFT / 142.405 ms TPOT。不能仅根据 CLI 认定实际 backend。
+
+adapter 后续通过公共 MQA 分发和 `qsa_indexer` 消费者接入独立 BoltOPs vendor，并保留 `HCU_DISABLE_OPS=qsa_mqa` 回退。仅修复 MQA、其他配方不变时三次中位数为 29.560 s / 65.182 ms，仍未达到历史 DAS 18.245 s / 12.170 ms。
+
+plugin 在上述具名 fallback pass 上注册 AROUND：仅 gfx936、Qwen4 target/MTP、显式 BF16、page64、启用 HCU FA KV 布局、fa3 + E5M2 组合保留 fa3；其他组合委托当前有效 original。返回声明字典，不写冻结输入。实际 `attention_hook` 预导入别名的参数解析回归覆盖支持与拒绝组合；该反例在修复前被切为 triton。当前服务性能及完整精度复验仍在进行，结果随后补入开发记录。
+
+PLE 预取通过 `Qwen4ExpPLELayer.start_prefetch` 的窄 AROUND 对齐来源：HCU 在当前流 gather，避免将 mapped-host lookup 放在 HIP Graph 侧流；其他设备调用当前有效 original。保留官方 `_get_prefetch_buffer` 的 eager/full/breakable 分配规则、idle rank 的全局 lookup、语义/物理行计数和消费清理。公共构造与 Hook 回归覆盖状态重用拒绝、空/关闭/idle、有效回退，以及真实 INT8/BF16 mapped provider 的变 ID Graph 重放。
+
+HC 输出保留来源的两处独立存储：终端 mix 前的 HC 快照，以及 logits 交给 MTP 前的输出快照。模型 forward 与终端 `_MixStreams` 的窄 Hook 用每次调用的 ContextVar 传递快照，保留官方 residual 完成和 mixer 计算；异常和嵌套模型调用恢复原 scope。非 HCU、非末级 PP、idle 和非 logits 输出沿用有效基线。公共出口测试覆盖 mixer 复用输入、模型缓存随后覆盖，以及真实 HCU grouped norm/mix 的变输入 Graph。此项尚待完整服务性能与精度复验，不能从存储测试推断 TPOT 已达标。
+
+本模型 QSA 的 pending index-key ring 只容纳一个压缩组，官方要求 `speculative_num_draft_tokens <= 4`。GDN kernel 的 width6 数学与 Graph 通过不代表整个 QSA 服务支持6个 draft tokens；不能绕过该守卫增加 MTP 深度。
+
 ## 验证状态
 
 本次结果统一维护于 [开发记录](hcu-sglang-development.md#2026-11-03-qwen4-exp-w4a8-与-pr-586-适配)。算子数学、Graph、Hook 应用和实际服务分别记录；smoke 不代表全量精度或性能复测。

@@ -17,6 +17,8 @@ class IndexerMetadata(M.QSAIndexerMetadata):
 
 
 def after_metadata(result, backend, forward_batch):
+    from hcu_sglang.models.qwen.qsa_prefill import prepare_metadata
+    result = prepare_metadata(result, backend, forward_batch)
     if (not forward_batch.forward_mode.is_extend_without_speculative()
         or get_parallel().attn_cp_size != 1
         or forward_batch.seq_lens_cpu is None

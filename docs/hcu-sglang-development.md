@@ -1561,6 +1561,37 @@ adapter 姊妹分支提供 mapped-host DTK provider、Graph-safe QSA scatter、H
 
 当前证据：INT8/BF16/FP8 mapped-host live-ID Graph 3 项通过；native sort 20 种 token/block 组合逐 route 覆盖通过；目标/MTP 公共 loader、MTP grouped fusion、compact policy、QSA scatter/metadata 与 HCU KV 数学/Graph 回归通过。目标 verify、draft decode、draft extend full Graph 捕获完成；本次 32/32 smoke（28 文本，4 图像）及 5/5 扩展请求通过。扩展请求包括四条并发 54–150-token 完整序列输出、10538-token 输入的 8192+2346 分块 prefill。日志确认四 rank compact counts=[122,1,1,1]、local=True/int8_direct=True、E129/topk10 native sort。未进行全量精度与性能对比；TP/DP/EP 其他规模、CP、TBO、A2A、file offload 未验收。
 
+### 128K 性能路径继续适配
+
+初次组合实际使用 triton + Torch MQA，C1 131072/1024 三次中位数 45.825 s / 142.405 ms。先只在 adapter 接回 BoltOPs MQA，保留其他参数，三次中位数改善到 29.560 s / 65.182 ms。vendor 有 ragged 数值、变输入 Graph（含零长度后重新激活）及快关回退测试；不将该改善视为最终达标。
+
+本仓 `server_args_hooks.around_qwen4_fa3_fp8_fallback` 通过命名解析 pass 恢复已验证硬件与模型组合的 fa3：gfx936、Qwen4 target/MTP、BF16、page64、HCU KV 布局、E5M2；其他组合仍调用原有效 fallback。同步 Hook 目标合同，新增 `test_qwen4_fa3_resolution.py` 通过真实 HookRegistry 安装并从预导入的 `attention_hook` 别名执行 pass，覆盖十种支持/拒绝组合、原始输入不变和当前包装回退。修复前目标组合明确失败。服务重启、完整精度与最终性能复测尚待记录。
+
+进一步 trace 确认四个 rank 均重放 target/draft Graph，未发现 idle rank 退回 eager。普通计算 kernel 偶有 40–50 ms 长尾，其他 rank 的 collective 随之等待；正在以同环境冻结 DAS 复跑区分实现差距和运行干扰。profiling 结束后请求未完成，后续性能使用重启的非 profiling 服务，不能将 trace 请求当作正式性能结果。
+
+`models/qwen/qsa_prefill.py` 将 QSA prefill 的 cu_q/cu_k 和 host 长度放入每 forward 的不可变 metadata，在实际 `forward_extend` 消费；保留 fused/CP/spec/CPU 等有效回退。chunk-prefill 用现有 Triton kernel 与 host max_q，避免每层构造长度张量及 GPU max().item()。Qwen4 纯文本 MRoPE 从已有设备 positions 生成三轴，MM 与其他模型保留原调用。公共 backend 构造→metadata→两次 layer consumer 的 ragged/fresh/prefix 数值与 padding 回归，以及纯文本 MRoPE、MM/其他模型回退、fa3 解析/数学/Graph 和既有适配回归共 42 项通过。关闭两个新 Hook 的反例为 2 failed / 2 passed，分别检测 prefix scalar sync 和 MRoPE host copy；最终 Hook 合同 627 registered / 627 applied、errors=[]。
+
+冻结 DAS 在同一四卡窗口、相同 131072/1024 C1 seed42 零缓存协议重新完成三次：TTFT 中位数 17.944 s、TPOT 12.343 ms。插件 prefill 同步修复加 fa3、NCCL 的诊断请求为 62.262 s / 208.106 ms，未达标；smoke 32/32、扩展 5/5 通过。之后以相同手动 start/stop、关闭 stack/shapes 的方式取得两版四 rank decode trace，诊断 32-token 输出逐 token 相同。两版均命中 MARLIN W4A8，不能根据个别 kernel 排名认定 MoE 回退。插件 rank0 存在跨普通 kernel 的 45–85 ms 停顿，其余 rank 主要等待 collective；KFD 清单显示每 scheduler 23 条计算队列，辅助进程额外占首卡队列。正在以进程环境 `GPU_MAX_HW_QUEUES=2` 检验队列调度假设；该实验不改变共享驱动或其他进程配置。完整精度与最终性能仍待完成。
+
+GDN verify 进一步对齐冻结来源：原移植在 `SGLANG_USE_AITER_LINEAR_ATTN=1` 下仍调用 AITER C++ `sglang_fused_sigmoid_gating_delta_rule_update`；已改为来源使用的 `aiter.ops.triton.fla.fused_sigmoid_gating_recurrent`。`test_qwen4_gdn_verify.py` 经真实注册与 `TritonGDNKernel.target_verify` 调用的修复前反例明确报 obsolete C++ route，修复后路由通过。状态池数学、父节点树、负 slot、变输入/slot/cu Graph 与实际服务性能尚待本轮执行结果，不能只以路由通过认定等价或达标。
+
+GDN 本轮公共入口回归 5/5 通过：vendor Triton 路由；FP32/BF16 state 的线性/父树数学对拍；Graph 内更新 q/k/v/gating、初态/中间 slot 与 cu_seqlens，确认初态不回写和无关缓存不变。队列 cap=1 的旧 GDN 单次诊断为 20.965 s / 15.281 ms（四个长输入预热后），cap=2 为 21.029 s / 15.991 ms，cap=4 三次中位数为 21.426 s / 17.038 ms，均未达标。新 GDN 同 cap/通信配方正在复测。
+
+新 GDN + cap=1 + NCCL 单次诊断为 20.929 s / 15.609 ms，与旧 GDN 的 20.965 s / 15.281 ms 接近，不能声称该修改已解决剩余性能差距。下一组恢复冻结 DAS 已使用的 AITER IPC 通信。独立 CPU 压测客户端尝试在官方 import 阶段因 `is_gfx1250_supported` 无可见设备而失败，未发出性能请求；后续保持既有可见设备客户端协议，不将该失败计入性能结果。
+
+新 GDN + cap=1 + AITER 三次正式中位数为 21.025 s / 16.768 ms，仍未达标。该候选完成 GSM8K 1319 题：1282 正确（97.1948%）、0 请求错误、1 条 length 截断；历史同协议为 1287 正确（97.5739%）。逐题对齐输入和 target 后，5 题改善、10 题退步；该精度结果不属于后续 PLE 改动。
+
+进一步补齐 PLE `start_prefetch` 的 HIP 当前流分支。原插件仅迁移了 consume，仍由官方方法在每层侧流 gather；冻结来源在 HIP 上直接在当前流 gather。新 AROUND 仅对 HCU 接管预取，保留当前官方 buffer/capture 规则，其他平台委托有效 original。`test_qwen4_ple_prefetch.py` 在修复前经真实公共构造和 Hook 调用报 HCU PLE gather used the side stream；修复后 CPU 2/2，设备 lane 4/4，覆盖真实 INT8/BF16 mapped 表、逐行 scale、start→consume、变 ID Graph 和预取状态清理。服务和正式性能复验正在进行，尚不宣称该差异解释全部性能差距。目标合同新增 start_prefetch，共 628 个目标。
+
+PLE 候选 cap=1/AITER 的 smoke 32/32、扩展 5/5、实际加载合同 628/628 通过；三次正式中位数为 19.856 s / 15.169 ms，尚未达标。相同源码取消队列 cap 后的单次诊断为 30.950 s / 66.727 ms，故不能移除该运行设置。两次均保存 runtime 源码与哈希；默认队列诊断之后取得四 rank 的轻量手动 decode trace，请求及 stop 均完成。下一组只增大 prefill chunk 预算，不修改 MTP 深度；设备过早初始化仍仅为诊断假设，未改动通用硬件探测。
+
+全局 prefill chunk/max-prefill 从32768增至65536（归一化每rank16384）后，PLE/cap1/AITER的单次诊断为18.874460 s /15.127717 ms，smoke32/32、扩展5/5通过，仍未达标。MTP5steps/6tokens尝试在启动期被官方QSA的draft tokens<=compress ratio4守卫拒绝，没有有效性能请求；GDN verify width4/6扩展回归共9项通过不代表整服务支持6tokens。后续chunk131072尝试在权重构造时OOM；同一时间后四卡出现每卡约46GB外部显存占用，该失败不能归因于prefill预算。未停止外部进程，等待可用四卡窗口继续整服务验证。
+
+继续对齐HC存储契约：来源在终端mix前和logits→MTP交接时分别clone，当前官方返回借用引用。新增Qwen4ExpModel.forward/_MixStreams.__call__的AROUND与Qwen4ExpForConditionalGeneration.forward的AFTER，保留新版StageBoundary/residual完成与有效original；仅HCU末级非idle模型调用建立快照scope，异常/嵌套调用恢复上下文。公共模型出口在模拟mixer复用输入时快照被覆盖，公共logits出口也复现了与model cache同data_ptr；两项修复前反例分别有原始日志。真实grouped RMSNorm/fused mix的1/4行变输入Graph已通过，包含输出缓存随后清零后的独立性；最终组合回归与631项加载合同在本轮完成。当前真实kernel未单独证明原地破坏HC，该改动是来源存储契约的补齐，尚无整服务A/B性能和最终GSM8K结果。
+
+HC最终源码的组合针对性回归104/104通过，覆盖此前PLE/QSA/FA3/FLA/native-sort/loader与adapter的mapped-host、scatter、BoltOPs MQA；其中HC公共出口与Graph共10项通过。GPU测试使用用户指定后四卡，只分配小型测试张量，不启动整模型。实际加载合同631 registered/631 applied、errors=[]；plugin L0通过，adapter L0 GREEN（31条既有bare-environ警告），隔离unittest119项OK、13skip。导览build/--check通过，1440px/390px截图已检查。整服务性能/最终精度仍受资源窗口阻塞。
+
+
 ## 2026-11-04 HCU MHA KV 单流构造试验
 
 **用途与范围**：在 gfx936、Qwen3.8-27B BF16、TP2、decode full CUDA Graph、batch=1 的既有组合上，试验让 HCU MHA pool 的 K/V 写入共用当前计算流。保留 adapter 的 CUDA 平台语义、GDN 辅助投影流及 HCU K/V 页布局，不改官方 SGLang 源码。
