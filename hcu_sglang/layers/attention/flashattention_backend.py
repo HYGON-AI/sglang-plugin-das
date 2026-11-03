@@ -129,7 +129,15 @@ def around_forward_decode(original_fn, *args, **kwargs):
 def around_get_paged_mha_kv_cache(original_fn, backend, layer, *, head_group_num=1):
     from hcu_sglang.mem_cache.hcu_mha_pool import HCUMHATokenToKVPool
     pool = backend.token_to_kv_pool
-    if not is_hcu() or not isinstance(pool, HCUMHATokenToKVPool):
+    hcu_pool = None
+    if is_hcu():
+        if isinstance(pool, HCUMHATokenToKVPool):
+            hcu_pool = pool
+        else:
+            inner = getattr(pool, "full_kv_pool", None)
+            if isinstance(inner, HCUMHATokenToKVPool):
+                hcu_pool = inner
+    if hcu_pool is None:
         return original_fn(backend, layer, head_group_num=head_group_num)
     key, value = pool.get_kv_buffer(layer.layer_id)
     page = backend.page_size
