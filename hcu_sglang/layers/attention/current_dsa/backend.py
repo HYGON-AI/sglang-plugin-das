@@ -45,7 +45,6 @@ from sglang.srt.layers.attention.dsa_backend import (
     dsa_use_prefill_cp,
     envs,
     flash_attn_varlen_func,
-    fp8_dtype,
     gather_cast_kv_fp8_pad_paged,
     gather_dequant_requant_fp8_paged,
     get_buffer,
@@ -57,7 +56,6 @@ from sglang.srt.layers.attention.dsa_backend import (
     get_platform,
     get_schedule,
     get_spec,
-    get_valid_kv_indices,
     grow_multi_ctas_kv_counter_buffer_if_needed,
     is_cp_active,
     is_cuda,
@@ -81,6 +79,8 @@ from sglang.srt.layers.attention.dsa_backend import (
     transform_index_page_table_decode,
     transform_index_page_table_prefill,
 )
+from sglang.kernels.ops.attention.dsa.triton_kernel import get_valid_kv_indices
+from sglang.kernels.ops.quantization.fp8_kernel import fp8_dtype
 from hcu_sglang.layers.attention.current_dsa.dsa_topk_backend import DSATopKBackend, TopkTransformMethod
 from hcu_sglang.utils.detection import is_hcu
 _is_hcu = is_hcu()
