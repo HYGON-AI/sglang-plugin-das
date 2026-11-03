@@ -19,6 +19,7 @@ from hcu_sglang.utils.detection import is_hcu
 
 logger = logging.getLogger(__name__)
 _ffn = ContextVar("qwen4_ffn", default=None)
+_hc_snapshot = ContextVar("qwen4_hc_snapshot", default=None)
 
 
 def compact_layout(batch, runner, counts):
@@ -207,6 +208,70 @@ def around_mtp_load_weights(original, model, weights, *args, **kwargs):
     return around_load_weights(lambda m, w: original(m, w, *args, **kwargs), model, weights, mtp=True)
 
 
+def around_model_forward(original, model, input_ids, positions, forward_batch, *args, **kwargs):
+    if not (is_hcu() and model.pp_group.is_last_rank
+            and not forward_batch.forward_mode.is_idle()):
+        return original(model, input_ids, positions, forward_batch, *args, **kwargs)
+    state = {"mixer": model.hyper_connection_mixer, "snapshot": None}
+    token = _hc_snapshot.set(state)
+    try:
+        result = original(model, input_ids, positions, forward_batch, *args, **kwargs)
+        if state["snapshot"] is None:
+            return result
+        return result[0], state["snapshot"]
+    finally:
+        _hc_snapshot.reset(token)
+
+
+def around_mix_streams(original, mixer, hidden_states):
+    state = _hc_snapshot.get()
+    if state is not None and state["mixer"] is mixer.hyper_connection_mixer:
+        state["snapshot"] = hidden_states.detach().contiguous().clone()
+    return original(mixer, hidden_states)
+
+
+def after_conditional_forward(result, model, *args, **kwargs):
+    if is_hcu():
+        from sglang.srt.layers.logits_processor import LogitsProcessorOutput
+        if (isinstance(result, LogitsProcessorOutput)
+                and model.model.last_hc_hidden_states is not None
+                and result.hidden_states is not None):
+            result.hidden_states = result.hidden_states.detach().contiguous().clone()
+    return result
+
+
+def around_start_prefetch(original, layer, batch, forward_batch):
+    if not is_hcu():
+        return original(layer, batch, forward_batch)
+    if layer._prefetch_stream is None:
+        return
+    if layer._prefetch_state is not None:
+        raise RuntimeError("PLE prefetch state was not consumed before reuse")
+    if batch is None:
+        if not layer.ple_embedding.gather_dp_tokens:
+            return
+        physical_tokens = forward_batch.input_ids.numel()
+        ngram_ids = forward_batch.input_ids.new_zeros(
+            (physical_tokens, layer.ple_embedding.ngram_heads)
+        )
+    else:
+        physical_tokens = batch.physical_tokens
+        ngram_ids = layer.ple_embedding.compute_ngram_ids(batch)
+    lookup_ids, semantic_tokens = layer.ple_embedding._prepare_embedding_lookup(
+        ngram_ids, forward_batch, physical_tokens
+    )
+    lookup_tokens = lookup_ids.shape[0]
+    if lookup_tokens == 0:
+        return
+    prefetched = layer._get_prefetch_buffer(lookup_tokens, lookup_ids)
+    output_view = prefetched.view(lookup_tokens, layer.ple_embedding.ngram_heads, -1)
+    offloaded_embedding = layer.ple_embedding.ngram_embedding
+    if hasattr(offloaded_embedding, "_maybe_register_uva"):
+        offloaded_embedding._maybe_register_uva()
+    offloaded_embedding.gather(lookup_ids, out=output_view)
+    layer._prefetch_state = prefetched, semantic_tokens, physical_tokens
+
+
 def consume_prefetched(layer, forward_batch):
     if layer._prefetch_state is None:
         raise RuntimeError("PLE prefetch state is missing")
@@ -247,7 +312,7 @@ def after_load_batch(result, runner, *args, **kwargs):
 def register_hooks():
     if not is_hcu():
         return
-    from hcu_sglang.models.qwen import ple, qsa, qsa_kv, qwen4_exp_mtp, fla_prefill
+    from hcu_sglang.models.qwen import ple, qsa, qsa_kv, qsa_prefill, qwen4_exp_mtp, fla_prefill
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     def register(target, fn, kind=HookType.AROUND):
         HookRegistry.register(target, fn, kind)
@@ -258,6 +323,10 @@ def register_hooks():
                 setattr(ple.N.Qwen4ExpNGramEmbedding, name, fn)
             else:
                 register("sglang.srt.models.qwen4_exp.Qwen4ExpNGramEmbedding."+name, fn, HookType.REPLACE)
+    register("sglang.srt.models.qwen4_exp.Qwen4ExpModel.forward", around_model_forward)
+    register("sglang.srt.models.qwen4_exp._MixStreams.__call__", around_mix_streams)
+    register("sglang.srt.models.qwen4_exp.Qwen4ExpForConditionalGeneration.forward", after_conditional_forward, HookType.AFTER)
+    register("sglang.srt.models.qwen4_exp.Qwen4ExpPLELayer.start_prefetch", around_start_prefetch)
     register("sglang.srt.models.qwen4_exp.Qwen4ExpPLELayer._consume_prefetched_embeddings", consume_prefetched, HookType.REPLACE)
     register("sglang.srt.models.qwen4_exp.Qwen4ExpForConditionalGeneration.load_weights", around_load_weights)
     register("sglang.srt.models.qwen4_exp_mtp.Qwen4ExpForCausalLMMTP.load_weights", around_mtp_load_weights)
@@ -273,6 +342,8 @@ def register_hooks():
     for name in ("project_qk", "apply_rope"):
         register("sglang.srt.layers.attention.qsa.qsa_indexer.QSAIndexer."+name, getattr(qsa, name), HookType.REPLACE)
     register("sglang.srt.layers.attention.qwen_sparse_attn_backend.QwenSparseAttnBackend._metadata_from_forward_batch", qsa.after_metadata, HookType.AFTER)
+    register("sglang.srt.layers.attention.qwen_sparse_attn_backend.QwenSparseAttnBackend.forward_extend", qsa_prefill.around_forward_extend)
+    register("sglang.srt.model_executor.forward_batch_info.ForwardBatch._compute_mrope_positions_extend", qsa_prefill.around_mrope_extend)
     register("sglang.srt.layers.attention.qsa.metadata.QSAIndexerMetadata.get_prefill_mqa_inputs", qsa.around_prefill_inputs)
     register("sglang.srt.layers.attention.qwen_sparse_attn_backend.QwenSparseAttnBackend._forward_paged_attention", qsa_kv.around_paged_attention)
     register("sglang.srt.layers.attention.qsa.sparse_attn.pack_qsa_prefill_kv", qsa_kv.around_pack_prefill)
