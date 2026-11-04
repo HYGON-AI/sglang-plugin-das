@@ -16,6 +16,7 @@ import functools
 from typing import Optional
 
 import torch
+from sglang.srt.environ import envs
 
 from hcu_sglang.utils.detection import is_hcu as is_hcu
 
@@ -66,10 +67,12 @@ def triton_scaled_mm(
     bias: Optional[torch.Tensor] = None,
     best_config: Optional[list] = None,
 ) -> torch.Tensor:
+    native_gemm = getattr(envs, "SGLANG_HCU_W8A8_USE_LIGHTOP", None)
     # w8a8 decode with small M is not covered by the smooth GEMM tuning table;
     # explicit slide values avoid excessive padding in the default heuristic.
     if (
         _is_hcu
+        and (native_gemm is None or not native_gemm.get())
         and best_config is None
         and bias is None
         and a.dim() == 2
