@@ -14,6 +14,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_QWEN4_LOCAL_ROUTING": (EnvBool, False),
     "SGLANG_QWEN4_ROUTED_INT8": (EnvBool, False),
     "SGLANG_QWEN4_SPLIT_HC_MIX": (EnvBool, False),
+    "SGLANG_QWEN4_FLAT_STATE_SCATTER": (EnvBool, False),
     "SGLANG_QWEN4_PREFILL_DIAGNOSTICS": (EnvBool, False),
     "SGLANG_ENABLE_DP_GATHER_INT8": (EnvBool, False),
     "SGLANG_PLE_ETP_REDUCE_SCATTER": (EnvBool, True),
