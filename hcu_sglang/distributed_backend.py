@@ -508,29 +508,30 @@ def around_initialize_model_parallel(original, backend=None, duplicate_tp_group=
     cp_size = parallel.attn_cp_size
     dp_size = parallel.attn_dp_size
     attn_tp_size = tp_size // cp_size // dp_size
-    assert getattr(P, '_ATTN_DP_TP', None) is None, 'attention DP-TP group is already initialized'
-    if cp_size == 1:
-        P._ATTN_DP_TP = P._TP
-    elif dp_size == 1:
-        P._ATTN_DP_TP = P._ATTN_TP
-    else:
-        world_size = tp_size * parallel.pp_size
-        group_ranks = []
-        for tp_group_idx in range(world_size // tp_size):
-            tp_base = tp_group_idx * tp_size
-            for cp_idx in range(cp_size):
-                ranks = []
-                for dp_idx in range(dp_size):
-                    start = tp_base + (dp_idx * cp_size + cp_idx) * attn_tp_size
-                    ranks.extend(range(start, start + attn_tp_size))
-                group_ranks.append(ranks)
-        backend = backend or P.torch.distributed.get_backend(P.get_world_group().device_group)
-        P._ATTN_DP_TP = P.init_model_parallel_group(
-            group_ranks, P.get_world_group().local_rank, backend,
-            use_custom_allreduce=False, group_name='attention_dp_tp',
-            recovered_rank=recovered_rank, rank_offset=rank_offset,
-            max_world_size=max_world_size)
-    if duplicate_attn_cp_group:
+    # The native HCU initializer already owns this group; fill only missing groups.
+    if getattr(P, '_ATTN_DP_TP', None) is None:
+        if cp_size == 1:
+            P._ATTN_DP_TP = P._TP
+        elif dp_size == 1:
+            P._ATTN_DP_TP = P._ATTN_TP
+        else:
+            world_size = tp_size * parallel.pp_size
+            group_ranks = []
+            for tp_group_idx in range(world_size // tp_size):
+                tp_base = tp_group_idx * tp_size
+                for cp_idx in range(cp_size):
+                    ranks = []
+                    for dp_idx in range(dp_size):
+                        start = tp_base + (dp_idx * cp_size + cp_idx) * attn_tp_size
+                        ranks.extend(range(start, start + attn_tp_size))
+                    group_ranks.append(ranks)
+            backend = backend or P.torch.distributed.get_backend(P.get_world_group().device_group)
+            P._ATTN_DP_TP = P.init_model_parallel_group(
+                group_ranks, P.get_world_group().local_rank, backend,
+                use_custom_allreduce=False, group_name='attention_dp_tp',
+                recovered_rank=recovered_rank, rank_offset=rank_offset,
+                max_world_size=max_world_size)
+    if duplicate_attn_cp_group and getattr(P, '_ATTN_CP_OVERLAP', None) is None:
         _SOURCE_COMM_METHODS['_init_attn_cp_overlap_group'](
             world_size=tp_size * parallel.pp_size, attn_cp_size=cp_size,
             attn_tp_size=attn_tp_size, backend=backend,
