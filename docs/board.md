@@ -42,3 +42,10 @@ V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构
 状态：in-progress。固定来源、阶段与实际结果见 [开发迁移记录](hcu-sglang-development.md#6-2026-10-29-分阶段继续迁移)，逐路径范围见 [执行台账](../plans/sglang-das-execution.json)。2026-10-29 已完成当前包工具支持、HCU 标准分发哨兵修复及源码/wheel/embedded 加载复验；全量源码与行为处置仍未闭合。
 
 下一阶段先审查 DeepSeek V4 平台类拆分和当前 `current_v4` profile，随后按领域继续审阅 Attention/KV、量化/通信、GLM5-next/Muse Spark 与扩展功能。每项补充行为、实现、支持/回退及 CPU/GPU/Graph/模型证据；只有实际满足该阶段退出条件才更新状态。保持用户要求：提交本地仓库，不推送远程。
+
+
+## 6. HCU KV 与 GDN 单流策略（2026-11-04）
+
+ID：hcu-single-stream-kv-gdn；负责人：本次提交作者；状态：in-progress（提交评审，未合入）。用户本轮明确授权推送并创建 PR；第 5 节“不推送”仅适用于其历史迁移任务。
+
+行为与接受条件：保留 HCU KV 布局、有效 original 链和数学实现；KV 写入与 Qwen3.5 GDN 投影使用当前流；验证构造签名、非 HCU 回退、数值/变输入 Graph、TP2 真实输出及 MTP 预热 A/B。基线、依赖、分支及未覆盖范围见 [本次开发记录](hcu-sglang-development.md#2026-11-04-kv-与-gdn-单流提交验证)，实际复验见 [交付记录](delivery-validation.md#2026-11-04-hcu-kv-与-gdn-单流策略)。后续：评审后按仓库 squash-only 策略合入；本轮只创建 PR。

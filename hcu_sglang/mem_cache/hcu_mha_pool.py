@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from inspect import signature
 from math import prod
 from typing import Any, Callable
 
@@ -28,6 +29,12 @@ def _mha_pool_base():
 
 class HCUMHATokenToKVPool(_mha_pool_base()):
     """MHA KV pool matching HCU FlashAttention's K/V page layout."""
+
+    def __init__(self, *args, **kwargs):
+        initialize = super().__init__
+        arguments = signature(initialize).bind(*args, **kwargs)
+        arguments.arguments["enable_alt_stream"] = False
+        initialize(*arguments.args, **arguments.kwargs)
 
     def _kv_buffer_shapes(self):
         page_num = (self.size + self.page_size) // self.page_size
