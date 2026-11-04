@@ -343,6 +343,7 @@
     "sglang.srt.layers.cp.utils.is_cp_active",
     "sglang.srt.layers.cp.utils.is_glm_dsa_cache_layer_split_enabled",
     "sglang.srt.layers.cp.utils.prepare_cp_forward",
+    "sglang.srt.layers.hyperconnection.fused_hc_mix",
     "sglang.srt.layers.layer_boundary.ops.dp_gather",
     "sglang.srt.layers.layer_boundary.stage.StageBoundary.prepare",
     "sglang.srt.layers.layernorm.GemmaRMSNorm.forward_hip",

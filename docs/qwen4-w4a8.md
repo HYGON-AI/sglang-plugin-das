@@ -21,6 +21,7 @@ plugin 负责 INT8 PLE 表/逐行 scale、ETP reduce-scatter、compact prefill�
 | `SGLANG_QWEN4_COMPACT_PREFILL` | 0 | 纯 EXTEND/IDLE 时使用 SUM_LEN，idle rank 保留一行 |
 | `SGLANG_QWEN4_LOCAL_ROUTING` | 0 | compact prefill 在本 rank 原始 BF16 上选专家 |
 | `SGLANG_QWEN4_ROUTED_INT8` | 0 | 局部 routing 后传输 INT8 codes/scales，直接交给 AITER |
+| `SGLANG_QWEN4_SPLIT_HC_MIX` | 0 | gfx936、BF16、1–16行、HC4/hidden2560/lowrank320采用分阶段HC mix候选 |
 | `SGLANG_MOE_C_NATIVE_SORT` | 0 | E=129、top-k=10 的 EP drop-route 保留排序 |
 | `SGLANG_QWEN4_PREFILL_DIAGNOSTICS` | 0 | 输出 compact 几何诊断 |
 | `SGLANG_PLE_ETP_REDUCE_SCATTER` | 1 | PLE 分片输出按 DP rank 求和并切分 |
@@ -44,6 +45,8 @@ PLE 预取通过 `Qwen4ExpPLELayer.start_prefetch` 的窄 AROUND 对齐来源：
 HC 输出保留来源的两处独立存储：终端 mix 前的 HC 快照，以及 logits 交给 MTP 前的输出快照。模型 forward 与终端 `_MixStreams` 的窄 Hook 用每次调用的 ContextVar 传递快照，保留官方 residual 完成和 mixer 计算；异常和嵌套模型调用恢复原 scope。非 HCU、非末级 PP、idle 和非 logits 输出沿用有效基线。公共出口测试覆盖 mixer 复用输入、模型缓存随后覆盖，以及真实 HCU grouped norm/mix 的变输入 Graph。此项尚待完整服务性能与精度复验，不能从存储测试推断 TPOT 已达标。
 
 本模型 QSA 的 pending index-key ring 只容纳一个压缩组，官方要求 `speculative_num_draft_tokens <= 4`。GDN kernel 的 width6 数学与 Graph 通过不代表整个 QSA 服务支持6个 draft tokens；不能绕过该守卫增加 MTP 深度。
+
+`SGLANG_QWEN4_SPLIT_HC_MIX=1` 为2026-11-04性能候选：在公共 `hyperconnection.fused_hc_mix` 别名注册窄AROUND，将低秩投影分成partial、reduce+SiLU和up+gate三步，避免persistent kernel的软件全局barrier和atomic累加。仅接受上表形状、连续同设备权重；其他形状、dtype、架构或关闭状态委托当前有效original。上游`fused_hc_mix_supported`的确定性模式守卫继续有效。原型在bw46/DTK2610的1/4/16行随机BF16输入与原persistent输出完全一致，延迟约77→32μs；公共构造、变输入/权重Graph、完整服务性能和GSM8K尚待该候选复验，不能从原型数据推导整模型收益。
 
 ## 验证状态
 
