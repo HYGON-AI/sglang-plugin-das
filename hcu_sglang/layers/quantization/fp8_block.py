@@ -427,10 +427,7 @@ def register_hooks():
         "sglang.srt.layers.quantization.fp8.Fp8LinearMethod.process_weights_after_loading_block_quant",
         around_process_block_weights, HookType.AROUND,
     )
-    if is_hcu():
-        previous = getattr(N, "torch_fp8_block_gemm", torch_fp8_block_gemm)
-        if previous is not torch_fp8_block_gemm:
-            raise RuntimeError("Native FP8 block reference already exists; re-review the source contract")
+    if is_hcu() and not hasattr(N, "torch_fp8_block_gemm"):
         N.torch_fp8_block_gemm = torch_fp8_block_gemm
     HookRegistry.register(
         "sglang.srt.layers.quantization.fp8_utils._dispatch_explicit_backend",
