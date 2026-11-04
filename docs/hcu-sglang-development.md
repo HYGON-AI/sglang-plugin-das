@@ -1542,3 +1542,9 @@ python3 tools/validate_plugin_runtime.py \
 修法沿用 PR #7 的 registry setdefault 范式：register_hooks 注册期对 BaseSpecWorker（EAGLEWorkerV2 / DFlashWorkerV2 公共基类）做属性级 setdefault，官方树缺属性时垫 0（builder 侧断言要求 SWA 模型才有非零语义，Qwen3.6 混合形态恒为 0），fork 或上游自行定义时一个字节不碰，自退役。运行时改动 2 行无注释。
 
 验证：L0 门禁 556 Python 文件 + 8 Skill 零错误；117 项测试 104 过 13 跳（与基线一致）；build_guide 重建与 --check 通过。真机 TP2 NEXTN（日志 dev77-spec-fix1.log）13:55:37 ready，冒烟两题 巴黎/323 全对，accept len 2.48 / accept rate 0.49（Stage C 健康区间 2.4~2.9 / 0.48~0.62）。未验证：DFlash 等非 EAGLE draft worker、SWA 目标模型上的非零窗口语义（官方树无该属性来源，恒为 0）、PD 模式。
+
+## 2026-11-04 自研 channel-wise 能力统一归 plugin
+
+自研 channel-wise checkpoint 的格式、专用加载、参数名称与 scale 映射、scheme/apply 作为完整能力由 plugin 维护；adapter 提供通用平台及算子接口适配。DSv4 已有 `models/deepseek/current_v4/execution/core.py` 的 `load_weights`：融合 `wq_a`/`wkv` 的权重及两种 scale 后缀，再由 `maybe_remap_compressed_tensors_scale_name` 按实际参数将 `weight_scale_inv` 映射为 `weight_scale`。入口是 `models/deepseek/deepseek_v4/hooks/causal_lm.py`；FP8 channel-wise GEMM 位于 `layers/quantization/compressed_fp8.py`。均为 `hcu_sglang/` 下的已有实现，本次没有复制 adapter 的字节码补丁或新增另一套 loader。
+
+配套 adapter 变更撤下 `dsv4_wqkv_scale_patch` 和旧环境开关，自研 checkpoint 部署须启用当前 plugin。这里只核对实现位置、加载 Hook 和名称映射；没有据此确认截图中的 FP8 scale shape 不匹配已解决，也未重新运行 DSv4 GPU 模型。本文档及导览快照通过本仓静态门禁后提交，未新增单测。
