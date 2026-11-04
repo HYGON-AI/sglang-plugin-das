@@ -1587,4 +1587,22 @@ bw46/DTK2610、物理卡4–7的HC存储候选已完成smoke32/32、扩展5/5；
 
 原型独立Graph延迟测试覆盖1/4/16行×5种tile组合，输出与当前persistent基线完全一致，固定候选约77→32μs。公共调用与变输入/权重Graph测试`tests/test_qwen4_split_hc_mix.py`连同既有HC存储回归共19项通过；覆盖真实GatedResidual/GroupedGemmaRMSNorm、1/4/16行、权重和输入更新，以及开关/CPU/FP16/其他lowrank/空行/gfx938回退。实际Hook合同632 registered/632 applied、errors=[]。前两次测试因fixture漏装环境字段与既有JIT头适配失败，修正测试接线后通过，未改官方或adapter代码。完整服务、最终性能和全量GSM8K尚未执行到该新候选，L0/结构与导览检查待本轮结果。四rank CPU metadata通信另外实测tree264–321μs、ring548–623μs，保留既有tree实现。
 
-本轮结构门禁通过；导览build/--check、1440px/390px浏览器截图检查通过。unittest隔离adapter子进程自动启动并显式保留本任务Python3.12依赖后119项OK、13skip；直接服务环境的两项轻量启动断言失败及不带依赖的导入失败均保留，未用历史结果代替。启用HC开关的整模型已完成Graph捕获，smoke32/32、扩展5/5通过；四次131072-token预热后三次131072/1024正式测量的中位数为TTFT18.661258s/TPOT13.083346ms，较前候选TPOT下降13.47%，仍高于历史目标2.28%/7.50%。该候选最终全量GSM8K待测。额外两阶段融合原型数值完全一致，但比三阶段慢，未迁入运行时；正在单独验证官方DP本地控制广播开关。
+本轮结构门禁通过；导览build/--check、1440px/390px浏览器截图检查通过。unittest隔离adapter子进程自动启动并显式保留本任务Python3.12依赖后119项OK、13skip；直接服务环境的两项轻量启动断言失败及不带依赖的导入失败均保留，未用历史结果代替。启用HC开关的整模型已完成Graph捕获，smoke32/32、扩展5/5通过；四次131072-token预热后三次131072/1024正式测量的中位数为TTFT18.661258s/TPOT13.083346ms，较前候选TPOT下降13.47%，仍高于历史目标2.28%/7.50%。该候选最终全量GSM8K待测。额外两阶段融合原型数值完全一致，但比三阶段慢，未迁入运行时；官方DP本地控制广播开关同协议中位数18.648215s/13.694012ms，未显示稳定收益，后续关闭。
+
+后续分别测量down/up的tile，选定down的32个split与BK512，其余保留原三阶段参数；1/4/16行的完整算子约28.6–29.0μs，12组候选输出均与persistent基线完全一致。仅迁入两个默认参数调整；公共HC/Graph与HC存储回归19项通过，L0及导览build/--check通过。该版本服务smoke32/32、扩展5/5；全局prefill预算131072、四次长输入预热后三次正式测量的TTFT18.111697/18.217546/20.328969s、TPOT15.752816/12.830084/13.196118ms，中位数TTFT达到历史值，TPOT仍慢8.43%。最终全量GSM8K待测。单行向量原型可达20.8μs，但4/16行显著变慢，未迁入运行时；超出64KiB LDS的tile明确记录为OutOfResources，未扩大硬件预算。第一轮MTP接受长度下降至2.968的原因尚未确定；其余两轮3.657/3.606，不能仅归因于chunk或tile。额外开启官方GPU元数据同步的同协议中位数为18.200420s/13.574420ms，smoke32/32、扩展5/5，未显示收益，后续关闭。
+
+## 2026-11-04 Qwen4 FP32 状态回写排列候选
+
+原生trace中活跃rank的状态回写耗时明显；官方将状态copy grid改为(request, layer, block)，冻结DAS为(request×block, layer)。独立Graph比较36层、48×128×128 FP32状态、3条metadata中2条有效请求：官方约2095μs，连续排列约346μs；5种block均与原实现逐元素完全一致。36层小conv状态及单层PLE的收益很小，未接管这些形状。
+
+新增默认关闭的`SGLANG_QWEN4_FLAT_STATE_SCATTER`，仅gfx936、36层、FP32、连续同设备、state shape48×128×128、1–16条metadata走新实现。通过`hybrid_linear_attn_backend.fused_mamba_state_scatter_with_mask`的公共消费者别名AROUND接入，保留HybridLinearAttnBackend的状态提交、src scratch行映射与边界检查；其他形状或关闭时委托当前有效original。保持每block1024元素与原实现相同，仅改变grid排列；未改状态精度或接受token的选择。Hook合同增加该别名。
+
+公共HybridLinearAttnBackend静态方法→实际Hook→内核的9项回归通过，含1/4/16条metadata、FP32逐元素相等、变输入/step/slot/source-row的Graph，以及负step、越界destination/step和负source-row不写回；关闭与CPU/其他形状/dtype/架构委托有效基线。本轮L0与导览build/--check通过，1440px/390px截图已查看。实际Hook合同633 registered/633 applied、errors=[]。该候选服务smoke32/32、扩展5/5通过；原客户端三轮中位数18.168661s/13.053026ms，TPOT仍未达到历史值。
+
+## 2026-11-04 CPU benchmark 客户端隔离
+
+官方serving客户端只需要disaggregation模块中的FAKE_BOOTSTRAP_HOST常量，但该模块导入模型/量化依赖并在首卡建立HIP上下文。仅对客户端隐藏GPU时会在后续硬件检测导入失败；任务入口从固定官方源码AST读取原常量值，在客户端进程隔离该常量依赖，保留官方prompt生成、HTTP发送、流式计时和协议。服务端代码/进程/GPU环境保持相同，客户端运行前后torch.cuda.is_initialized均为False。
+
+同一PID服务的四次131072/32预热后三次131072/1024测量为TTFT17.707234/17.696756/17.743482s、TPOT11.500156/11.268304/11.385793ms，中位数17.707234s/11.385793ms，达到历史18.245208s/12.170289ms。seed42 prompt哈希、1024输出、零缓存均一致。全长预热的DP0 TTFT由20.406降至17.752s；正式三次请求落在DP1/2/3，需重启复验覆盖DP0正式请求。结果表示完整客户端隔离组合的收益，不能将全部差值单独归因于一个上下文。当前queue1候选全量GSM8K在456/1319题后持续挂起，四rank均阻塞于hipLaunchKernel/HSA等待；未见OOM/Python异常。保留现场并停止本任务服务，继续queue2单因素对照，精度尚未验收。两阶段HC融合、统一MoE mode改写与未运行的路由融合原型未迁入该候选。
+
+queue2单因素重启对照于15:16完成：smoke32/32、扩展5/5，四次131072/32预热后三次131072/1024中位数17.834771s/11.343052ms，正式请求覆盖DP0，性能达标。原始三轮分别18.032712/17.834771/17.744256s和11.255621/11.371718/11.343052ms；源码/私有扩展及官方bootstrap overlay哈希通过。未改运行时算法，开始在该queue2服务重新执行全量GSM8K1319题，尚不把性能通过当作稳定性和精度验收。

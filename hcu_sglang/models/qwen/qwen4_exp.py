@@ -312,11 +312,12 @@ def after_load_batch(result, runner, *args, **kwargs):
 def register_hooks():
     if not is_hcu():
         return
-    from hcu_sglang.models.qwen import ple, qsa, qsa_kv, qsa_prefill, qwen4_exp_mtp, fla_prefill, hc_mix
+    from hcu_sglang.models.qwen import ple, qsa, qsa_kv, qsa_prefill, qwen4_exp_mtp, fla_prefill, hc_mix, state_scatter
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     def register(target, fn, kind=HookType.AROUND):
         HookRegistry.register(target, fn, kind)
     register("sglang.srt.layers.hyperconnection.fused_hc_mix", hc_mix.around_fused_hc_mix)
+    register("sglang.srt.layers.attention.hybrid_linear_attn_backend.fused_mamba_state_scatter_with_mask", state_scatter.around_state_scatter)
     register("sglang.srt.models.qwen4_exp.Qwen4ExpPinnedHostEmbedding", ple.Qwen4ExpPinnedHostEmbedding, HookType.REPLACE)
     for name, fn in vars(ple.NGramMethods).items():
         if callable(fn):

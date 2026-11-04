@@ -319,6 +319,7 @@
     "sglang.srt.layers.attention.graph_variants.create_attention_graph_variants",
     "sglang.srt.layers.attention.graph_variants.create_dsv41_candidate_graph_variants",
     "sglang.srt.layers.attention.hip_flash_mla.flash_mla_with_kvcache_entrypoint",
+    "sglang.srt.layers.attention.hybrid_linear_attn_backend.fused_mamba_state_scatter_with_mask",
     "sglang.srt.layers.attention.linear.gdn_backend.GDNAttnBackend._convolve_prefill",
     "sglang.srt.layers.attention.linear.gdn_backend.GDNAttnBackend.forward_decode",
     "sglang.srt.layers.attention.linear.gdn_backend.GDNAttnBackend.forward_extend",

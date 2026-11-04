@@ -60,14 +60,14 @@ def _up_gate(X, T, W, Y, M: tl.constexpr, R: tl.constexpr, HC: tl.constexpr,
              (m[:, None] < M) & (j[None, :] < HS))
 
 
-def split_mix(x, down, up, hc, hs, splits=8, bn=32, bj=32):
+def split_mix(x, down, up, hc, hs, splits=32, bn=32, bj=32):
     m, k = x.shape
     rank = down.shape[0]
     partial = torch.empty((splits, 16, rank), device=x.device, dtype=torch.float32)
     intermediate = torch.empty((16, rank), device=x.device, dtype=x.dtype)
     output = torch.empty((m, hs), device=x.device, dtype=x.dtype)
     _down_partial[(triton.cdiv(rank, bn), splits)](
-        x, down, partial, m, k, rank, splits, bn, 256, num_warps=4)
+        x, down, partial, m, k, rank, splits, bn, 512, num_warps=4)
     _reduce_silu[(triton.cdiv(16 * rank, 256),)](
         partial, intermediate, rank, hc, splits, 256, num_warps=4)
     _up_gate[(triton.cdiv(hs, bj),)](
