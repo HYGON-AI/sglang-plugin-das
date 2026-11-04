@@ -1578,3 +1578,13 @@ PLE 候选 cap=1/AITER 的 smoke 32/32、扩展 5/5、实际加载合同 628/628
 继续对齐HC存储契约：来源在终端mix前和logits→MTP交接时分别clone，当前官方返回借用引用。新增Qwen4ExpModel.forward/_MixStreams.__call__的AROUND与Qwen4ExpForConditionalGeneration.forward的AFTER，保留新版StageBoundary/residual完成与有效original；仅HCU末级非idle模型调用建立快照scope，异常/嵌套调用恢复上下文。公共模型出口在模拟mixer复用输入时快照被覆盖，公共logits出口也复现了与model cache同data_ptr；两项修复前反例分别有原始日志。真实grouped RMSNorm/fused mix的1/4行变输入Graph已通过，包含输出缓存随后清零后的独立性；最终组合回归与631项加载合同在本轮完成。当前真实kernel未单独证明原地破坏HC，该改动是来源存储契约的补齐，尚无整服务A/B性能和最终GSM8K结果。
 
 HC最终源码的组合针对性回归104/104通过，覆盖此前PLE/QSA/FA3/FLA/native-sort/loader与adapter的mapped-host、scatter、BoltOPs MQA；其中HC公共出口与Graph共10项通过。GPU测试使用用户指定后四卡，只分配小型测试张量，不启动整模型。实际加载合同631 registered/631 applied、errors=[]；plugin L0通过，adapter L0 GREEN（31条既有bare-environ警告），隔离unittest119项OK、13skip。导览build/--check通过，1440px/390px截图已检查。整服务性能/最终精度仍受资源窗口阻塞。
+
+## 2026-11-04 Qwen4 HC mix 分阶段性能候选
+
+bw46/DTK2610、物理卡4–7的HC存储候选已完成smoke32/32、扩展5/5；四次131072-token预热后三次131072/1024的中位数为TTFT18.579257s、TPOT15.120169ms，仍高于历史18.245208s/12.170289ms。7轮短decode trace的HC mix调用数已与DAS一致（742次），不能继续把差距全部解释为存储别名。新DTK下需私有重编ABI兼容的AITER/causal-conv1d；该环境修复未改变本仓算法。
+
+新增默认关闭的`SGLANG_QWEN4_SPLIT_HC_MIX`，通过Qwen注册链包装公共`sglang.srt.layers.hyperconnection.fused_hc_mix`，保留GatedResidual构造、GroupedGemmaRMSNorm、caller的确定性守卫和当前有效original。gfx936、BF16、连续同设备、1–16行、HC4/hidden2560/lowrank320使用partial→reduce+SiLU→up+gate，退出条件在入口明确检查。目标合同增加此公共别名；未改变adapter或官方源码。
+
+原型独立Graph延迟测试覆盖1/4/16行×5种tile组合，输出与当前persistent基线完全一致，固定候选约77→32μs。公共调用与变输入/权重Graph测试`tests/test_qwen4_split_hc_mix.py`连同既有HC存储回归共19项通过；覆盖真实GatedResidual/GroupedGemmaRMSNorm、1/4/16行、权重和输入更新，以及开关/CPU/FP16/其他lowrank/空行/gfx938回退。实际Hook合同632 registered/632 applied、errors=[]。前两次测试因fixture漏装环境字段与既有JIT头适配失败，修正测试接线后通过，未改官方或adapter代码。完整服务、最终性能和全量GSM8K尚未执行到该新候选，L0/结构与导览检查待本轮结果。四rank CPU metadata通信另外实测tree264–321μs、ring548–623μs，保留既有tree实现。
+
+本轮结构门禁通过；导览build/--check、1440px/390px浏览器截图检查通过。unittest隔离adapter子进程自动启动并显式保留本任务Python3.12依赖后119项OK、13skip；直接服务环境的两项轻量启动断言失败及不带依赖的导入失败均保留，未用历史结果代替。启用HC开关的整模型已完成Graph捕获，smoke32/32、扩展5/5通过；四次131072-token预热后三次131072/1024正式测量的中位数为TTFT18.661258s/TPOT13.083346ms，较前候选TPOT下降13.47%，仍高于历史目标2.28%/7.50%。该候选最终全量GSM8K待测。额外两阶段融合原型数值完全一致，但比三阶段慢，未迁入运行时；正在单独验证官方DP本地控制广播开关。
