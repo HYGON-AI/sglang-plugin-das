@@ -13,6 +13,9 @@
 - [2026-10-30：后端与模型路径同步](#20-2026-10-30-dsa-indexer-当前-hcu-producerconsumer-同步)
 - [2026-11-01：分支迁移与八卡验证](#35-2026-11-01-rmsnormgemma-hcu-分支继续迁移)
 - [2026-11-02：DAS 分支逻辑对齐](#das-分支逻辑对齐2026-11-02)
+- [2026-11-04：HCU MHA KV 单流构造试验](#2026-11-04-hcu-mha-kv-单流构造试验)
+- [2026-11-04：GDN 投影单流构造试验](#2026-11-04-gdn-投影单流构造试验)
+- [2026-11-04：KV 与 GDN 单流提交验证](#2026-11-04-kv-与-gdn-单流提交验证)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1542,3 +1545,106 @@ python3 tools/validate_plugin_runtime.py \
 修法沿用 PR #7 的 registry setdefault 范式：register_hooks 注册期对 BaseSpecWorker（EAGLEWorkerV2 / DFlashWorkerV2 公共基类）做属性级 setdefault，官方树缺属性时垫 0（builder 侧断言要求 SWA 模型才有非零语义，Qwen3.6 混合形态恒为 0），fork 或上游自行定义时一个字节不碰，自退役。运行时改动 2 行无注释。
 
 验证：L0 门禁 556 Python 文件 + 8 Skill 零错误；117 项测试 104 过 13 跳（与基线一致）；build_guide 重建与 --check 通过。真机 TP2 NEXTN（日志 dev77-spec-fix1.log）13:55:37 ready，冒烟两题 巴黎/323 全对，accept len 2.48 / accept rate 0.49（Stage C 健康区间 2.4~2.9 / 0.48~0.62）。未验证：DFlash 等非 EAGLE draft worker、SWA 目标模型上的非零窗口语义（官方树无该属性来源，恒为 0）、PD 模式。
+
+
+## 2026-11-04 HCU MHA KV 单流构造试验
+
+**用途与范围**：在 gfx936、Qwen3.8-27B BF16、TP2、decode full CUDA Graph、batch=1 的既有组合上，试验让 HCU MHA pool 的 K/V 写入共用当前计算流。保留 adapter 的 CUDA 平台语义、GDN 辅助投影流及 HCU K/V 页布局，不改官方 SGLang 源码。
+
+### 实现与回退
+
+- `HCUMHATokenToKVPool.__init__` 在调用有效父类构造前将 `enable_alt_stream` 设为 `False`，让 `alt_stream=None`，复用现有 `_store_kv_layer` 的顺序 K/V 写入分支。沿已有 pool-class AROUND 注册入口接入，没有新增 Hook target。
+- 当前为该 HCU pool 类的构造策略，不是已发布的独立 CLI/环境开关；K/V 仍为两次写入，不是融合成单 kernel。
+- 回退为撤销此次构造覆盖并重启服务、重新 capture Graph；不改全局 `is_cuda/is_hip`，也不切换 HCU KV 布局。
+- 基线：official `baa9befa381511cd4d56f83980951e5a45fffc6d`、adapter `c43693f3621c98a14c6ad65601400bc3b2b7d1f1`、plugin `0aa4114d9f7a170b658e87310190a2f824c8b6e8` 加本次未提交变更。
+
+### 实际验证
+
+- [GPU 回归脚本](../tests/runtime/hcu_mha_single_stream_gpu.py)：原实现的显式 `enable_alt_stream=True` 反例失败；修改后两个测试通过。使用真实构造器和公共 `set_kv_buffer`，覆盖不同 K/V head_dim、空输入、页边界及 padding slot、未写层不变，以及改变 slot/K/V 内容后的两次 Graph replay；K/V 对独立物理布局参考逐元素一致。
+- TP2 完整服务：三道文本问答的答案、模型身份和正常结束均通过；两 rank 各记录 31 次 Graph launch。
+- 相同 1024 输入 / 32 输出、单并发请求，先预热两次，再无 profiler 测五次；两组生成文本一致。中位延迟 1.356742 秒到 1.334809 秒，降低 1.62%。仅小样本顺序试验，不作为统计显著或吞吐提升结论。
+- 辅助流可见 kernel 每步从 112 降为 96，只剩 48 组 BA 投影 GEMM/PostGSU。新进程主流编号为 73；stream 编号不能跨进程固定比较。
+- Graph trace 的 decode K/V index-write kernel 均未显示，原检查脚本因此失败；保留失败日志并将此项明确记录为可观测性限制。未将“辅助流无 KV kernel”表述成“trace 已直接看到 K/V 在主流”。构造和实际写入正确性由上面的真实 GPU/Graph 测试验证。
+- 仓库离线 unittest：117 项，13 项条件跳过，其余通过。部署解释器下先出现两项轻量导入失败；无第三方包/启动注入的隔离 CPU venv 重跑通过。
+- 产物位于本次运行目录 `${RUN_DIR}`：`source.patch`、`baseline-test.log`、`kv-pool-test.log`、`validation.json`、`trace_manifest.json`、`comparison.json` 及两 rank trace。结构和生成导览检查见本次日志。
+
+未验证其他模型、量化 KV、PD、长上下文、多并发及其他 GPU 架构；既有 ROCTracer duplicate-flow 警告仍保留。
+
+
+## 2026-11-04 GDN 投影单流构造试验
+
+在此前 HCU MHA KV pool 已禁用辅助流的基础上，用户要求继续禁用 GDN 辅助流并重新抓取 TP2 CUDA Graph trace。实验使用指定 HCU 节点与容器中的两张设备；其他设备的既有进程保留。官方 SGLang 与 adapter 源码不改。
+
+实现位于 `hcu_sglang/models/qwen/qwen3_5.py`，沿现有 Qwen register 聚合链新增 `Qwen3_5GatedDeltaNet.__init__` AROUND Hook。先调用当前有效 original 构造，再仅在插件真实 `is_hcu()` 判定成功时设置实例 `alt_stream=None`，保持位置参数、关键字参数及异常传播。非 HCU 保留 original 状态；不改变 adapter 的合成 CUDA 平台语义。目标合同同步 `tests/contracts/hcu_source_alignment_targets.json`。
+
+官方 `_forward_input_proj` 与 fused-quant AMD 分支均以实例 `alt_stream is not None` 为辅助流入口。此变更使用其现有顺序投影分支，不替换 GEMM、不新增 store KV 实现。模型仍可能创建共享 alt stream 对象；本方案禁用 GDN 使用它，不声称消除所有 stream 对象。当前为固定关闭策略的未提交实验；撤销本轮构造 Hook 并重启、重新 capture Graph 可恢复 GDN 原分流，先前 KV pool 改动独立保留。
+
+`tests/runtime/hcu_gdn_single_stream_gpu.py` 通过真实 HookRegistry 注册/应用到官方类，替身仅覆盖昂贵权重构造，保留真实 `_forward_input_proj` 与 GPU GEMM。修改前两项因 alt_stream 非空失败；修改后三项通过：HCU 禁用、非 HCU 保留、0/1/8/1024 token 数值对拍，以及真实 CUDA Graph capture 中两投影位于同一流、修改输入后的两次 replay 与实时参考逐元素一致。完整真实模型构造由下述服务验证补充；该微测不等于完整权重构造或量化路径覆盖。
+
+服务参数维持 Qwen3.8-27B BF16、TP2、fa3、linear-attn triton、page64、context8192、max-running8、decode full Graph bs1、prefill Graph disabled。请求维持 batch1、1024 input/32 output，预热两次并清空前缀缓存。证据目录 `${RUN_DIR}`（批次名 `qwen38-tp2-cudagraph-kv-gdn-single-20261104`）；下载目录 `${WORKSPACE}/traces/qwen38-tp2-cudagraph-kv-gdn-single-20261104`。API、trace 和门禁结果由同目录原始日志记录。
+
+ROCtracer 在该 DTK 的 Graph replay 中缺失部分 kernel，不能从可见空白或缺失的 KV 写入 kernel 推断真实 GPU 空闲。仅将相关到 hipGraphLaunch 的可见 kernel 按 stream 对比；不把 profiler 开销计入性能结论。其他模型、量化、PD、长上下文和多并发尚未验证。
+
+本轮最终验收：模型身份、health 200 与三道完整文本回答通过；两个 TP rank 各有 31 次 hipGraphLaunch，相关可见 kernel 的辅助流事件均为 0。此前 KV 单流/GDN 双流配置每次 replay 的辅助流仍有 96 个 BA GEMM/PostGSU kernel，本轮可见 GDN 辅助流计算已消失。该结论限于可见事件和本次模型配置，不证明 Graph kernel 全覆盖或所有空泡消除。
+
+GPU 三项回归通过；CPU 离线 117 项测试通过（13 skip）；导览生成、快照校验和 l0 门禁通过。服务保持运行，未提交代码。无 profiler 五次小样本记录在 benchmark-after.json，仅供同请求参考，不据此给出统计显著性能结论。
+
+
+## 2026-11-04 KV 与 GDN 单流提交验证
+
+本节将上述构造试验整理为插件改动，历史“未提交”和 trace 漏抓结论按试验阶段理解。官方与 adapter 不变；性能试验基线为 plugin `0aa4114d9f7a170b658e87310190a2f824c8b6e8`。提交分支 `fix/hcu-single-stream-kv-gdn` 对齐最新 `sglang_v0.5.22` 基线 `9755678f7287aef24dad7eab4584f6bf8e25d26d`；两基线树仅相差 squash-only 协作规范，运行时代码与目标合同一致。
+
+### 目标与组合边界
+
+| 层次 | 提交行为与所有权 |
+|---|---|
+| HCU MHA pool | 在有效父类构造前用其真实签名绑定参数，再覆盖 `enable_alt_stream=False`；支持位置和关键字调用，重复传参仍报错。沿已有 pool-class 注入链进入，仅影响已经选择 HCU page layout 的 pool，继续使用原有顺序 K/V 写入与页布局。 |
+| Qwen3.5 GDN | 经唯一 Qwen register 聚合链为 `Qwen3_5GatedDeltaNet.__init__` 增加 AROUND；调用有效 original 后，仅真实 `is_hcu()` 时清空实例 `alt_stream`。非 HCU 原状态、参数及构造异常均保留。 |
+| adapter | 保持当前有效平台语义及算子适配；不修改合成 `is_cuda()`，不绕过前序包装，不替换 store KV 或 GEMM 实现。 |
+| 合同与停用 | 同步 expected Hook target。固定构造策略，无新增 CLI 或实验环境变量；恢复旧策略需撤销相应构造改动并重启、重新 capture Graph。关闭 HCU KV layout 只恢复 pool 的有效原路径，不关闭 GDN 策略。 |
+
+固定组合：official `baa9befa381511cd4d56f83980951e5a45fffc6d`、adapter `c43693f3621c98a14c6ad65601400bc3b2b7d1f1`、上述 plugin 基线加本提交；gfx936、Python 3.10、PyTorch `2.11.0+dtk2610.2611031312.g529def`、HIP `7.2.26365`。完整服务使用 BF16 Qwen3.8-27B（`Qwen3_5ForConditionalGeneration`）。本次不是 wheel、embedded 或全模型发布验收。
+
+### MTP 受控验证与结果
+
+单流→双流→双流→单流共四次独立启动，KV 始终单流，仅 GDN 构造结果改变。每轮四种 workload 各测 20 次；测量前预热六轮四种 workload，每次请求前 flush cache、固定随机顺序，全部 cached_tokens=0；总计 320 次无 profiler 测量。每种模式每 workload 为 40 个请求、两个独立启动。构造日志记录每轮 96 个真实 GDN 实例，单/双流分支均实际命中。A/B 控制用的独立源码副本与审计开关不进入产品实现。
+
+配置为 TP2、NEXTN（同 checkpoint MTP）、steps3/topk1/draft_tokens4、FA3、linear-attn triton、page64、context8192、max-running8、mem_fraction0.85、mamba extra_buffer、decode full Graph bs1、prefill Graph disabled、custom-all-reduce disabled。Graph 完整采集变量在所有启动中保持相同：
+
+```bash
+export HIP_GRAPH_ACCUMULATE_DISPATCH=1
+export ACCUMULATE_DISPATCH_PROFILE_LEVEL=FULL_PROFILE
+```
+
+变量必须在进程初始化与 Graph capture 前设置；各轮无 profiler 测量结束后才单独抓 trace。不要把 profiler 的 GPU 区间当作无 profiler 请求时间。
+
+| 指标（中位数，ms） | GDN 双流 | GDN 单流 | 单流变化 |
+|---|---:|---:|---:|
+| 1024→32：client E2E | 668.75 | 661.68 | -1.06% |
+| 1024→32：server decode-after-first | 456.10 | 449.69 | -1.41% |
+| 1024→32：server prefill-stage | 210.64 | 207.69 | -1.40% |
+| 1024→1：server prefill-stage | 193.92 | 194.46 | +0.28% |
+| 4096→1：server prefill-stage | 514.15 | 515.66 | +0.29% |
+
+prefill-stage 是 `prefill_finished_time - forward_entry_time`；decode-after-first 是 `e2e_latency - first_token_latency`，包含后续服务工作。各中位数不能相加形成精确分解。SSE 独立 workload 的 E2E 为 669.90→662.49ms，方向一致。所有组输出文本相同，32-token 请求接受长度均 2.6667、verify 次数均 12，排除接受率变化。
+
+本配置改善主要位于 decode；不能声称 prefill 严格零影响或所有模型必然加速。4096→1 的 +1.50ms 请求级 bootstrap 95% 区间为 [+0.66,+2.50]ms，不能抹去，但每种模式只有两次启动，该区间不代表按启动聚类后的因果结论。原百毫秒级 prefill 回退没有复现；旧 trace 的主要差异位于主机发射间隙和 TP collective 到达等待，未证明具体 OS/profiler 根因。
+
+四轮、两 rank 共八份完整 trace 中：target-verify Graph 每次 999 个 kernel、12 次 replay，draft Graph 每次 65 个、12 次 replay；双流每次 target-verify 有 48 个 GDN BA kernel 位于辅助流，单流为 0。每份 trace 的目标 prefill 均为相同名称及计数的 1354 个 kernel，全部在主流。当前 prefill 未开启 Graph，且 1024/4096 token 本就不满足官方辅助流条件，因而此处没有两路投影由并行改串行的路径变化。
+
+原始日志与可复算统计保存在独立产物批次 `qwen38-tp2-mtp-gdn-ab-20261104`（不纳入 Git）：`analysis.json`、`stage-statistics.csv`、`artifacts/01-single` 至 `artifacts/04-single` 中的 `start.sh`、构造审计、80 个原始测量/轮和两 rank trace。下载包共 1504 个普通文件内容及八份 trace 的 SHA256 已核对；取回本地后记录于 `${WORKSPACE}/traces/qwen38-tp2-mtp-gdn-ab-20261104`。独立实验副本保持最后一轮服务运行，提交仓库的整理不会改动该服务。
+
+### 本提交的回归与复现命令
+
+在仓库根目录使用固定组合的运行时解释器执行；`${ADAPTER_ROOT}`、`${SGLANG_ROOT}`、`${PLUGIN_ROOT}` 和 `${RUNTIME_PYTHON}` 由执行环境提供，设备仅选择本任务已获准使用的两张卡。
+
+```bash
+export HCU_ADAPTER_HOST=none
+export PYTHONPATH="${ADAPTER_ROOT}:${SGLANG_ROOT}/python:${PLUGIN_ROOT}"
+"${RUNTIME_PYTHON}" -u tests/runtime/hcu_mha_single_stream_gpu.py
+"${RUNTIME_PYTHON}" -u tests/runtime/hcu_gdn_single_stream_gpu.py
+```
+
+KV 三项测试验证真实构造/公共写入、位置与关键字参数及重复参数错误、空输入、不同 K/V 维度、页边界、padding slot、未写层、变 slot/数据后的两次 Graph replay。GDN 四项测试验证真实 HookRegistry 应用、非 HCU 保留有效 original、构造异常身份与状态、0/1/8/1024 token 投影数值、capture 同流及变输入 replay。昂贵权重构造在微测中替身化，完整构造由上述真实 TP2 服务补充。
+
+本提交复验结果在 [交付记录](delivery-validation.md#2026-11-04-hcu-kv-与-gdn-单流策略) 汇总。其他模型、量化、短 prefill Graph、PD、并发、其他硬件与 MTP 参数仍未验证；不从本次小幅收益外推吞吐或全场景性能。
