@@ -1570,3 +1570,9 @@ DTK26.10 的 `float2` 含匿名 union，RoPE overlay 在 GPT-J 和 NeoX 分支�
 
 在节点 21 直接执行实际 JIT API，对 BF16/FP16、GPT-J/NeoX、连续/带 stride 视图的 8 种组合做 FP32 参考计算并按输出类型舍入；全部通过，Q/K 最大绝对误差均为 0。证据为任务产物 `rope-jit-check-v3.log`、`rope-jit-check.json`。组合 v7 已越过 RoPE，随后停在独立的 MLA concat CUDA 头文件缺失问题。本次仅提交 RoPE 兼容修复和记录，未新增单测；完整模型及 P/D 验收继续进行。
 
+## 2026-11-04 MLA concat JIT 的 HIP 拷贝与空批次
+
+MLA concat overlay 的 CUDA 专用头文件和 PTX 访存阻止组合 v7 warmup。沿用 adapter 既有可移植处理：HIP 使用现有公共头、逻辑 32-lane ID 与相同类型的直接加载/存储；保留 CUDA 路径及原版权来源说明。TensorMatcher 在 HIP 校验 ROCm 设备，launch 使用 256 threads，并对零元素输入直接返回，避免零 grid 导致 invalid configuration。拼接始终只拷贝原始 BF16 位模式，没有反量化或修改激活量化。
+
+节点 21 的实际 JIT API 检查完成 11 个输入组合：Q 的 8/64 heads、连续/带 stride、空/非空，以及 K 的广播拷贝和空输入；全部与 Torch 拼接精确一致。8 个非空组合另在 graph 捕获后改写输入、清空输出，再 replay，结果仍精确一致。证据为 `concat-mla-check-v4.log`、`concat-mla-check.json`。检查只注册所需 JIT overlay、使用实际编译核；全模型验证继续进行，未新增单测。
+
