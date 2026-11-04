@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 """Re-extract precise DeepSeek method bodies from the current SGLang fork."""
 
 from __future__ import annotations

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 """Statically validate lazy plugin REPLACE hooks against an SGLang checkout."""
 
 from __future__ import annotations

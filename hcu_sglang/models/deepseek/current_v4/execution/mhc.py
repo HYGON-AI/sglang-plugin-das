@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 """DeepSeek-V4.1 manifold-constrained hyper-connections (mHC).
 
 The residual is ``R [T, hc_mult, hidden]`` -- hc_mult parallel streams per token --
