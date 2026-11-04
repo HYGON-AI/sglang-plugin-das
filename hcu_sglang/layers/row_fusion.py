@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 import sglang.srt.layers.linear as N
 from hcu_sglang.utils.detection import is_hcu

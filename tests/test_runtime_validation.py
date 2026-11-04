@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 """A loader's exit status alone must not make a partial/empty plugin pass."""
 import logging
 import sys

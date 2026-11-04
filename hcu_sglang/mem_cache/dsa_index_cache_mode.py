@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 """INT8 page-planar cache helpers for the HCU DSA indexer.
 
 The persistent packed ABI is shared with the scaled FP8 indexer cache: every
