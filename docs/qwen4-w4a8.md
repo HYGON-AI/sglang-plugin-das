@@ -21,7 +21,7 @@ plugin 负责 INT8 PLE 表/逐行 scale、ETP reduce-scatter、compact prefill�
 | `SGLANG_QWEN4_COMPACT_PREFILL` | 0 | 纯 EXTEND/IDLE 时使用 SUM_LEN，idle rank 保留一行 |
 | `SGLANG_QWEN4_LOCAL_ROUTING` | 0 | compact prefill 在本 rank 原始 BF16 上选专家 |
 | `SGLANG_QWEN4_ROUTED_INT8` | 0 | 局部 routing 后传输 INT8 codes/scales，直接交给 AITER |
-| `SGLANG_QWEN4_SPLIT_HC_MIX` | 0 | gfx936、BF16、1–16行、HC4/hidden2560/lowrank320采用分阶段HC mix候选 |
+| `SGLANG_QWEN4_SPLIT_HC_MIX` | 0 | gfx936、BF16、1–16行、HC4/hidden2560/lowrank320采用分阶段HC mix |
 | `SGLANG_QWEN4_FLAT_STATE_SCATTER` | 0 | gfx936、36层FP32 48×128×128状态按层连续排列copy，保留src行映射 |
 | `SGLANG_MOE_C_NATIVE_SORT` | 0 | E=129、top-k=10 的 EP drop-route 保留排序 |
 | `SGLANG_QWEN4_PREFILL_DIAGNOSTICS` | 0 | 输出 compact 几何诊断 |
@@ -47,7 +47,7 @@ HC 输出保留来源的两处独立存储：终端 mix 前的 HC 快照，以�
 
 本模型 QSA 的 pending index-key ring 只容纳一个压缩组，官方要求 `speculative_num_draft_tokens <= 4`。GDN kernel 的 width6 数学与 Graph 通过不代表整个 QSA 服务支持6个 draft tokens；不能绕过该守卫增加 MTP 深度。
 
-`SGLANG_QWEN4_SPLIT_HC_MIX=1` 为2026-11-04性能候选：在公共 `hyperconnection.fused_hc_mix` 别名注册窄AROUND，将低秩投影分成partial、reduce+SiLU和up+gate三步，避免persistent kernel的软件全局barrier和atomic累加。仅接受上表形状、连续同设备权重；其他形状、dtype、架构或关闭状态委托当前有效original。上游`fused_hc_mix_supported`的确定性模式守卫继续有效。原型在bw46/DTK2610的1/4/16行随机BF16输入与原persistent输出完全一致，延迟约77→32μs；down改为32split/BK512后约28.6–29.0μs，12组输出完全一致，公共构造、变输入/权重Graph及HC存储回归19项通过。新tile配合全局prefill预算131072的整服务smoke32/32、扩展5/5，四次长输入预热后三次131072/1024中位数为TTFT18.217546s/TPOT13.196118ms；TPOT尚未达到历史12.170289ms，全量GSM8K仍待该最终候选复验。
+`SGLANG_QWEN4_SPLIT_HC_MIX=1` 为2026-11-04性能候选：在公共 `hyperconnection.fused_hc_mix` 别名注册窄AROUND，将低秩投影分成partial、reduce+SiLU和up+gate三步，避免persistent kernel的软件全局barrier和atomic累加。仅接受上表形状、连续同设备权重；其他形状、dtype、架构或关闭状态委托当前有效original。上游`fused_hc_mix_supported`的确定性模式守卫继续有效。原型在bw46/DTK2610的1/4/16行随机BF16输入与原persistent输出完全一致，延迟约77→32μs；down改为32split/BK512后约28.6–29.0μs，12组输出完全一致，公共构造、变输入/权重Graph及HC存储回归19项通过。新tile配合全局prefill预算131072的整服务smoke32/32、扩展5/5，四次长输入预热后三次131072/1024中位数为TTFT18.217546s/TPOT13.196118ms；该轮TPOT尚未达到历史12.170289ms；后续完整组合结果见下文。
 
 `SGLANG_QWEN4_FLAT_STATE_SCATTER=1`仅优化当前模型FP32状态回写的线程块排列，不改变状态精度和索引选择。公共HybridLinearAttnBackend入口的1/4/16条metadata及变输入/索引Graph逐元素对拍通过；负step与越界索引保留不写回。独立两条有效请求约2095→346μs，该候选smoke32/32、扩展5/5通过；完整性能与精度结果见后文。
 
@@ -55,10 +55,10 @@ HC 输出保留来源的两处独立存储：终端 mix 前的 HC 快照，以�
 
 2026-11-04在bw46/DTK2610、物理卡4–7、TP4/attention-DP4/EP4上启用HC32split与flat状态回写、全局prefill预算131072、queue1及AITER通信。原benchmark导入链会初始化首卡HIP上下文；同一服务进程改用CPU客户端，四次131072/32预热后三次131072/1024的TTFT为17.707234/17.696756/17.743482s、TPOT11.500156/11.268304/11.385793ms，中位数17.707234s/11.385793ms，达到历史18.245208s/12.170289ms。prompt seed42、SHA、官方HTTP与计时、1024输出及零缓存均核对一致。该历史值来自另一节点/镜像，不是本次同步DAS A/B。
 
-CPU入口仅在客户端进程中隔离disaggregation模块的常量依赖，不修改官方文件、Torch能力属性或服务GPU可见性；运行前后均断言没有初始化GPU。长输入预热覆盖四rank，正式三次请求为DP1/2/3，服务重启复验将补充DP0正式请求。当前queue1候选全量GSM8K在456/1319题后持续挂起，不能由smoke或旧候选精度推断通过。四rank均阻塞在hipLaunchKernel/HSA等待，原生栈和未完成响应已保留，无OOM/Python异常。已停止本任务服务，正以queue2单因素对照；尚未确认根因。
+CPU入口仅在客户端进程中隔离disaggregation模块的常量依赖，不修改官方文件、Torch能力属性或服务GPU可见性；运行前后均断言没有初始化GPU。长输入预热覆盖四rank，正式三次请求为DP1/2/3，后续queue2重启复验已补充DP0正式请求。当前queue1候选全量GSM8K在456/1319题后持续挂起，不能由smoke或旧候选精度推断通过。四rank均阻塞在hipLaunchKernel/HSA等待，原生栈和未完成响应已保留，无OOM/Python异常。已停止本任务服务，正以queue2单因素对照；尚未确认根因。
 
 ## 验证状态
 
 本次结果统一维护于 [开发记录](hcu-sglang-development.md#2026-11-03-qwen4-exp-w4a8-与-pr-586-适配)。算子数学、Graph、Hook 应用和实际服务分别记录；smoke 不代表全量精度或性能复测。
 
-重启后仅将任务GPU_MAX_HW_QUEUES由1改为2，四次长输入预热后三轮TTFT18.032712/17.834771/17.744256s、TPOT11.255621/11.371718/11.343052ms，中位数17.834771s/11.343052ms，仍达到历史性能目标；正式请求覆盖DP0，smoke32/32、扩展5/5通过。该queue2候选开始重新执行全量1319题精度，尚未据此确认挂起根因或长时稳定性。
+重启后仅将任务GPU_MAX_HW_QUEUES由1改为2，四次长输入预热后三轮TTFT18.032712/17.834771/17.744256s、TPOT11.255621/11.371718/11.343052ms，中位数17.834771s/11.343052ms，仍达到历史性能目标；正式请求覆盖DP0，smoke32/32、扩展5/5通过。该queue2候选随后完成GSM8K全量1319题：1287/1319=97.5739%，与历史原DAS总分相同，请求错误0，length截断2。逐题prompt/target一致，7题改善、7题退步、18题抽取答案变化；不能将总分相同解释为逐题输出完全相同。全量约23分钟完成，本轮未复现queue1挂起；根因尚未完全确认，最终配方固定queue2。
