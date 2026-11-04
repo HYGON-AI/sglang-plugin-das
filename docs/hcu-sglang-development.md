@@ -1576,3 +1576,11 @@ MLA concat overlay 的 CUDA 专用头文件和 PTX 访存阻止组合 v7 warmup�
 
 节点 21 的实际 JIT API 检查完成 11 个输入组合：Q 的 8/64 heads、连续/带 stride、空/非空，以及 K 的广播拷贝和空输入；全部与 Torch 拼接精确一致。8 个非空组合另在 graph 捕获后改写输入、清空输出，再 replay，结果仍精确一致。证据为 `concat-mla-check-v4.log`、`concat-mla-check.json`。检查只注册所需 JIT overlay、使用实际编译核；全模型验证继续进行，未新增单测。
 
+## 2026-11-04 CT W4A8 的 DeepEP 低延迟 INT8 分发
+
+四节点组合 v3 的 prefill PP2/CP8 已就绪，decode TP16/DP16/EP16 在目标 graph 捕获时由原生 W4A8 消费者拒绝激活类型。指定底座的 CT W4A8 scheme 声明 `normal_dispatcher_output_dtype=bf16`、256 行对齐和 `hcu_w4a8_deepep_ll_producer_event`，但未声明 plugin 所用的 INT8 dispatch 标记；DeepGEMM 选择门控又排除了 vendor INT8 分支，实际走向 FP8 兼容分发。
+
+`deepep_current.py` 在低延迟实现收到该原生 W4A8 契约时复制配置，补齐低延迟 INT8 类型及既有 INT8 标记；vendor 分发选择也识别此标记，调用 `quant_type=1`。复制仅发生在低延迟实现，调用方配置与 normal BF16 分发保持原样；没有修改 checkpoint、scale、GEMM、原生 INT8/FP32-scale 校验或目标 MTP/graph 设置。非 HCU 与不含该 W4A8 标记的 FP8 配置不变。
+
+实际检查：直接执行本次低延迟 setter 的 AST，确认 CT 的低延迟 INT8、normal BF16、调用方配置不变、事件仅建立一次，以及非 HCU/FP8 配置不变，记录为任务产物 `candidate-pd/ll-ct-config-v1.json`。此前失败保留于 `candidate-pd/server-v3-node23.log`；此配置检查不代表 GPU、Graph 或完整模型通过，原接受配置继续复验。未新增单测。
+
