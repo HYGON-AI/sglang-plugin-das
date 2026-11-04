@@ -14,7 +14,7 @@ from sglang.srt.layers import dp_attention as DP
 from sglang.srt.layers.moe.topk import StandardTopKOutput, TopKOutputChecker
 from sglang.srt.runtime_context import get_parallel
 from sglang.srt.model_executor.forward_batch_info import ForwardMode
-from hcu_sglang.models.qwen.prefill_policy import compact_prefill_counts, prefill_option, pure_prefill_modes
+from hcu_sglang.models.qwen.prefill_policy import compact_prefill_counts, pure_prefill_modes
 from hcu_sglang.utils.detection import is_hcu
 
 logger = logging.getLogger(__name__)

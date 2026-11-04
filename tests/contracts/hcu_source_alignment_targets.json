@@ -634,5 +634,14 @@
     "sglang.srt.speculative.eagle_worker_common.prepare_for_draft",
     "sglang.srt.speculative.spec_utils.commit_mamba_states_after_verify",
     "sglang.srt.utils.common.get_cuda_graph_batch_size_alignment"
-  ]
+  ],
+  "named_resolution_hooks": [
+    "handle_a2a_moe",
+    "handle_attention_backend_compatibility",
+    "handle_model_capability_adjustments",
+    "handle_model_specific_adjustments"
+  ],
+  "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+  "profile": "fixed official, HCU default registration; not whole-model equivalence",
+  "source_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e"
 }
