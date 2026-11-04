@@ -1164,12 +1164,6 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
         self._combine_input_ready_event_pending = False
 
     def set_quant_config(self, quant_config: dict) -> None:
-        if _is_hcu and quant_config.get("hcu_w4a8_deepep_ll_producer_event", False):
-            quant_config = {
-                **quant_config,
-                "low_latency_dispatcher_output_dtype": "int8",
-                "hcu_w4a8_int8_dispatch": True,
-            }
         super().set_quant_config(quant_config)
         if (
             _is_hcu
