@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sglang.srt.arg_groups.arg_utils import is_record
+from sglang.srt.arg_groups.arg_utils import field_names, is_record
 from hcu_sglang.config import minimax_opt_enabled, hy3_sp_enabled, register_parallel_options
 from hcu_sglang.layers.quantization.registry import (
     QUANTIZATION_NAME,
@@ -31,7 +31,11 @@ def ensure_choices(server_args) -> bool:
     )
     if not all(hasattr(server_args, name) for name in required):
         return False
+    declared = field_names(server_args.ServerArgs)
     for name, default in HCU_SERVER_ARG_DEFAULTS.items():
+        # Native HCU bases already declare writable constructor fields.
+        if name in declared:
+            continue
         if name == "minimax_opt" and is_record(server_args.ServerArgs):
             # A compatibility read view, not an undeclared write to frozen inputs.
             setattr(server_args.ServerArgs, name, property(lambda _record: minimax_opt_enabled()))
