@@ -1583,3 +1583,9 @@ MLA concat overlay 的 CUDA 专用头文件和 PTX 访存阻止组合 v7 warmup�
 首次修复 b6d8448 给低延迟 setter 补写配置并放开 DeepGEMM 下的 W4A8 vendor 分支，v4 仍由同一消费者校验拒绝。随后 bootstrap 检查确认 native/TBO 均实际引用 plugin dispatcher，但 adapter 的旧 `HCU_DEEPEP_BRIDGE` 已把 vendor `quant_type` API 包成 `use_fp8`，使 plugin 的 ABI 检测为 false。原始失败和 CPU 检查保留于 `candidate-pd/server-v4-node23.log`、`candidate-pd/dispatcher-bootstrap-v1.json`；setter AST 检查仅证明配置赋值，不证明实际路径生效。
 
 现撤去多余的 setter 补写，保留唯一必要的 plugin 行为：已有 `hcu_w4a8_int8_dispatch` 契约可进入 vendor INT8 分支，即使 runner 为 DeepGEMM。关联 adapter 配方设置已有 `HCU_DEEPEP_BRIDGE=0`，保留原生 vendor API，让底座/plugin 处理两种 API。没有修改 checkpoint、重打 SlimQuant 标签、删除 INT8/FP32-scale 校验或关闭目标 graph；实际 P/D 复验继续进行。未新增单测。
+
+## 2026-11-04 MTP 融合 EH norm 的 HIP launch bound
+
+decode v5 已越过原 INT8 错误，但 MTP graph 的实际日志提示 hidden6144 的 EH norm 按 768 threads 启动，而设备代码缺省 launch bound 为 256；不能将后续 graph 捕获完成视为该算子数值有效。overlay 在 HIP 下以现有 `host::norm::get_cta_threads` 声明准确 launch bound，保留线程数、归约、权重乘法与输出拼接；CUDA 路径保留原声明。TensorMatcher 在 HIP 使用真实 ROCm 设备类型。
+
+节点 23 通过实际 JIT API 完成 20 个组合：BF16/FP16、hidden6144 的 0/1/6/128 tokens、连续/行 stride，以及 hidden7168/8192。按底座既有 FP32 参考和 `rtol=atol=1e-2` 检查全部通过，16 个非空组合各做两次变输入/权重且清空输出后的 graph replay，共 32 次；未改变误差门限。原始 launch-bound 日志、编译日志和结果保留在任务产物 `candidate-pd/server-v5-node23.log`、`candidate-pd/fused-eh-norm-check-v1.log`、`candidate-pd/fused-eh-norm-check-v1.json`。此组件检查不代表完整 MTP、生成或 P/D 通过，未新增单测。
