@@ -403,6 +403,7 @@
     "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod.create_moe_runner",
     "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod.process_weights_after_loading",
     "sglang.srt.layers.rotary_embedding.base.RotaryEmbedding.__init__",
+    "sglang.srt.layers.rotary_embedding.base.RotaryEmbedding.forward_cuda",
     "sglang.srt.managers.schedule_batch.Req",
     "sglang.srt.managers.schedule_batch.ScheduleBatch",
     "sglang.srt.managers.schedule_policy.PrefillAdder",

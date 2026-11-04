@@ -8,6 +8,7 @@ The canonical FP32 cache remains owned by the upstream layer and its indexers.
 from __future__ import annotations
 from typing import Optional
 import torch
+from sglang.srt.environ import envs
 from hcu_sglang.utils.detection import is_hcu
 
 _HCU_ROPE_MAX_THREADS = 256
@@ -81,8 +82,9 @@ def _launch_rotary_embedding(
 
 
 class HcuRotaryFallback:
-    def __init__(self, original):
+    def __init__(self, original, *, split_heads=True):
         self.original = original
+        self.split_heads = split_heads
         self._cache_memo = None
 
     def __call__(self, positions, query, key, head_size, cos_sin_cache, is_neox):
@@ -94,16 +96,42 @@ class HcuRotaryFallback:
                 memo = (cache, cache.to(device=query.device, dtype=query.dtype))
                 self._cache_memo = memo
             cache = memo[1]
-        _launch_rotary_embedding(self.original, positions, query, key,
-                                 head_size, cache, is_neox)
+        if self.split_heads:
+            _launch_rotary_embedding(self.original, positions, query, key,
+                                     head_size, cache, is_neox)
+        else:
+            self.original(positions, query, key, head_size, cache, is_neox)
 
 
 def after_rotary_init(result, layer, *args, **kwargs):
-    if is_hcu() and getattr(layer, 'use_fallback_kernel', False):
+    if not is_hcu():
+        return result
+    if envs.SGLANG_HCU_USE_LIGHTOP_ROPE.get() and layer.dtype == torch.bfloat16:
+        from lightop import rotary_embedding_fuse
+
+        layer._hcu_lightop_rope = HcuRotaryFallback(
+            rotary_embedding_fuse, split_heads=False
+        )
+    if getattr(layer, 'use_fallback_kernel', False):
         current = layer.fallback_rotary_embedding
         if not isinstance(current, HcuRotaryFallback):
             layer.fallback_rotary_embedding = HcuRotaryFallback(current)
     return result
+
+
+def forward_cuda(original_fn, layer, positions, query, key, offsets=None,
+                 fused_set_kv_buffer_arg=None):
+    native = getattr(layer, '_hcu_lightop_rope', None)
+    if native is None or fused_set_kv_buffer_arg is not None:
+        return original_fn(
+            layer, positions, query, key, offsets=offsets,
+            fused_set_kv_buffer_arg=fused_set_kv_buffer_arg,
+        )
+    if offsets is not None:
+        positions = positions + offsets
+    native(positions, query, key, layer.head_size, layer.cos_sin_cache,
+           layer.is_neox_style)
+    return query, key
 
 
 def register_hooks():
@@ -111,4 +139,8 @@ def register_hooks():
     HookRegistry.register(
         'sglang.srt.layers.rotary_embedding.base.RotaryEmbedding.__init__',
         after_rotary_init, HookType.AFTER,
+    )
+    HookRegistry.register(
+        'sglang.srt.layers.rotary_embedding.base.RotaryEmbedding.forward_cuda',
+        forward_cuda, HookType.AROUND,
     )

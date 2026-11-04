@@ -15,6 +15,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     'SGLANG_PD_HIDDEN_RECV_POOL_TOKENS': (EnvInt, -1),
     "SGLANG_ENABLE_HICACHE_SWA_TAIL_ONLY_BACKUP": (EnvBool, False),
     "SGLANG_ENABLE_CP_V2": (EnvBool, False),
+    "SGLANG_HCU_USE_LIGHTOP_ROPE": (EnvBool, False),
     "SGLANG_LIGHTOP_KVALLOC_KERNEL": (EnvBool, False),
     "SGLANG_USE_FUSED_SILU_MUL_CLAMP_QUANT": (EnvBool, False),
     'SGLANG_EXPERIMENTAL_LPLB_STATIC_PROBS': (EnvStr, None),

@@ -1597,3 +1597,13 @@ decode v5 已越过原 INT8 错误，但 MTP graph 的实际日志提示 hidden6
 在现有 distributed backend 通过正式 AROUND Hook 为 HCU attention DP>1 选择底座已有的 attention TP/CP 组及同样的广播顺序、src0。独立 attention DP 的请求不共享校验状态；TP/CP 组内仍同步完整 packed verifier state。非 HCU、未启用 DP attention、attention DP1 保留当前有效原实现。没有改变采样、接受判定、随机数、量化或组的构造；SGLang 跟踪源码未改。新增 Hook 同步到当前目标合同；上游按 attention DP 正确区分同步范围后可删除本补丁。
 
 实际底座 helper 经插件发现和 HookRegistry 应用完成 6 个 CPU 组选择检查：覆盖当前 replica DP1/attention DP16、TP4/CP2、replica DP2、attention DP1、关闭 DP attention 和非 HCU。当前配置的原 helper 选择 full-TP 广播，修复后不跨独立请求广播；TP/CP>1 保留同一 packed state、src0 和顺序。已缓存别名随 Hook 更新，公开 `eagle_sample` 对象未变。该检查只用 CPU recorder 替换 group handle，不能证明 GPU collective 或模型精度；结果为 `candidate-pd/eagle-sync-check-v2.json`。首版探针未调用插件发现，其断言失败已保留，未作为运行时反例。项目 L0、导览/迁移快照、Python 语法和 diff 检查通过；完整 GPU 请求和候选 32-rank profile 尚待复验。本次未新增单测，也未执行完整本地测试套件。原始 v7 阻塞证据位于任务产物 `candidate-pd/hang-v7/`。
+
+## 2026-11-05 GLM CT W4A8 的 BF16 RoPE 选择
+
+当前固定 HYGON v0.5.22.plugin 底座在 adapter 的 CUDA 兼容语义下构造 `use_fallback_kernel=False` 的 `RotaryEmbedding`，原有仅包装 fallback 的 Hook 没有覆盖此分支。真实首层 Q/K/位置输入相同，但原生与候选 RoPE 输出不同；两组八 rank 的原生输出可由 BF16 cache 与 BF16 逐步舍入精确重建。
+
+新增默认关闭的 `SGLANG_HCU_USE_LIGHTOP_ROPE`，在 HCU BF16 构造后准备已安装 LightOp 公共接口，复用 typed cache memo，并通过正式 `forward_cuda` AROUND Hook 消费；原始 FP32 cache 保留给框架和 indexer。由 GLM CT W4A8 配方显式启用，不改变其他配方默认值。融合 KV-store 调用保留当前有效原实现。源码不写回框架或 vendor 包，不新增算子实现，不修改量化方案。
+
+第一版复用旧 head 分块的插件探针失败，未进入模型服务。进一步同输入对照确认：两组八 rank 的公共 LightOp 完整 64-head 调用均精确匹配原生，拆成 8-head 调用则有 23861 个输出元素不同。因此正式路径保留 LightOp 自有分发，不沿用为旧 sgl_kernel host 编译边界设置的 head 分块；记录为 `rope-lightop-component-v2.json`。
+
+DTK26.10/Python3.12 镜像中的真实插件发现、构造和 AROUND 分发已通过：两组八 rank 的 Q/K 共 32 项逐元素匹配原生；同一 Graph 更换输入后重放两组 Q/K，也均逐元素匹配。FP32 canonical cache 对象未变，typed memo 为 BF16，关闭开关后的构造保持原分支。记录为任务产物 `rope-runtime-v4.json`；固定参考和捕获哈希见 adapter-das `docs/glm5.3-w4a8-attention-alignment.json`。offsets 与融合 KV-store 保留原语义，但本轮组件不声称覆盖这些调用。移除观测后的六组模型数值合同仍待复测；组件通过不等于模型精度通过。
