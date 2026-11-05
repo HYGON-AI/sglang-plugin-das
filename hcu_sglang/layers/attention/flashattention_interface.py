@@ -12,7 +12,9 @@ from hcu_sglang.utils.detection import is_hcu, is_hcu_native_fp8_supported
 def _layout_enabled() -> bool:
     from sglang.srt.utils import get_bool_env_var
 
-    return get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="true")
+    # default mirrors hcu_sglang.environ (single source): official layout
+    # unless the HCU FA perf-A/B path is explicitly requested.
+    return get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="false")
 
 
 def is_native_fp8(dtype: torch.dtype) -> bool:

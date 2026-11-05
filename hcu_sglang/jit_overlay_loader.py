@@ -50,9 +50,23 @@ def prefer_overlay_headers() -> None:
     DEFAULT_INCLUDE[:] = [overlay_include] + [path for path in DEFAULT_INCLUDE if path != overlay_include]
 
 
+def _overlay_enabled() -> bool:
+    from sglang.srt.utils import get_bool_env_var
+
+    # default mirrors hcu_sglang.environ (single source): the adapter owns
+    # compile-time shims for official sources on DTK (OCML redirect, PDL
+    # stripper, bf16 needles), which already builds official JIT modules.
+    # This fork-source overlay shadows official headers globally and breaks
+    # those builds (0.5.22 stacked run, 2026-11-05), so it is opt-in for
+    # fork semantics / perf A-B only.
+    return get_bool_env_var("SGLANG_HCU_JIT_OVERLAY", default="false")
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    if not _overlay_enabled():
+        return
     prefer_overlay_headers()
     HookRegistry.register(
         "sglang.kernels.jit.utils.compile.loader.load_jit",

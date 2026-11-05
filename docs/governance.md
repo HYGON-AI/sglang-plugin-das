@@ -10,6 +10,7 @@ adapter 和 plugin 独立维护、独立验证；同一 SGLang 部署可以使�
 |---|---|---|
 | 上游参照平台已有行为，HCU 缺失 | adapter 补齐兼容和行为一致性 | ABI/平台/影子库/算子路由 |
 | 上游没有的新融合、新后端或新机制 | plugin 经 seam/注册机制接入 | 新能力实现、Hook、能力门控 |
+| 官方已有的 KV 池布局/算子语义 | 默认走官方；自研 page-major 布局与配套 vllm_ 前缀 HCU FA 算子仅作性能对比（`SGLANG_KV_LAYOUT_HCU_FA` 显式开启，2026-11 起默认关闭——2025 年为 pa 性能引入的布局默认给框架带来持续适配负担） | 官方语义绿灯 + 性能 A/B 记录 |
 | 一个需求同时需要两类工作 | 拆成两仓任务并定义接口 | 依赖关系、两个变更、组合验证 |
 | 只缺 wheel、编译产物或底层库符号 | 交给对应依赖维护方，保留阻塞 | native/package gap 与验收条件 |
 | 框架没有安全扩展点 | 记录最小 integration gap，再决定框架接缝方案 | 接口提案与验证，不静默丢行为 |
@@ -36,14 +37,17 @@ adapter 和 plugin 独立维护、独立验证；同一 SGLang 部署可以使�
 
 `original_fn` 的语义是传给该 Hook 的当前函数，可能已被 adapter 或前序合法 Hook 包装。不要为了回退去重新寻找未经适配的“官方原版”。刻意组合多个 AROUND 时记录顺序及每层原函数传递；不允许无说明的最后一次赋值获胜。
 
-## 3. 独立与组合验证矩阵
+## 3. 组合验证矩阵
+
+adapter 是平台适配底座（HCU/DTK 语义、算子路由、JIT shim、平台合成态）；plugin 按设计为薄业务层，跟随上游升级，**运行时依赖 adapter 的平台底座，不独立于 adapter 运行**。「独立维护、独立验证」（§1）指仓库流程与各自的 L0–L2 测试，不指部署形态；plugin 越薄，跟随上游升级的阻力越小。
 
 | 组合 | 目的 | 结果要求 |
 |---|---|---|
 | 官方基线（参照环境可用时） | 建立行为与指标参照 | 固定 SHA、配置、输入和依赖 |
-| 官方 + adapter | 证明 HCU 基线可用 | adapter 职责范围内的契约与服务验证 |
-| 官方 + plugin | 证明声明的独立运行能力 | 仅对明确支持此形态的能力要求，不强迫依赖 adapter 的能力运行 |
-| 官方 + adapter + plugin | 证明目标部署组合可用 | 接线、fallback、数值/graph、服务和适用性能指标 |
+| 官方 + adapter | 证明 HCU 平台底座可用 | adapter 职责范围内的契约与服务验证 |
+| 官方 + adapter + plugin | 证明目标部署组合可用 | 接线、fallback、数值/graph、服务和适用性能指标；plugin 替换不得破坏 adapter 基线已验证的语义（官方单测按 nodeid 与 adapter 基线 diff，设计声明过的替换登记为 controlled-diff，不许静默红/静默改断言） |
+
+「官方 + plugin（无 adapter）」**不是验收组合**：仅作故障定位的诊断手段（区分问题出自 adapter 还是 plugin），不设通过标准、不进门禁。plugin 的厚度以每次上游升级时「官方 + adapter + plugin」组合的修复量度量，该指标只增不减时必须复盘归属是否漂移。
 
 无法执行的组合写 `pending` 或有理由的 `not-applicable`。版本记录至少包括 official/plugin SHA，使用 adapter 时加 adapter SHA，再记录镜像、挂载、依赖、硬件与参数。不得假定任何两个最新 HEAD 都兼容。
 
