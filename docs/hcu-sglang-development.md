@@ -2694,3 +2694,25 @@ Phase 1 遗留的组合栈 "Multiple AROUND hooks" 告警（6 目标 ×4 进程 
 **134 tok/s 异常排查（已定案为服务器进程态，非代码非硬件）**：双注册收敛 build 首轮 8 并发仅 134.7/134.2 tok/s（上午 afef8ad 同配置 324.6）。三方同时段对照：A=6d38aae@GPU0,1（重启后）**516.8**、B=afef8ad@GPU2,3 **510.6**、C=6d38aae@GPU4,5 **509.2**——同代码跨卡对、同卡对前后代码全部 ±1.5% 内一致。结论：134 是当日多基准并发混跑后留下的进程态劣化（重启即愈），**代码无回归**；上午 324.6 亦偏低（JIT 缓存冷的首个 boot），第二轮 warm cache 后全栈 ~510-517。教训入库：**同服务器跨窗口 perf 数字不可直比，A/B 必须同窗口双服并跑**（本轮 B/C 对照法）。
 
 **验收汇总（6d38aae）**：起服全图捕获 ✓；AROUND 双挂告警 24→0 ✓；正确性冒烟 ✓；GSM8K 96.5% ✓；8 并发×256tok 516.8 tok/s（同窗口 afef8ad 基线 510.6，+1.2% 噪声内）✓。
+
+## 2026-11-05 DeepSeek MoE 捕获期双流在 HCU 上关闭
+
+完成模块/行为：`hcu_sglang/models/deepseek/deepseek_v2/methods/moe.py` 的 `forward` 在进入 `forward_normal_dual_stream` 的条件中增加 `not C._is_hcu`。HCU 上 CUDA Graph 捕获期不再把 shared experts 放到 `alt_stream`，改走单流 `forward_normal`；非 HCU 平台、eager 模式、`alt_stream is None` 以及已有的 breakable graph 分支行为不变。attention 与 indexer 的 `alt_stream` 不变。
+
+问题来源：官方 sglang 上 adapter 的 `moe_dualstream_gate` 只作用于上游 `DeepseekV2MoE.forward` 这个函数对象（早期为文本补丁，现为运行时换绑，判据 `torch.version.hip`）。plugin 的 REPLACE 钩子替换了整个 `forward`，adapter 的门就不生效了。DTK 上捕获的跨流 MoE 在 replay 时结果错误：eager 正确，decode graph 首 token 正确，之后全是乱码。本修复让 plugin 自带同一个平台门，不再依赖 adapter 对上游函数的适配。
+
+实际验证（HY4 W4A8，单机 TP8，官方 sglang v0.5.22 baa9bef + adapter-das 1a5ff5c + 本仓 2edc8bc，`--disable-prefill-cuda-graph`）：
+- 修复前 decode graph 下 chat 探针输出乱码。
+- 修复后 chat 探针 3/3 命中，gsm8k 前 10 题 10/10。
+- 对照实验：只关 MoE `alt_stream`、保留 attention/indexer 的 `alt_stream`，结果同样正确，说明问题只在 MoE 跨流。
+
+未验证模式：
+- prefill graph：开启后输出仍然错误，plugin 关闭时也错，与本修复无关，单独追查。
+- PD、DP attention、DeepEP、其他 DeepSeek 系模型、多机。
+- 修复前后的 decode 性能 A/B。
+
+已知限制与下一步：
+- 本门在 HCU 上放弃了捕获期 shared experts 与 routed experts 的流间重叠。DTK 修复跨流 graph replay 后可以去掉。
+- 本次组合验证还依赖：
+  - adapter-das 同批 PR（platform_seam、sparse FlashMLA 分块、paged MQA 调度表用 lightop 规划器、HYV4 CT scale 命名、weak_ref torch 路由）；
+  - 尚未入库的 `jit_overlay` 问题：与官方一致的影子文件会遮蔽 adapter 的 JIT 补丁，单独处理。

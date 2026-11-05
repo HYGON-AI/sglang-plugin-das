@@ -468,6 +468,7 @@ def forward(
             and hidden_states.shape[0] > 0
             and N0.get_is_capture_mode()
             and not N0.is_in_breakable_cuda_graph()
+            and not C._is_hcu
         ):
             return self.forward_normal_dual_stream(
                 hidden_states,
