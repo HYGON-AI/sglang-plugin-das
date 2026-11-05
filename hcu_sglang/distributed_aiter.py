@@ -197,7 +197,7 @@ def dispatch_custom_allreduce(
         S.logger.info(
             "[AR] Using AiterCustomAllreduce (%s, transport=%s, "
             "enable_register_for_capturing=%s)",
-            "HCU" if is_hcu() else "AMD",
+            "HCU",
             transport,
             enable_reg,
         )
@@ -248,7 +248,7 @@ def dispatch_custom_allreduce(
     else:
         S.logger.debug("[AR] All-reduce: default")
 
-    # On AMD with 1-stage AR, use sglang's CustomAllreduce
+    # Deterministic 1-stage AR path: use sglang's CustomAllreduce
     # (AiterCustomAllreduce doesn't have deterministic_all_reduce method).
     if S._use_amd_deterministic_impl():
         return S.CustomAllreduce

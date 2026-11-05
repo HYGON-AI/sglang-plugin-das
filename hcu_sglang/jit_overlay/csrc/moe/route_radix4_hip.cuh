@@ -32,7 +32,7 @@
 #pragma once
 
 #ifndef USE_ROCM
-#error "route_radix4_hip.cuh targets CDNA; it uses amdgcn DPP and wave64 ballots"
+#error "route_radix4_hip.cuh targets the HIP/ROCm wave64 stack; it uses amdgcn DPP and wave64 ballots"
 #endif
 
 #include <sgl_kernel/tensor.h>
