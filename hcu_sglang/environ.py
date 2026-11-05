@@ -17,6 +17,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_ENABLE_CP_V2": (EnvBool, False),
     "SGLANG_HCU_USE_LIGHTOP_ROPE": (EnvBool, False),
     "SGLANG_HCU_W8A8_USE_LIGHTOP": (EnvBool, False),
+    "SGLANG_HCU_GLM_CT_BF16_ROUTER": (EnvBool, False),
     "SGLANG_LIGHTOP_KVALLOC_KERNEL": (EnvBool, False),
     "SGLANG_USE_FUSED_SILU_MUL_CLAMP_QUANT": (EnvBool, False),
     'SGLANG_EXPERIMENTAL_LPLB_STATIC_PROBS': (EnvStr, None),

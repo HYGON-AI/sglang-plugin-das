@@ -58,6 +58,14 @@ def __init__(
             else (torch.bfloat16 if is_glm_next else torch.get_default_dtype()),
         )
     )
+    self._hcu_bf16_router = (
+        N.envs.SGLANG_HCU_GLM_CT_BF16_ROUTER.get()
+        and N.is_glm_moe_dsa(config)
+        and quant_config is not None
+        and quant_config.get_name() == "compressed_tensors"
+        and not is_hash_moe
+        and not self.is_deepseek_v4
+    )
     if config.topk_method == "noaux_tc" and not is_hash_moe:
         correction_bias_dtype = torch.float32
         # GLM-5.2's bias sits at an offset where its spread is only a few bf16 ULPs
@@ -99,12 +107,17 @@ def __init__(
 def forward(
     self,
     hidden_states,
-    gemm_output_zero_allocator: BumpAllocator = None,
-    forward_batch: ForwardBatch = None,
+    gemm_output_zero_allocator: N.BumpAllocator = None,
+    forward_batch: N.ForwardBatch = None,
 ):
     if self.weight.dtype == torch.float32:
         return N.F.linear(hidden_states.float(), self.weight)
     hidden_states = hidden_states.to(self.weight.dtype)
+
+    # Native GLM CT returns BF16 logits. Keeping extra FP32 precision can
+    # change the selected experts even when BF16-rounded projections agree.
+    if self._hcu_bf16_router and self.weight.dtype == torch.bfloat16:
+        return N.F.linear(hidden_states, self.weight)
 
     if N.use_intel_amx_backend(self):
         return torch.ops.sgl_kernel.weight_packed_linear(

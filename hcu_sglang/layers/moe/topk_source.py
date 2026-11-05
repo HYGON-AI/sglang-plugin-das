@@ -280,7 +280,9 @@ def moe_fused_gate_hcu(
     routed_scaling_factor: float,
     apply_routed_scaling_factor_on_output: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    topk_weights, topk_ids = op.moe_fused_gate(
+    from lightop import moe as lightop_moe
+
+    topk_weights, topk_ids = lightop_moe.moe_fused_gate(
         gating_output,
         correction_bias,
         num_expert_group,
@@ -314,8 +316,9 @@ def moe_fused_gate_fake(
     )
 
 
+# The base module already owns its import-time op; keep this provider distinct.
 direct_register_custom_op(
-    op_name="moe_fused_gate_hcu",
+    op_name="hcu_moe_fused_gate",
     op_func=moe_fused_gate_hcu,
     mutates_args=[],
     fake_impl=moe_fused_gate_fake,
@@ -2265,8 +2268,10 @@ def biased_grouped_topk_gpu(
             True,
             apply_routed_scaling_factor_on_output,
         )
-    elif _use_lightop:
-        topk_weights, topk_ids = torch.ops.sglang.moe_fused_gate_hcu(
+    elif _use_lightop or (
+        envs.SGLANG_LIGHTOP_TOPK.get() and renormalize and not dynamic_bias
+    ):
+        topk_weights, topk_ids = torch.ops.sglang.hcu_moe_fused_gate(
             gating_output,
             correction_bias,
             num_expert_group,
