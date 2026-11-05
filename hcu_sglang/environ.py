@@ -73,7 +73,15 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_HCU_MEGA_MOE_RUNTIME": (EnvStr, "deep_gemm"),
     "SGLANG_K3_DENSE_MLP_ATTN_TP": (EnvBool, False),
     "SGLANG_K3_SHARED_EXPERTS_ATTN_TP": (EnvBool, False),
-    "SGLANG_KV_LAYOUT_HCU_FA": (EnvBool, True),
+    # HCU FA page-major KV layout: opt-in only. 2026-11 reversed the 2025
+    # default — official pool layouts (token-major 3D / official paged) are
+    # the default now; this layout stays for perf A/B with the vllm_-prefixed
+    # HCU FA attention kernels that consume it.
+    "SGLANG_KV_LAYOUT_HCU_FA": (EnvBool, False),
+    # Fork-source JIT overlay: opt-in only. The adapter already owns DTK
+    # compile-time shims for official sources; the overlay's global header
+    # shadowing breaks official-source JIT builds in stacked runs.
+    "SGLANG_HCU_JIT_OVERLAY": (EnvBool, False),
     "SGLANG_LIGHTOP_TOPK": (EnvBool, False),
     "SGLANG_NPU_FUSED_MOE_MODE": (EnvInt, 1),
     "SGLANG_OPT_DEEPGEMM_MEGA_MOE_USE_FP4_ACTS": (EnvBool, False),

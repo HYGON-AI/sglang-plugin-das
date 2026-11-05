@@ -17,7 +17,9 @@ for _name in ("build_dsa_tail_transfer_blocks", "build_transfer_entry_pairs", "c
     if hasattr(U, _name):
         globals()[_name] = getattr(U, _name)
 _is_hcu = is_hcu()
-_kv_layout_hcu_fa = _is_hcu and get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="true")
+# default mirrors hcu_sglang.environ (single source): official layout unless
+# the HCU FA perf-A/B path is explicitly requested.
+_kv_layout_hcu_fa = _is_hcu and get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="false")
 
 class MooncakeKVManagerMethods:
     def __init__(
