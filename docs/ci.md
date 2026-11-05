@@ -27,15 +27,22 @@ python3 -m unittest discover -s tests -v
 
 接入时需明确平台、触发事件、Python 版本、工作目录、凭据使用方式、日志与退出码，再做一次真实触发验证。参考 adapter 的分层思路，不直接复制其镜像、硬件占用策略和已有门禁脚本。
 
-## 3. 后续运行时门禁规划
+## 3. 验证分层与运行时门禁规划
 
-| 层 | 内容 | 条件 | 当前状态 |
-|---|---|---|---|
-| L0 | 结构、资源、配置/声明一致性 | CPU | 当前方法库版本已实现；运行时规则待扩展 |
-| CPU 运行时契约 | entry point、注册集合、target、配置/依赖门控与 fallback | 对应业务包和可控依赖/mock | 按本次范围执行 |
-| 组合集成 | official + plugin、official + adapter + plugin 等声明组合 | 固定 SHA、明确加载顺序与接口 | 规划，按能力适用性选择 |
-| HCU 数值与 Graph | reference 对拍、cache/状态、变输入 replay | 合适设备与依赖 | 按本次范围执行 |
-| 服务与性能 | 模型加载、prefill/decode、拓扑、精度、预热 A/B | 明确资源窗口、模型/数据 | 按本次范围执行 |
+| 层 | 内容 | 环境依赖 | 责任归属（红了怪谁） | 当前状态 |
+|---|---|---|---|---|
+| L0 | 纯 CPU 结构/合约单测：AST、Skill/资源、链接、阶段边界、工具契约 | 无 GPU、无 sglang | 本仓结构 | 已实现（`ci/l0_gate.py` + unittest discover） |
+| L1 | vendor 算子库准入单测：直调 lightop/aiter 等内部算子库**原生 API** 的数值与支持面准入 | GPU（或 mock），无 sglang 树 | 算子库/准入清单 | 规划；散见 adapter 仓 tests/kernels 的对拍资产待按边界收编 |
+| L1.5 | 对应 sglang 版本的 layer 层单测：tiny Engine model smoke（5 家族 × eager/graph）+ 官方 `test/registered` 选测；adapter 格与 adapter+plugin 格复用同一清单，nodeid 级 diff | GPU + sglang 树（+adapter） | sglang 集成；叠加差异归 plugin | 工具已备（adapter 仓 `tools/l15_model_smoke`，三树 adapter 格全绿）；adapter+plugin 格接入中 |
+| L1.6 | plugin 补充的 layer 层单测：特有模型 tiny 家族（bailing/dspark/hunyuan/glm4_moe/minimax_m2/qwen3_5）、layer hook 直调断言 | GPU + sglang 树 + adapter + plugin | plugin | 规划；雏形为 `tests/runtime/` 单点，待正名收编（vendor 原生 API 直调的归 L1） |
+| L2 | 端到端模型单测：真实权重、请求/服务、gsm8k 数值、serving 冒烟 | GPU + 权重 + 组合部署 | 部署组合整体 | 按需执行（gsm8k 工具已有） |
+
+边界口径与放行顺序：
+
+- **L1/L1.5 按「被测对象归属」划**：测 vendor 库原生 API → L1；测 sglang 封装后的算子路径（会被 adapter seam 替换）→ L1.5。
+- **L1.6 与 L1.5 平行**（同层深度的 plugin 专属补充），不是更深；编号不表示深度递进。
+- **放行顺序**：adapter 格 L1.5 绿 → adapter+plugin 格 L1.5 diff 干净 → L1.6 绿 → L2；每级失败定位到唯一责任仓，不得假定任何两个最新 HEAD 兼容。
+- 「官方 + plugin（无 adapter）」不是验收组合，仅诊断（见 [governance](governance.md#3-组合验证矩阵)）；L2 天然只有组合格。
 
 首次引入 `pyproject.toml` 或运行时目录时，要先更新 [架构阶段](architecture.md#4-未来运行时目录规划)、L0 的当前排除约束与相应测试。不能只删除禁止规则而不增加运行时质量约束。
 
