@@ -287,8 +287,8 @@ def coordinator_init(
         )
         if P.is_hip() and use_quick_custom_allreduce and not suppress_qr:
             try:
-                # Initialize a custom quick all-reduce implementation for AMD
-                # when rocm >= gfx942. Quick reduce is designed as a
+                # Initialize a custom quick all-reduce implementation on the
+                # HIP stack when rocm >= gfx942. Quick reduce is designed as a
                 # complement to custom allreduce.
                 # Based on quickreduce (https://github.com/mk1-project/quickreduce).
                 if qr_rocm_arch_available():

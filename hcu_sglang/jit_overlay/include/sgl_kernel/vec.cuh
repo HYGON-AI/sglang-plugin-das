@@ -78,7 +78,7 @@ struct AlignedVector {
  private:
   static_assert(
       (N > 0 && (N & (N - 1)) == 0) && sizeof(T) * N <= kMaxVecBytes,
-      "CUDA vector size exceeds arch limit: max 16 bytes on pre-Blackwell/AMD, "
+      "CUDA vector size exceeds arch limit: max 16 bytes on pre-Blackwell/HIP, "
       "32 bytes on Blackwell or greater");
   using element_t = typename details::sized_int<T>;
   using storage_t = AlignedStorage<element_t, N>;
