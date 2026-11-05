@@ -10,10 +10,10 @@
 |---|---|---|
 | 官方参照 | 行为与指标基线 | 在该参照环境可用时执行 |
 | 官方 + adapter | HCU 适配基线 | 目标部署使用 adapter 时执行 |
-| 官方 + plugin | plugin 声明的独立工作能力 | 仅对明确支持此组合的能力执行 |
-| 官方 + adapter + plugin | 真正部署的组合行为 | 目标部署使用两仓时必须单独验收 |
+| 官方 + adapter + plugin | 真正部署的组合行为 | 目标部署使用两仓时必须单独验收；plugin 替换不得破坏 adapter 基线语义（官方单测 nodeid diff，声明过的替换记 controlled-diff） |
+| 官方 + plugin（无 adapter） | 仅故障定位诊断 | 不是验收组合：plugin 运行时依赖 adapter 平台底座，不设通过标准、不进门禁 |
 
-adapter 与 plugin 的独立测试都通过，仍不能替代组合测试。依赖 adapter 的能力不强行要求“官方 + plugin”通过；用 not-applicable 说明设计条件。
+adapter 与 plugin 的独立测试都通过，仍不能替代组合测试。plugin 按设计不独立于 adapter 运行；「官方 + plugin」仅用于区分问题出自 adapter 还是 plugin 的诊断。
 
 ## 2. 分层验证矩阵
 

@@ -52,7 +52,9 @@ from sglang.srt.disaggregation.mooncake.conn import (
 )
 from hcu_sglang.disagg.utils import build_transfer_entry_pairs
 _is_hcu = is_hcu()
-_kv_layout_hcu_fa = _is_hcu and get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="true")
+# default mirrors hcu_sglang.environ (single source): official layout unless
+# the HCU FA perf-A/B path is explicitly requested.
+_kv_layout_hcu_fa = _is_hcu and get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="false")
 
 class MooncakeKVManagerMethods:
     def __init__(
