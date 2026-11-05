@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from array import array
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple, Optional, cast
@@ -204,6 +205,31 @@ def free_kv_row_segments(
         allocator.free_segments(swa_alive)
 
 
+_SWA_TAIL_TAKES_REQ: dict[type, bool] = {}
+
+
+def _swa_reprefill_tail_tokens(tree_cache: BasePrefixCache, req: Req) -> int:
+    # Signature dispatch: the fork tree and this repo's prefix_protocol classes
+    # declare swa_reprefill_tail_tokens(self, req=None); official 0.5.22 is
+    # parameterless (unified_radix_cache.py:3602). The REPLACE hook runs against
+    # both trees, so resolve per class (cached) and call accordingly — a plain
+    # (req) call crashes launch_server on the official tree with
+    # "takes 1 positional argument but 2 were given" (2026-11-05 pip-image smoke).
+    cls = type(tree_cache)
+    takes_req = _SWA_TAIL_TAKES_REQ.get(cls)
+    if takes_req is None:
+        try:
+            takes_req = "req" in inspect.signature(
+                cls.swa_reprefill_tail_tokens
+            ).parameters
+        except (AttributeError, ValueError):  # no such method / signature fails
+            takes_req = False
+        _SWA_TAIL_TAKES_REQ[cls] = takes_req
+    if takes_req:
+        return tree_cache.swa_reprefill_tail_tokens(req)
+    return tree_cache.swa_reprefill_tail_tokens()
+
+
 def _req_radix_key(
     tree_cache: BasePrefixCache,
     req: Req,
@@ -212,7 +238,7 @@ def _req_radix_key(
 ) -> RadixKey:
     # A reused prefix may carry stale or unwritten SWA (the unified_kv ring, decoder
     # bounded replay); cap the match so the window is re-prefilled.
-    reprefill_tail = tree_cache.swa_reprefill_tail_tokens(req)
+    reprefill_tail = _swa_reprefill_tail_tokens(tree_cache, req)
     key_limit = max(0, len(token_ids) - reprefill_tail) if reprefill_tail else None
     if max_prefix_len is not None:
         key_limit = (
