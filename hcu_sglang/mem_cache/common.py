@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import logging
 from array import array
@@ -208,6 +209,15 @@ def free_kv_row_segments(
 _SWA_TAIL_TAKES_REQ: dict[type, bool] = {}
 
 
+def _match_prefix_params(**kwargs: Any) -> MatchPrefixParams:
+    # Field-filtering dispatch: fork MatchPrefixParams accepts return_full_match;
+    # official 0.5.22 declares key/cow_mamba/req only — drop unsupported kwargs
+    # instead of crashing match_kv_cache on the official tree
+    # ("got an unexpected keyword argument", 2026-11-05 pip-image smoke).
+    allowed = {f.name for f in dataclasses.fields(MatchPrefixParams)}
+    return MatchPrefixParams(**{k: v for k, v in kwargs.items() if k in allowed})
+
+
 def _swa_reprefill_tail_tokens(tree_cache: BasePrefixCache, req: Req) -> int:
     # Signature dispatch: the fork tree and this repo's prefix_protocol classes
     # declare swa_reprefill_tail_tokens(self, req=None); official 0.5.22 is
@@ -272,7 +282,7 @@ def match_kv_cache(
         token_ids = req.origin_input_ids + req.output_ids
 
     match_result = tree_cache.match_prefix(
-        MatchPrefixParams(
+        _match_prefix_params(
             key=_req_radix_key(tree_cache, req, token_ids, max_prefix_len),
             return_full_match=return_full_match
             or bool(tree_cache.swa_reprefill_tail_tokens()),
