@@ -563,6 +563,8 @@ def fused_experts_impl_w4a8_triton(
     routed_scaling_factor: float,
     num_local_tokens: Optional[torch.Tensor] = None,
     shared_output: Optional[torch.Tensor] = None,
+    situ_beta: float = 1.0,
+    situ_linear_beta: Optional[float] = None,
 ) -> torch.Tensor:
     """Run SlimQuant W4A8 Triton MoE GEMMs without Marlin repack."""
     assert hidden_states.ndim == 2 and hidden_states.is_contiguous()
@@ -663,6 +665,17 @@ def fused_experts_impl_w4a8_triton(
             activated = F.silu(gate) * up
         elif activation == "gelu":
             activated = F.gelu(gate) * up
+        elif activation == "situ":
+            # Kimi K3 SituGLU, matching upstream SituAndMul.forward_native:
+            # gate = beta*tanh(gate/beta)*sigmoid(gate); up is softly clipped
+            # by linear_beta when set. fp32 compute, cast back like the
+            # fused op does.
+            gate_f = gate.float()
+            up_f = up.float()
+            gated = situ_beta * torch.tanh(gate_f / situ_beta) * torch.sigmoid(gate_f)
+            if situ_linear_beta is not None:
+                up_f = situ_linear_beta * torch.tanh(up_f / situ_linear_beta)
+            activated = (gated * up_f).to(gate.dtype)
         else:
             raise ValueError(f"Unsupported FusedMoE activation: {activation}")
 
@@ -1668,6 +1681,13 @@ class SlimQuantW4A8Int8TritonMoEMethod:
             if self.moe_runner_config.routed_scaling_factor is not None
             else 1.0
         )
+        # Kimi K3 situ betas ride the runner config (KimiK3MoE passes
+        # activation_situ_beta/linear_beta as gemm1_alpha/gemm1_clamp_limit).
+        situ_beta = getattr(self.moe_runner_config, "gemm1_alpha", None)
+        situ_beta = 1.0 if situ_beta is None else float(situ_beta)
+        situ_linear_beta = getattr(self.moe_runner_config, "gemm1_clamp_limit", None)
+        if situ_linear_beta is not None:
+            situ_linear_beta = float(situ_linear_beta)
         return fused_experts_impl_w4a8_triton(
             x,
             layer.w13_weight,
@@ -1683,6 +1703,8 @@ class SlimQuantW4A8Int8TritonMoEMethod:
             w2_scale=layer.w2_weight_scale,
             routed_scaling_factor=routed_scaling_factor,
             shared_output=shared_output,
+            situ_beta=situ_beta,
+            situ_linear_beta=situ_linear_beta,
         )
 
     @torch._dynamo.disable()  # TODO: 性能优化需lmslim/lightop配合
@@ -1782,6 +1804,15 @@ class SlimQuantW4A8Int8TritonMoEMethod:
             device=x.device,
             dtype=x.dtype,
         )
+        # Same situ betas as _apply_triton: the EP path serves the same
+        # Kimi K3 runner config. apply_ep may be driven without one, hence
+        # the double getattr.
+        rc = getattr(self, "moe_runner_config", None)
+        situ_beta = getattr(rc, "gemm1_alpha", None)
+        situ_beta = 1.0 if situ_beta is None else float(situ_beta)
+        situ_linear_beta = getattr(rc, "gemm1_clamp_limit", None)
+        if situ_linear_beta is not None:
+            situ_linear_beta = float(situ_linear_beta)
         return fused_experts_impl_w4a8_triton(
             x,
             w1,
@@ -1798,6 +1829,8 @@ class SlimQuantW4A8Int8TritonMoEMethod:
             routed_scaling_factor=float(routed_scaling_factor),
             num_local_tokens=num_local_tokens,
             shared_output=None,
+            situ_beta=situ_beta,
+            situ_linear_beta=situ_linear_beta,
         )
 
 
