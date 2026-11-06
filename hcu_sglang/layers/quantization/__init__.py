@@ -7,8 +7,12 @@ logger = logging.getLogger(__name__)
 
 def register_hooks() -> None:
     from hcu_sglang.layers.quantization import (
+        auto_round,
         fp8,
         gptq,
+        kv_cache,
+        moe_wna16,
+        quark_w8a8_fp8_moe,
         registry,
         unquantized_aiter,
         unquantized_marlin,
@@ -17,8 +21,12 @@ def register_hooks() -> None:
         w8a8_lightop,
     )
 
+    auto_round.register_hooks()
+    kv_cache.register_hooks()
+    moe_wna16.register_hooks()
     fp8.register_hooks()
     gptq.register_hooks()
+    quark_w8a8_fp8_moe.register_hooks()
     w8a8_fp8.register_hooks()
     registry.register_hooks()
     unquantized_aiter.register_hooks()

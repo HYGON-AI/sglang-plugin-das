@@ -119,7 +119,17 @@ def _call_without_kv_store(original_fn, *args, **kwargs):
 
 
 def around_forward_extend(original_fn, *args, **kwargs):
-    return _call_without_kv_store(original_fn, *args, **kwargs)
+    if not is_hcu():
+        return _call_without_kv_store(original_fn, *args, **kwargs)
+    from hcu_sglang.layers.attention import flashattention_interface
+
+    metadata = getattr(args[0], "forward_metadata", None) if args else None
+    max_seq_len_k = getattr(metadata, "max_seq_len_k", None)
+    previous = flashattention_interface._set_current_max_seq_len_k(max_seq_len_k)
+    try:
+        return _call_without_kv_store(original_fn, *args, **kwargs)
+    finally:
+        flashattention_interface._set_current_max_seq_len_k(previous)
 
 
 def around_forward_decode(original_fn, *args, **kwargs):

@@ -1,0 +1,337 @@
+{
+  "schema_version": 1,
+  "source_head": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+  "semantics": "Every changed Source definition is AST-equal to the identified owned definition. Module globals and runtime behavior remain separate scopes.",
+  "files": [
+    {
+      "source": "python/sglang/srt/layers/attention/debug_flash_mla_adapter.py",
+      "owned": "hcu_sglang/layers/attention/debug_flash_mla_adapter.py",
+      "callers": [
+        "hcu_sglang/__init__.py"
+      ],
+      "definitions": [
+        {
+          "source": "_unpack_nope_fp8_rope_bf16_parts",
+          "owned": "_unpack_nope_fp8_rope_bf16_parts",
+          "ast_sha256": "72f1fe7a192226707950498c769fc2d233691e0618ccbeb8adc16e63e71d7dfc"
+        },
+        {
+          "source": "_accumulate_cache_tiles",
+          "owned": "_accumulate_cache_tiles",
+          "ast_sha256": "e3ea987ffa2c87c4d3f84b28730c587b6c321428a44170901f54ace0aff2c880"
+        },
+        {
+          "source": "torch_native_flash_mla_with_kvcache",
+          "owned": "torch_native_flash_mla_with_kvcache",
+          "ast_sha256": "a747e41d78b4e855c415499ce579f69e798f701d34da979337a03b2cf6ee59c9"
+        },
+        {
+          "source": "flash_mla_with_kvcache_entrypoint",
+          "owned": "flash_mla_with_kvcache_entrypoint",
+          "ast_sha256": "87534e04b3fdfe135f7ba25de6e01eea490bb7eaf0a7652b31baaf4dc57ca102"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/dsa_indexer.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/indexer.py",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/__init__.py"
+      ],
+      "definitions": [
+        {
+          "source": "_hcu_paged_mqa_logits",
+          "owned": "_hcu_paged_mqa_logits",
+          "ast_sha256": "7e03186f30db8a7c9630f5430ccfab6c5d09f8751477062398fa3699232e5994"
+        },
+        {
+          "source": "_hcu_mqa_logits",
+          "owned": "_hcu_mqa_logits",
+          "ast_sha256": "9a7ea82db4cfebc04859374a247d3c2ce59dc1211df2eff342cf8e8c1f366dec"
+        },
+        {
+          "source": "Indexer",
+          "owned": "Indexer",
+          "ast_sha256": "4a9a9d46e6f434961b531676a4fa72abcd4e435181aba238aee2db9272a2d0ce"
+        },
+        {
+          "source": "Indexer.__init__",
+          "owned": "Indexer.__init__",
+          "ast_sha256": "644a9a4ee7a41b4ceb2ec2f719d390e65c0860f92571761c5408eb2e8569be3e"
+        },
+        {
+          "source": "Indexer._use_hcu_bf16_index_cache",
+          "owned": "Indexer._use_hcu_bf16_index_cache",
+          "ast_sha256": "38a7801975e583ddf0226c8793afe4cbb1b9cfc6b56baa96166997c05391a1b6"
+        },
+        {
+          "source": "Indexer._use_hcu_int8_index_cache",
+          "owned": "Indexer._use_hcu_int8_index_cache",
+          "ast_sha256": "91cd814743a31a1ef3ef02c480456510321278d414a7a8f2f57a4e84d9358a5e"
+        },
+        {
+          "source": "Indexer._use_hcu_bf16_indexer_compute",
+          "owned": "Indexer._use_hcu_bf16_indexer_compute",
+          "ast_sha256": "0b6accf6b05819abacadb7a757b663a6719482ed97abbca55ba5d515fd979abd"
+        },
+        {
+          "source": "Indexer._get_gate_input_tensor",
+          "owned": "Indexer._get_gate_input_tensor",
+          "ast_sha256": "3197e2a87df61a1dd61a979ba8da2609497cf07b5813f2332835e467ee8713cd"
+        },
+        {
+          "source": "Indexer._get_bf16_logits_head_gate",
+          "owned": "Indexer._get_bf16_logits_head_gate",
+          "ast_sha256": "c71431ec2413cdb9385475d800cee580d4e16e33354c1fb8e8c0fa82077040dd"
+        },
+        {
+          "source": "Indexer._hcu_fused_qk_quant_and_store",
+          "owned": "Indexer._hcu_fused_qk_quant_and_store",
+          "ast_sha256": "0614043cedf1db3a1189ec463d0c2b5dc3b8e746a10ce0dffd84f62b0cacba22"
+        },
+        {
+          "source": "Indexer._weights_proj_bf16_in_fp32_out",
+          "owned": "Indexer._weights_proj_bf16_in_fp32_out",
+          "ast_sha256": "287822153f6faff640c9c9eaac7920e05006eac62f004810c8e07858e6787220"
+        },
+        {
+          "source": "Indexer._get_logits_head_gate",
+          "owned": "Indexer._get_logits_head_gate",
+          "ast_sha256": "d31b4d852f05e2a00d4063db3f5596cfac80dc1cfc30ba8a59289a6add164cc3"
+        },
+        {
+          "source": "Indexer._gfx950_fused_decode",
+          "owned": "Indexer._gfx950_fused_decode",
+          "ast_sha256": "a1c17354dd17911f0ef77caeedd0e22e951a6fcded5ef5c058bc31957a61fba7"
+        },
+        {
+          "source": "Indexer._should_skip_logits_computation",
+          "owned": "Indexer._should_skip_logits_computation",
+          "ast_sha256": "12cafb45dba6c5bad63d21d313a7d4632a7900e8725750675f75e36ab514f5f1"
+        },
+        {
+          "source": "Indexer._get_q_k_bf16",
+          "owned": "Indexer._get_q_k_bf16",
+          "ast_sha256": "a087d3e4dff6da4cc6283feb36c13cb8d779947212a6c81a51fb39ba4cdd3a42"
+        },
+        {
+          "source": "Indexer._get_hcu_paged_index_k_cache",
+          "owned": "Indexer._get_hcu_paged_index_k_cache",
+          "ast_sha256": "68e81d3d8788de067740c7a5e87bf8f9f1d151fe9f8c6d66de9c015affb47bce"
+        },
+        {
+          "source": "Indexer._get_hcu_int8_paged_index_k_cache",
+          "owned": "Indexer._get_hcu_int8_paged_index_k_cache",
+          "ast_sha256": "784cc8dbe3791070b871a81eb147cc2cfb18d3408ac2bd7d60d5d1e222a6b2c1"
+        },
+        {
+          "source": "Indexer._prepare_hcu_int8_paged_query",
+          "owned": "Indexer._prepare_hcu_int8_paged_query",
+          "ast_sha256": "f1c28c32ffd2fb1349592aba9b5064bcd62f99c6ad17bd435b931b78b0c7130e"
+        },
+        {
+          "source": "Indexer._get_topk_paged",
+          "owned": "Indexer._get_topk_paged",
+          "ast_sha256": "a0d60ace7b6e95f9ba88303226a2d89fb85a3b73a0fa88704da955357b8bc8fd"
+        },
+        {
+          "source": "Indexer._get_mqa_logits_budget_bytes",
+          "owned": "Indexer._get_mqa_logits_budget_bytes",
+          "ast_sha256": "df5b264eb820b75c5e47a7745f316f9531fa4c41feaec1ab4f738ebaad18b54f"
+        },
+        {
+          "source": "Indexer._legacy_mqa_logits_chunk_decision",
+          "owned": "Indexer._legacy_mqa_logits_chunk_decision",
+          "ast_sha256": "a87f3a942cd702848ab7f21110dd52a380497a1993f60766ad83c50bd4d199c4"
+        },
+        {
+          "source": "Indexer._get_topk_ragged",
+          "owned": "Indexer._get_topk_ragged",
+          "ast_sha256": "aea1771201ff36b73b48af7aeedf4f51d76420b99f9edb5093fa8f73c055c0be"
+        },
+        {
+          "source": "Indexer._forward_cuda_k_only",
+          "owned": "Indexer._forward_cuda_k_only",
+          "ast_sha256": "2dd964b89e8b08d5a10081b016e7e01b8f463c2eaa08caf545640fb0278b7b81"
+        },
+        {
+          "source": "Indexer._get_topk_ragged_with_cp",
+          "owned": "Indexer._get_topk_ragged_with_cp",
+          "ast_sha256": "a22d63bc4ec6e6a447e0e2557d0caba4dd70c020231d5af40dc8a49fbf553d14"
+        },
+        {
+          "source": "Indexer._store_index_k_cache",
+          "owned": "Indexer._store_index_k_cache",
+          "ast_sha256": "768fde063fb37d6734225b9d755171a8ec8e510ee2bc9f1d5ee6a5f8004a5bd2"
+        },
+        {
+          "source": "Indexer.forward_cuda",
+          "owned": "Indexer.forward_cuda",
+          "ast_sha256": "30a1353e732d9eae62a8259dbb899adb207fa714edd4cb8333a335c2190ba38a"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/dsa_indexer.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/rotation.py",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/indexer.py",
+        "hcu_sglang/layers/attention/current_dsa/__init__.py"
+      ],
+      "definitions": [
+        {
+          "source": "rotate_activation",
+          "owned": "rotate_activation",
+          "ast_sha256": "4437a5fdda923da38d99e46db32d905d9528c9bd784079a1e1b343f346456685"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/compressor.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/compressor.py",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/indexer.py",
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/compressor_v2.py"
+      ],
+      "definitions": [
+        {
+          "source": "CompressorBackendMixin",
+          "owned": "CompressorBackendMixin",
+          "ast_sha256": "62c27c495ea4d7345ce5a7474759b504f00f4c1f722452d4821879e9ffcf2a76"
+        },
+        {
+          "source": "CompressorBackendMixin.forward_compress",
+          "owned": "CompressorBackendMixin.forward_compress",
+          "ast_sha256": "c7e3375b9e3908820d729c9405becc5e4d6284c8c8f0e9b48d0c2e072c44d409"
+        },
+        {
+          "source": "CompressorBackendMixin.forward_core_compressor",
+          "owned": "CompressorBackendMixin.forward_core_compressor",
+          "ast_sha256": "c496ae08890fcf959dc696580a9bf9307ba46c9c4956fbcb325f396f2e9fc141"
+        },
+        {
+          "source": "CompressorBackendMixin.forward_indexer_compressor",
+          "owned": "CompressorBackendMixin.forward_indexer_compressor",
+          "ast_sha256": "4ce6fac4531056fae3cdeed3816bcc4cfb9c46aba462e5ff6eb6fb3d9f0a0ee7"
+        },
+        {
+          "source": "_rlc_prefix_aligned",
+          "owned": "_rlc_prefix_aligned",
+          "ast_sha256": "c2173facd3694c5741e652e18ca6b399858001b3ecde5b4decffda9ef7583edd"
+        },
+        {
+          "source": "_get_rlc_bundle",
+          "owned": "_get_rlc_bundle",
+          "ast_sha256": "f23575ba132bec61841458886b42957e664b3d64fe213debfa087c61f4cc2dea"
+        },
+        {
+          "source": "_rlc_write_state",
+          "owned": "_rlc_write_state",
+          "ast_sha256": "41bdc2ac1ddf7682c7244631b25870ebc42b7ba108ee9cd8db6367c318ed52ab"
+        },
+        {
+          "source": "Compressor",
+          "owned": "Compressor",
+          "ast_sha256": "89b37770efa72f7bea052f182fe5c47b8beeafb0a31008415b10b7cf19766676"
+        },
+        {
+          "source": "Compressor.store_rlc_output",
+          "owned": "Compressor.store_rlc_output",
+          "ast_sha256": "e4fbddfd296c50aaef736836faf260f884c862aa5858ab62d1663e61459997be"
+        },
+        {
+          "source": "Compressor._forward_rlc",
+          "owned": "Compressor._forward_rlc",
+          "ast_sha256": "c739f32008f28f7af0bf768d8391c60ff39f14ef2671d7ec35461d47eca5a8b7"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/linear/kernels/gdn_triton.py",
+      "owned": "hcu_sglang/layers/attention/fla/gdn_verify_source.py",
+      "callers": [
+        "hcu_sglang/layers/attention/fla/linear_attention.py"
+      ],
+      "definitions": [
+        {
+          "source": "TritonGDNKernel.target_verify",
+          "owned": "target_verify",
+          "ast_sha256": "8bf2cd828ae2373d268d75bd4f3a6c9eabc89e0e4c37d970af8243d9d784a151"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/quantization/kv_cache.py",
+      "owned": "hcu_sglang/layers/quantization/kv_cache.py",
+      "callers": [
+        "hcu_sglang/layers/quantization/__init__.py"
+      ],
+      "definitions": [
+        {
+          "source": "BaseKVCacheMethod.process_weights_after_loading",
+          "owned": "process_weights_after_loading",
+          "ast_sha256": "4dcfe2be386a740f55616782424007fc16ace0eb3f0ddc938d801e1f9568c89e",
+          "source_ast_sha256": "4dcfe2be386a740f55616782424007fc16ace0eb3f0ddc938d801e1f9568c89e",
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/quantization/auto_round.py",
+      "owned": "hcu_sglang/layers/quantization/auto_round.py",
+      "callers": [
+        "hcu_sglang/layers/quantization/__init__.py"
+      ],
+      "definitions": [
+        {
+          "source": "AutoRoundConfig.get_layer_config",
+          "owned": "get_layer_config",
+          "ast_sha256": "4427b301205b062735ecd9482f6ae90fbe5a30b18567e66bf0f9eb6a67ba5f0c",
+          "source_ast_sha256": "4427b301205b062735ecd9482f6ae90fbe5a30b18567e66bf0f9eb6a67ba5f0c",
+          "normalization": "none"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/quantization/moe_wna16.py",
+      "owned": "hcu_sglang/layers/quantization/moe_wna16.py",
+      "callers": [
+        "hcu_sglang/layers/quantization/__init__.py"
+      ],
+      "definitions": [
+        {
+          "source": "MoeWNA16Config.__init__",
+          "owned": "moe_wna16_init",
+          "ast_sha256": "f45a6bbd76ff770e2a524e24efdcda5dd2653e6ee210030083c965044c8f80b0",
+          "source_ast_sha256": "0984d5dea87de01a77e70d337c5f6ec0e9b9682afb0236da8d7200e9bb593e72",
+          "normalization": "function_rename_and_explicit_super_receiver"
+        }
+      ]
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/layer_split.py",
+      "owned": "hcu_sglang/mem_cache/dsa_cache_layer_split.py",
+      "callers": [
+        "hcu_sglang/dsa_utils.py",
+        "hcu_sglang/layers/communicator_glm5_next_cp.py"
+      ],
+      "definitions": [
+        {
+          "source": "MainKVPagePlan",
+          "owned": "MainKVPagePlan",
+          "ast_sha256": "26e811f1f0256d3fa8eb63304792740b0603339921906babebe2c93cceddd404"
+        },
+        {
+          "source": "_build_unique_physical_pages",
+          "owned": "_build_unique_physical_pages",
+          "ast_sha256": "bb8edf13c171d1625bedb1ce81dce6bafe1f240c80b11794b4d28f1ccba63c1c"
+        },
+        {
+          "source": "build_main_kv_page_plan",
+          "owned": "build_main_kv_page_plan",
+          "ast_sha256": "3b3cb0f5d6cf201937ae2262c7566f99dc8e0a5f6691e13b0b2c2b65859b67d6"
+        }
+      ]
+    }
+  ]
+}

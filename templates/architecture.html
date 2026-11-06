@@ -124,12 +124,21 @@ function renderRoute() {
     if(active) a.setAttribute('aria-current','location'); else a.removeAttribute('aria-current');
   }
 }
+const plainCache = new Map();
+function plainText(item) {
+  if (item.kind === '目录') return '';
+  if (!plainCache.has(item.path)) {
+    const doc = new DOMParser().parseFromString(item.html, 'text/html');
+    plainCache.set(item.path, (doc.body ? doc.body.textContent : '').replace(/\s+/g, ' ').trim());
+  }
+  return plainCache.get(item.path);
+}
 function renderSearch() {
   const query = search.value.trim().toLocaleLowerCase();
   const words = query.split(/\s+/).filter(Boolean);
   results.hidden = !query && !filter.value;
   if(results.hidden) { list.replaceChildren(); return; }
-  const ranked = catalog.filter(item => item.kind !== '目录' && (!filter.value || item.kind === filter.value) && words.every(word => (item.title + ' ' + item.path + ' ' + item.text).toLocaleLowerCase().includes(word))).map(item => ({item, rank: words.reduce((total, word) => total + (item.title.toLocaleLowerCase().includes(word) ? 10 : 0) + (item.path.toLocaleLowerCase().includes(word) ? 4 : 0),0)})).sort((a,b) => b.rank - a.rank || a.item.path.localeCompare(b.item.path));
+  const ranked = catalog.filter(item => item.kind !== '目录' && (!filter.value || item.kind === filter.value) && words.every(word => (item.title + ' ' + item.path + ' ' + plainText(item)).toLocaleLowerCase().includes(word))).map(item => ({item, rank: words.reduce((total, word) => total + (item.title.toLocaleLowerCase().includes(word) ? 10 : 0) + (item.path.toLocaleLowerCase().includes(word) ? 4 : 0),0)})).sort((a,b) => b.rank - a.rank || a.item.path.localeCompare(b.item.path));
   list.replaceChildren();
   document.getElementById('search-count').textContent = ranked.length ? '找到 ' + ranked.length + ' 项资料' + (ranked.length > 20 ? '，显示前 20 项' : '') : '未找到匹配资料';
   document.getElementById('no-results').hidden = Boolean(ranked.length);
@@ -139,8 +148,9 @@ function renderSearch() {
     const title = document.createElement('div'); title.className = 'result-title'; title.textContent = item.title;
     const meta = document.createElement('div'); meta.className = 'result-meta'; meta.textContent = item.kind + ' · ' + item.path;
     const snippet = document.createElement('p'); snippet.className = 'result-snippet';
-    const position = words.length ? item.text.toLocaleLowerCase().indexOf(words[0]) : 0;
-    const start = Math.max(0,position - 28); snippet.textContent = (start ? '…' : '') + item.text.slice(start,start + 145).replace(/\s+/g,' ') + '…';
+    const plain = plainText(item);
+    const position = words.length ? plain.toLocaleLowerCase().indexOf(words[0]) : 0;
+    const start = Math.max(0,position - 28); snippet.textContent = (start ? '…' : '') + plain.slice(start,start + 145) + '…';
     a.append(title,meta,snippet); li.append(a); list.append(li);
   }
 }

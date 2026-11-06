@@ -269,6 +269,8 @@ def around_free(
 def register_hooks() -> None:
     from hcu_sglang.mem_cache import mamba_pool
     mamba_pool.register_hooks()
+    from hcu_sglang.mem_cache import cpu_cache
+    cpu_cache.register_hooks()
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     HookRegistry.register(

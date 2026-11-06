@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import ast
+import csv
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
@@ -15,8 +17,89 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def main() -> int:
+def migration_header_errors(root: Path) -> list[str]:
     errors = []
+    targets = {}
+    declaration = re.compile(r"SPDX-License-Identifier:|SPDX-FileCopyrightText:|copyright\b|licensed under|Apache License", re.I)
+    for name in ("runtime_owned_sources.json", "owned_model_sources.json"):
+        manifest = root / "tests/contracts" / name
+        if not manifest.is_file():
+            errors.append(f"missing migration provenance contract: {manifest.relative_to(root)}")
+            continue
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            for section in ("files", "extracted_files", "adapter_files"):
+                for row in data.get(section, []):
+                    target = row.get("target", row.get("owned"))
+                    if not target:
+                        raise ValueError("migration row has no target")
+                    sources = [row] if section == "files" else row.get("sources", [])
+                    if not sources:
+                        errors.append(f"{target}: migration provenance missing sources")
+                    for source in sources:
+                        if not isinstance(source.get("source"), str) or not source["source"].strip():
+                            errors.append(f"{target}: migration provenance missing source path")
+                        if not re.fullmatch(r"[0-9a-f]{64}", source.get("source_sha256", "")):
+                            errors.append(f"{target}: migration provenance missing valid source SHA256")
+                        lines = source.get("source_header_lines")
+                        if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
+                            errors.append(f"{target}: migration provenance missing original source header metadata")
+                            continue
+                        expected = "保留来源声明" if declaration.search("\n".join(lines)) else "来源无声明"
+                        if source.get("source_declaration") != expected:
+                            errors.append(f"{target}: missing or inconsistent source declaration status")
+                        if section != "adapter_files":
+                            targets.setdefault(target, []).extend(lines)
+        except (ValueError, TypeError, AttributeError) as exc:
+            errors.append(f"{manifest.relative_to(root)}: invalid migration provenance: {exc}")
+    for target, source_lines in sorted(targets.items()):
+        path = root / target
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            errors.append(f"{target}: cannot read migrated file: {exc}")
+            continue
+        header = []
+        for line in text.splitlines():
+            if line.strip() and not line.lstrip().startswith("#"):
+                break
+            header.append(line)
+        for line in dict.fromkeys(source_lines):
+            if line.strip() and line not in header:
+                errors.append(f"{target}: missing original source header line: {line}")
+    return errors
+
+
+def runtime_closure_errors(root: Path) -> list[str]:
+    command = [sys.executable, str(root / "tools/build_runtime_closure.py"),
+               "--triage", str(root / "plans/hcu-runtime-triage-20261105.csv"),
+               "--decisions", str(root / "plans/sglang-das-decisions.json"),
+               "--output", str(root / "plans/hcu-runtime-target-closure-20261105.csv"), "--check"]
+    try:
+        result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+    except OSError as exc:
+        return [f"runtime closure check could not run: {exc}"]
+    if result.returncode:
+        return [f"runtime closure check failed: {(result.stderr or result.stdout).strip()}"]
+    return pending_decision_errors(root)
+
+
+def pending_decision_errors(root: Path) -> list[str]:
+    output = root / "plans/hcu-runtime-target-closure-20261105.csv"
+    if not output.is_file():
+        return []
+    with output.open(encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    missing = [row["path"] for row in rows if row.get("execution_status") == "missing_decision"]
+    if not missing:
+        return []
+    return [f"missing decision records: {len(missing)} files have a triage row but no decision entry"]
+
+
+def main() -> int:
+    errors = migration_header_errors(ROOT)
+    errors.extend(runtime_closure_errors(ROOT))
+    errors.extend(pending_decision_errors(ROOT))
     files = [p for p in ROOT.rglob("*") if p.is_file()
              and not any(part in {".git", "artifacts", "__pycache__", ".venv", "build", "dist", ".pytest_cache"}
                          for part in p.relative_to(ROOT).parts)

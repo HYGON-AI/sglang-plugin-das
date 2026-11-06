@@ -18,6 +18,12 @@ def around_free_swa(
 
 
 def register_hooks() -> None:
+    if is_hcu():
+        from sglang.srt.mem_cache.base_swa_memory_pool import BaseSWAKVPool
+
+        if not hasattr(BaseSWAKVPool, "request_window"):
+            BaseSWAKVPool.request_window = None
+
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     HookRegistry.register(

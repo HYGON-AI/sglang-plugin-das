@@ -109,6 +109,13 @@ def install_quantization_method() -> bool:
         quantization.BASE_QUANTIZATION_METHODS.setdefault(name, config)
         quantization.QUANTIZATION_METHODS.setdefault(name, config)
 
+    quark_config = getattr(quantization, "QuarkConfig", None)
+    if quark_config is not None:
+        quantization.BASE_QUANTIZATION_METHODS.setdefault("quark", quark_config)
+        quantization.BASE_QUANTIZATION_METHODS.setdefault("quark_mxfp4", quark_config)
+        quantization.QUANTIZATION_METHODS.setdefault("quark", quark_config)
+        quantization.QUANTIZATION_METHODS.setdefault("quark_mxfp4", quark_config)
+
     model_config = sys.modules.get("sglang.srt.configs.model_config")
     if model_config is not None:
         for name, config in methods.items():

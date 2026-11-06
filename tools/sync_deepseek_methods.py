@@ -244,12 +244,47 @@ def write_methods(destination, header, specs, replacements, check):
     return apply_update(destination, render_methods(header, specs, replacements), check)
 
 
+CURRENT_V4_METHODS = {
+    "model": ("DeepseekV4Model", (
+        "__init__", "_check_late_layer_tail_readers", "_forward_layers_hc_pre_from_prev",
+        "_forward_layers_tbo", "forward", "_forward_impl",
+    )),
+    "causal_lm": ("DeepseekV4ForCausalLM", (
+        "__init__", "pad_input_ids", "set_dspark_layers_to_capture",
+        "prepare_language_model_inputs", "forward", "post_load_weights",
+        "_prewarm_mhc_kernels", "load_weights",
+    )),
+}
+
+
+def plan_current_v4_updates(models: Path, plugin_models: Path, package: str):
+    source = models / "deepseek_v4.py"
+    owned = plugin_models / "deepseek/current_v4/execution/core.py"
+    for path in (source, owned):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+        expected = ("NonCudaDecoderMixin", "DeepseekV4DecoderLayerBase")
+        platform = classes.get("DeepseekV4PlatformDecoderLayer")
+        if platform is None or tuple(ast.unparse(base) for base in platform.bases) != expected:
+            raise ExtractionError(f"{path}: current_v4 requires the explicit Platform decoder MRO {expected}")
+        if "DeepseekV4DecoderLayerBase" not in classes:
+            raise ExtractionError(f"{path}: current_v4 decoder base is absent")
+        for class_name, names in CURRENT_V4_METHODS.values():
+            for name in names:
+                extract_method(path, class_name, name)
+    header = f"from {package}.models.deepseek.current_v4.execution import core as C\n\n"
+    return [(plugin_models / f"deepseek/deepseek_v4/methods/{filename}.py",
+             header + "".join(f"{name} = C.{class_name}.{name}\n" for name in names))
+            for filename, (class_name, names) in CURRENT_V4_METHODS.items()]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--fork-python", type=Path, required=True)
     parser.add_argument("--plugin-root", type=Path, required=True)
     parser.add_argument("--plugin-package", choices=("hcu_sglang", "sglang_hcu_plugin"))
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--profile", choices=("legacy", "current_v4"), default="legacy")
     args = parser.parse_args()
 
     models = args.fork_python / "sglang/srt/models"
@@ -258,6 +293,15 @@ def main() -> int:
     except ValueError as error:
         parser.error(str(error))
     plugin_models = args.plugin_root / package / "models"
+    if args.profile == "current_v4":
+        try:
+            updates = plan_current_v4_updates(models, plugin_models, package)
+        except (ExtractionError, OSError, SyntaxError) as error:
+            print(f"error: {error}\nSource preflight failed; no output files were written.", file=sys.stderr)
+            return 2
+        results = [apply_update(destination, content, args.check)
+                   for destination, content in updates]
+        return int(args.check and any(results))
     v2_source = models / "deepseek_v2.py"
     v4_source = models / "deepseek_v4.py"
     forward_methods = models / "deepseek_common/attention_forward_methods"

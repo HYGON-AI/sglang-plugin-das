@@ -14,6 +14,8 @@ python3 -m unittest discover -s tests -v
 | 检查 | 实际覆盖 | 不覆盖 |
 |---|---|---|
 | L0 Python | 仓库 Python AST 语法，不导入运行时 | 运行语义、外部依赖或数值结果 |
+| L0 运行时处置快照 | 从 triage 文件范围与当前 decisions 重算 closure，缺失或过期时失败；含全量 decisions 摘要，范围外决定变化也需重建 | 实现正确性、GPU/模型等价；implemented 不自动晋升 validated |
+| L0 迁移文件头 | 按两份来源合同检查来源路径、SHA256、声明状态及原始头部；迁移/抽取副本逐行保留来源声明，来源无声明者只登记、不补造 | 原创接线、未登记迁移文件、来源仓本身的许可完整性、法律审查 |
 | L0 Skill | 名称/描述、名称与目录一致、agents prompt 与资源文件链接 | 完整 YAML 语义或 Agent 行为质量 |
 | L0 文档 | Markdown 相对文件链接存在性 | 锚点有效性、HTML 链接、Mermaid 渲染或可读性 |
 | L0 阶段边界 | 校验 hcu_sglang/pyproject 布局、禁止旧根包与全局启动文件、检查旧 namespace import | 所有可能包名的通用业务代码检测 |

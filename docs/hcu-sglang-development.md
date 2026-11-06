@@ -1542,3 +1542,840 @@ python3 tools/validate_plugin_runtime.py \
 修法沿用 PR #7 的 registry setdefault 范式：register_hooks 注册期对 BaseSpecWorker（EAGLEWorkerV2 / DFlashWorkerV2 公共基类）做属性级 setdefault，官方树缺属性时垫 0（builder 侧断言要求 SWA 模型才有非零语义，Qwen3.6 混合形态恒为 0），fork 或上游自行定义时一个字节不碰，自退役。运行时改动 2 行无注释。
 
 验证：L0 门禁 556 Python 文件 + 8 Skill 零错误；117 项测试 104 过 13 跳（与基线一致）；build_guide 重建与 --check 通过。真机 TP2 NEXTN（日志 dev77-spec-fix1.log）13:55:37 ready，冒烟两题 巴黎/323 全对，accept len 2.48 / accept rate 0.49（Stage C 健康区间 2.4~2.9 / 0.48~0.62）。未验证：DFlash 等非 EAGLE draft worker、SWA 目标模型上的非零窗口语义（官方树无该属性来源，恒为 0）、PD 模式。
+
+
+## 2026-11-05 V4 平台类与方法同步（模型侧）
+
+本轮仅修改模型侧及对应同步工具、测试和台账。Attention、量化、缓存、通信、disagg 由另一开发者并行负责，模型内部 `current_v4` 仍属于模型侧。来源固定为 DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`，官方 `baa9befa381511cd4d56f83980951e5a45fffc6d`，插件起始 HEAD `1eb4abaa3a3ad5bb7bbc9a8b758488639f4db1c7`；来源只读，未 commit、push、修改环境配置或运行 GPU 用例。
+
+### 来源、实现与支持边界
+
+下表来源路径均相对于 DAS `python/sglang/srt/models/`；静态发现不等于完整实现或运行验证。
+
+| 来源模块 | plugin 模块/接线 | 支持或回退条件 | 本轮验证与剩余边界 |
+|---|---|---|---|
+| `deepseek_v4.py` Base/CUDA/Platform decoder | [core.py](../hcu_sglang/models/deepseek/current_v4/execution/core.py)、[platform_stage.py](../hcu_sglang/models/deepseek/current_v4/execution/platform_stage.py)、[decoder Hook](../hcu_sglang/models/deepseek/deepseek_v4/hooks/decoder.py) | HCU 将公开 decoder 别名替换为 Platform 类，Mixin 先于 Base；非 HCU 不注册该替换 | CPU 验证 MRO 初始化、NextN 别名、PP group 和 5 个 stream 构造；CP/TP、GPU kernel 和完整 decoder 数值未验证 |
+| `deepseek_v4.py` Model/CausalLM | [model Hook](../hcu_sglang/models/deepseek/deepseek_v4/hooks/model.py)、[model facade](../hcu_sglang/models/deepseek/deepseek_v4/methods/model.py)、[core.py](../hcu_sglang/models/deepseek/current_v4/execution/core.py) | HCU 安装缺失的 `_forward_impl` 并注册正式 REPLACE Hook；非 HCU 早退 | 官方公开 forward 已实际执行 owned PP body，验证展平后数值和存储地址；无层 PP 夹具不验证 Attention/MoE、首尾 rank 或 TP 通信 |
+| `deepseek_v4.py` MQA 与 DSpark subclass | [attention.py](../hcu_sglang/models/deepseek/current_v4/attention.py)、[MQA Hook](../hcu_sglang/models/deepseek/deepseek_v4/hooks/mqa.py) | HCU 注册完整 MqaAttentionBase/MQALayer 和 DSparkAttention；其他平台保留既有方法 Hook 路径 | 本轮只核对注册及 mHC 类型身份；完整 MQA、DSpark、Graph 计算未验证 |
+| `glm5_next.py`、`hcu/glm5_next.py`、`glm5_next_vision.py` | [owned HCU 模型](../hcu_sglang/models/glm5_next/model.py)、[vision](../hcu_sglang/models/glm5_next/vision.py)、[正式注册](../hcu_sglang/models/registry.py) | HCU 按架构严格注册；其他平台沿用原 registry；缺依赖直接报错 | 已迁入完整计算 body，保持 in_progress；专用 CP/MHC communicator、GLM CP 和 legacy layer boundary 未齐，完整导入与模型执行未通过 |
+| `glm5_next_nextn.py` | [owned NextN](../hcu_sglang/models/glm5_next/nextn.py)、[draft entries](../hcu_sglang/models/glm5_next/entries/nextn.py) | 保留来源两个 NextN 架构、draft mapper 和 HCU CausalLM loader | 隔离 CPU 检查映射、权重过滤、量化选择和输入顺序；完整导入、真实 loader 与 draft 执行未验证，保持 in_progress |
+| `muse_spark.py`、`muse_spark_omni.py` | [owned text](../hcu_sglang/models/muse_spark/model.py)、[omni](../hcu_sglang/models/muse_spark/omni.py)、[omni entry](../hcu_sglang/models/muse_spark/entries/omni.py) | HCU 按需严格注册 MuseSparkForConditionalGeneration；来源 text 无独立 EntryClass，不额外扩展公共架构 | 已迁入完整 body，CPU 检查归一化与模拟 gather 排序；专用 layers/config/processor/kernel 未齐，保持 in_progress |
+
+执行台账共有 122 个 `python/sglang/srt/models/` 非 same 文件，本轮只审上述明确入口和 V4 接线；其余模型、V4 helper 的全部行为仍需逐项核对，不按该表宣称模型领域完成。人工处置将 V4、GLM/Muse 及共享 visual 的已审模型入口记为 in_progress，并分别保留依赖与验证边界；未将源码迁入提升为 implemented 或 validated。
+
+### 修复与方法同步
+
+owned `DeepseekV4Model.forward` 调用 `self._forward_impl`，固定官方类无该属性，旧 Hook 也未安装。以原 HEAD Hook 重放公开 forward，确实得到 `AttributeError: 'DeepseekV4Model' object has no attribute '_forward_impl'`；原失败日志保存在 `artifacts/migration-20261105/v4-before.log`。修复先为缺失属性安装 owned helper，再注册它的正式 Hook，并更新 [target 合同](../tests/contracts/hcu_source_alignment_targets.json)。原生已有属性时不先覆盖其定义，实际 HCU 行为仍由 HookRegistry 接管。
+
+[同步工具](../tools/sync_deepseek_methods.py) 增加显式 `--profile current_v4`：对来源与 owned 平台继承顺序和 Model/CausalLM 全部导出方法预检，只生成两份 `C.Class.method` facade，保留方法的类上下文与 `super()`。默认 legacy 不变；所有预检完成后才写输出。该检查不比较方法体，不同步完整计算实现，完整文件仍为 in_progress。调用与退出码见 [迁移指南](migration.md#4-方法抽取与升级验证)。
+
+[工具回归](../tests/test_method_sync_preflight.py) 新增来源 MRO 漂移、owned helper 缺失时零输出、仅生成 facade 三项；[V4 CPU 回归](../tests/runtime/v4_execution_current.py) 新增公开入口 helper 调用及真实 PP body 测试。首次测试夹具 patch owned 方法会受 lazy resolver 缓存顺序影响，已改 patch 公开类属性；业务修复没有为 mock 改动。
+
+### 本轮验证与证据
+
+验证使用既有容器 `yangyn_sglang_plugin_1022`，Python 3.10.12，源码模式，设置 `PYTHONPATH="$OFFICIAL/python:$PLUGIN"`、`SGLANG_PLUGINS=hcu`，entry point `hcu_sglang:register`。这里明确使用固定官方树，防止 fork 本身补齐缺失 API 掩盖 plugin 缺口；第二阶段 DAS A/B 另按各自 recipe 记录实际源码。宿主工具可用 `/opt/saltstack/salt/bin/python3.10`（3.10.19），默认 3.6.8 未用于验证。
+
+已执行：
+
+- `python3 tools/sync_deepseek_methods.py --fork-python "$FORK/python" --plugin-root "$PLUGIN" --profile current_v4 --check`：两份 facade 均 unchanged，退出 0。
+- `python3 -m unittest tests.test_method_sync_preflight -v`：15 项通过。
+- `python3 -m unittest tests.runtime.v4_execution_current tests.runtime.v4_logits_current -v`：9 项通过；日志 `artifacts/migration-20261105/v4-after-fixed.log`。
+- `python3 tools/validate_plugin_runtime.py --official-python "$OFFICIAL/python" --plugin-root "$PLUGIN" --plugin-package hcu_sglang --expected-targets tests/contracts/hcu_source_alignment_targets.json --output artifacts/migration-20261105/runtime.json`：598 registered / 598 applied、4 个具名 resolution seam、0 errors；保留加载 warning，不称所有 vendor API 已通过。
+- `python3 -m unittest discover -s tests -v`：120 项，107 通过、13 skipped；日志 `artifacts/migration-20261105/unittest.log`。
+
+L0、台账与导览快照检查在完成本节后另行记录。未执行 GPU、模型服务、精度/吞吐/显存 A/B、CP/TP/Graph、GLM/Muse 实跑、wheel 冻结、网页截图/交互/窄屏视觉验收；阶段一的模型逐方法迁移与全领域收口尚未完成。ignored 原始日志不进入 Git，长期统一测试台账由测试校对家维护，不将历史模型分数挪为本轮证据。
+
+
+#### 模型侧补充检查
+
+V4 的四份 helper 已逐函数对照固定来源，原始报告为 `artifacts/migration-20261105/v4-helper-audit.json`，记录来源/owned SHA256、完整方法名和差异。`platform_stage.py` 为 24/24 个方法、23 个方法 AST 相同；`boundary.py` 为 29/29、28 个相同；`replay_tail.py` 为 10/10、9 个相同；`mhc.py` 为 20/20、20 个相同。三个方法差异分别是转向 owned mHC、转向 owned fused_mhc 和延迟导入 RowBucketGraphRunner；已逐项核对。此统计保留 decorator/docstring，仅忽略位置，不检查模块 imports/globals、类基与消费者等价，也不代替 GPU/Graph 验证。
+
+本轮门禁实际执行 `/opt/saltstack/salt/bin/python3.10 tools/build_migration_execution.py` 及 `--check`、`tools/build_guide.py` 及 `--check`、`ci/l0_gate.py`、`git diff --check` 均退出 0。L0：557 Python / 8 Skill / 0 errors；执行台账为 pending 2887、implemented 44、in_progress 53、upstream 26。对应原始日志为 `artifacts/migration-20261105/gates.log`。该计数是当次工作树快照，不能解释为模型等价完成率。仓库单测的 13 项 skipped 均由 `HCU_PLUGIN_RUN_LAYER_FIX_TESTS` 未启用导致，未将它们记为通过；运行时领域由独立开发者负责。
+
+
+补充执行 `python3 tools/validate_hook_signatures.py --official-python "$OFFICIAL/python" --plugin-root "$PLUGIN" --output artifacts/migration-20261105/hook-signatures.json`，退出 1：130 match / 28 mismatch / 14 missing。14 个 missing 涉及该静态工具不跟随的 facade 重导出，以及官方源码没有但注册期安装的 `_forward_impl`，不能当作真实加载缺失；严格加载与公开 forward 测试另有证据。28 个 mismatch 未整体豁免：静态调用形状样例发现 7 个 helper 存在旧调用缺必选参数或 width_align 不被接受的风险，另有 DeepseekV2MLP.forward 的第 5 个位置参数由 gateup_pre_quant 变为 input_quant_args；具体条目保存在 `artifacts/migration-20261105/signature-triage.json`。这些属于待核对的消费者/分支兼容范围，尚未据此判定全部为运行故障或无害。当前 V4 profile 的 14 个来源/owned 方法签名结构已逐项比较一致，签名一致不证明方法体等价。该诊断工具失败与 L0、仓库单测通过分开记录。
+
+
+## 2026-11-05 GLM5-next 与 Muse Spark owned 模型迁入
+
+按群内确认的方案 A，模型侧先迁入完整 owned 计算实现，再通过官方公开 `ModelRegistry.register(package, overwrite=True, strict=True)` 接入架构。新增 [模型 resolver Hook](../hcu_sglang/models/registry.py)，由已有 [models.utils](../hcu_sglang/models/utils.py) 注册链安装。仅 HCU 且请求目标架构时导入对应族；检查解析结果必须来自 owned module 前缀，依赖缺失透传异常，禁止静默使用官方 GLM。无关模型不加载这两族；非 HCU 保留原 resolver。这里的支持条件由隔离注册合约验证，尚无完整模型加载通过证据。
+
+### 来源保留与依赖对应
+
+[来源合同](../tests/contracts/owned_model_sources.json) 固定 DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`、官方 `baa9befa381511cd4d56f83980951e5a45fffc6d` 和六份来源 SHA256。测试将 owned 中显式列出的 import 替换逆转后，逐字节校验 SHA256；计算 body、源码注释和许可原样保留，不加来源标记或说明性注释。
+
+| DAS 来源（相对 models） | owned 模块 | 正式入口 / 条件 | 当前边界 |
+|---|---|---|---|
+| `hcu/glm5_next.py`，1918 行 | [model.py](../hcu_sglang/models/glm5_next/model.py) | [text entry](../hcu_sglang/models/glm5_next/entries/text.py)：Glm5NextForCausalLM / Glm5NextForConditionalGeneration；取代 HCU 别名 | 五个专用依赖模块未齐；in_progress |
+| `glm5_next_vision.py`，409 行 | [vision.py](../hcu_sglang/models/glm5_next/vision.py) | HCU GLM 内部视觉模型 | 源码保留检查通过；Attention/MLP、完整视觉模型未执行 |
+| `glm5_next_nextn.py`，91 行 | [nextn.py](../hcu_sglang/models/glm5_next/nextn.py) | [NextN entry](../hcu_sglang/models/glm5_next/entries/nextn.py)：两个 NextN 架构 | 隔离父类与 loader 后验证实际 owned 方法；完整链仍阻塞 |
+| `glm_visual.py`，95 行 | [visual.py](../hcu_sglang/models/glm5_next/visual.py) | GLM 共享图像/视频入口 | 仅隔离 CPU helper；未执行 ViT 或真实 DP 通信 |
+| `muse_spark.py`，1600 行 | [model.py](../hcu_sglang/models/muse_spark/model.py) | omni 内部 text 组件；来源未声明独立 text EntryClass | 专用 kernels/layers/config 未齐；in_progress |
+| `muse_spark_omni.py`，476 行 | [omni.py](../hcu_sglang/models/muse_spark/omni.py) | [omni entry](../hcu_sglang/models/muse_spark/entries/omni.py)：MuseSparkForConditionalGeneration | audio/NaViT/config/processor 等依赖未齐；in_progress |
+
+GLM 复用已有 owned fused_rms_quant、GLM runtime accessor、DSA CP predicate 与 V4 HCU CP helper。HCU gated norm 指向已有 [fused_norm_gate.py](../hcu_sglang/layers/attention/linear/kda_kernels/fused_norm_gate.py)，整个 481 行文件与 DAS HCU 来源逐字节相同，双方 SHA256 均为 `ac347fd56dc1165a710552c852d2d3445ca6c8ebf7622d151ebf68906218c16d`；[policy](../hcu_sglang/glm5_next_policy.py) 中 `get_glm5_next_runtime_args` 的 AST 与来源 accessor 一致。这些是来源复核，不等于已执行相应 kernel 或 CP 通信。
+
+仍保留来源 import 的五个 GLM 专用缺口为 `communicator_glm5_next_cp`、`communicator_glm5_next_mhc`、`communicator_glm5_next_mhc_cp`、`layers.utils.glm5_next_cp` 和 `layer_boundary.hcu_legacy`。运行时负责人尚未给出已迁入的 owned 路径，模型侧没有改成不存在的路径。Muse 还需要八个 kernel Python 包、七个专用 layer 模块，以及 `configs.muse_spark`、`multimodal.processors.muse_spark_omni`；已有 JIT 头资产不能替代这些 Python 实现。逐 import 的路径存在性与复用 SHA/AST 证据保存在 `artifacts/migration-20261105/owned-model-dependencies.json`；该报告不校验导入符号、动态 seam 或运行行为，不能只凭路径缺失判断所有 import 均失败。
+
+### 本轮 CPU 验证及失败记录
+
+- `/opt/saltstack/salt/bin/python3.10 -m unittest discover -s tests -v`：133 项，120 通过、13 skipped，退出 0；日志 `artifacts/migration-20261105/unittest-owned-models-final.log`。新增 [模型合约测试](../tests/test_owned_model_registry.py) 共 13 项，覆盖六份来源保留、entry 架构集合、严格按族注册、幂等、缺依赖重试、禁止官方回退、非 HCU 早退，以及真实 NextN 文件在隔离依赖下的 mapper/loader/量化/CP 输入顺序。13 项 skip 仍是未启用 `HCU_PLUGIN_RUN_LAYER_FIX_TESTS`，不记为通过。
+- 容器 Python 3.10.12、源码模式 `PYTHONPATH="$OFFICIAL/python:$PLUGIN"`、`SGLANG_PLUGINS=hcu`，同时设置 `HIP_VISIBLE_DEVICES=-1 ROCR_VISIBLE_DEVICES=-1 CUDA_VISIBLE_DEVICES=-1`。`python3 -m unittest tests.runtime.owned_models_cpu -v` 等效入口运行 [隔离 CPU 测试](../tests/runtime/owned_models_cpu.py)：11 项通过，`CUDA_INITIALIZED False`；日志 `artifacts/migration-20261105/owned-models-cpu.log`。从实际 owned 文件 AST 选择原样定义并隔离依赖，验证视觉分块顺序/限额/超大单图、dtype、视频帧 grid、缺视觉编码器报错、DP 调用边界，以及 Muse RMS 数值、embedding 权重复用、单 rank 编码、模拟 gather 还原顺序；不冒充整模块导入、ViT、真实 collective 或 GPU 计算。
+- `python3 tools/sync_deepseek_methods.py --fork-python "$FORK/python" --plugin-root "$PLUGIN" --profile current_v4 --check`：两份 facade unchanged，退出 0；日志 `artifacts/migration-20261105/current-v4-final.log`。
+
+完整模型导入探针没有通过。禁 GPU 的首轮在官方依赖链 `fp8_kernel` → `is_gfx1250_supported()` → `torch.cuda.get_device_properties(0)` 触发 `No CUDA GPUs are available`；Muse text 首先报缺少 `sglang.kernels.ops.muse_spark`。第二轮仅 mock 设备属性/capability 查询、不 mock 分配或 kernel，官方 `fp8_utils.use_rowwise_torch_scaled_mm()` 仍因无 GPU 返回的 `(None, None)` 与 `(9, 4)` 比较而失败。两轮 JSON 分别为 `artifacts/migration-20261105/owned-model-imports.json`、`owned-model-cpu-imports.json`；报告器退出 0 仅说明保存证据成功，各模型状态均为 blocked，不记导入通过。
+
+注册目标合同已由 598 增为 599（新增模型 resolver）。禁 GPU 后重跑完整严格 loader，实际退出 1、0 registered / 0 applied：插件初始化失败并出现 HCU detection `No CUDA GPUs are available`，完整 599 项合同未通过。禁 GPU 重跑既有 `tests.runtime.dsv4_registry_current` 也在官方导入期设备查询失败，退出 1，没有执行那五项测试。证据为 `artifacts/migration-20261105/runtime-no-gpu.json`、`runtime-no-gpu.log`、`dsv4-registry-no-gpu.log` 和 `no-gpu-checks.json`。此前 598/598 仅是旧工作树快照，不能沿用为本轮通过结论；不扩大 mock 伪造严格加载成功。
+
+### V4 签名消费者复核
+
+保留原签名诊断的退出 1，不整体豁免 28 个 mismatch。消费者与分支证据追加在 `artifacts/migration-20261105/signature-consumers.json`：candidate block amax 的 wrapper/JIT 成对替换并传 dtype，FP4 split 的 wrapper/JIT 成对替换并传 page8，owned scoring 调 owned flat logits 时不传 width_align，owned backend 调 source projection 时传 run_compressor/captured_index。这些只证明已审消费者的调用形状，未验证 kernel、Graph 或外部调用。
+
+官方 `DeepseekV4HipRadixBackend` 不继承被替换的 owned backend 类，两个旧 workspace 调用仍缺新必选参数。现有 HCU [dsv4 registry](../hcu_sglang/layers/attention/dsv4_registry.py) 将常规及 draft 路由转到官方 trtllm factory，其默认分支构造已替换 base backend；直接/备用 HipRadix 路径仍有兼容风险，未声明支持。官方 DenseBlocks 的两个调用仍传 width_align；DeepGEMM prefill 分支受 `is_cuda()`、SM100+ 与可用 FP4 indexer gate 约束，官方 `is_cuda()` 要求 `torch.version.cuda` 非空，未经改写的 ROCm 构建选择 torch 分支。owned backend 仍构造该 DenseBlocks 与独立 HCU candidate indexer，不能把全部 DenseBlocks 消费者视为已经替换；手动/其他平台开启该分支仍有风险。上述真实路由测试在本轮无 GPU 环境被导入阻塞，静态条件不升级为运行证明。
+
+V2 MLP 保留 fork 的 `input_quant_args` / `gateup_pre_quant` 位置顺序；已审 shared_experts 消费者使用 gateup_pre_quant 关键字，GLM 等 input_quant_args 调用使用关键字。旧外部位置调用兼容性仍未证明，没有为了签名工具结果重排参数破坏来源语义。
+
+本轮台账新增/更新七个已审 GLM/Muse/shared visual 模型键为 in_progress；V4 与模型领域其余条目不因此完成。未运行 GPU 用例、完整 GLM/Muse 模型、模型精度/性能 A/B、真实 CP/TP/Graph、wheel、网页视觉验收；不 commit、不 push、不终止他人进程。
+
+
+### 模型侧收尾门禁
+
+完成上述代码、处置与交接文档后执行台账重建及 `--check`、导览重建及 `--check`、`ci/l0_gate.py`、`git diff --check`，均退出 0。L0 为 574 Python / 8 Skill / 0 errors；非 ignored Markdown 的本地标题锚点静态检查为 249 项、0 错误。执行台账当前 pending 2880、implemented 44、in_progress 60、upstream 26；这是全仓快照，不是模型完成比例。原始命令和输出保存在 `artifacts/migration-20261105/model-final-gates.log` / `model-final-gates.json`，锚点检查为 `model-markdown-anchors.json`；不是浏览器渲染或视觉验收。来源身份复核见 `model-input-identities.json`：两份来源 SHA 未变且工作树干净，插件 main 工作树包含本轮与并行运行时修改、尚未提交。
+
+
+## 2026-11-05 GLM 专用运行时 owned 接线补齐
+
+运行时负责人完成五个专用模块迁入后，模型侧只改 [GLM 模型](../hcu_sglang/models/glm5_next/model.py) 的五个 import，并同步 [来源合同](../tests/contracts/owned_model_sources.json) 的可逆替换；计算 body、注册条件与回退规则保持原样。上一节“五个专用依赖未齐”是迁入前的历史状态，本节更新接线状态，不据此宣称完整模型可运行。
+
+| DAS 模块（相对 sglang.srt.layers） | owned 依赖 | 支持条件与验证边界 |
+|---|---|---|
+| `layer_boundary.hcu_legacy` | [glm5_next_layer_boundary.py](../hcu_sglang/layers/glm5_next_layer_boundary.py) | HCU GLM 的 LayerCommunicator/模式/上下文接口；未执行完整 decoder |
+| `utils.glm5_next_cp` | [glm5_next_cp_utils.py](../hcu_sglang/layers/glm5_next_cp_utils.py) | GLM CP metadata、split/gather/scatter；未执行真实 collective |
+| `communicator_glm5_next_cp` | [communicator_glm5_next_cp.py](../hcu_sglang/layers/communicator_glm5_next_cp.py) | CP communicator 与 KV prefetch；未执行 CP 通信 |
+| `communicator_glm5_next_mhc` | [communicator_glm5_next_mhc.py](../hcu_sglang/layers/communicator_glm5_next_mhc.py) | MHC communicator；未执行 mHC kernel |
+| `communicator_glm5_next_mhc_cp` | [communicator_glm5_next_mhc_cp.py](../hcu_sglang/layers/communicator_glm5_next_mhc_cp.py) | MHC+CP communicator；未执行组合路径 |
+
+五个目标共 14 个导入符号均在 owned 源码顶层定义或导入；来源合同逆转全部替换后，与固定 DAS 来源文件逐字节相同。依赖内部接线和计算实现归运行时负责人维护，模型侧未改其文件。映射、模型与五份依赖 SHA256 记录在 `artifacts/migration-20261105/glm-owned-wiring.json`。来源与官方 SHA 沿用上一节；这是共享脏工作树上的增量验证，不复用旧 598/598 加载结果。
+
+本轮仅运行禁 GPU 的检查，不运行 GPU kernel、真实通信、完整模型或精度性能 A/B。Muse 专用依赖仍待运行时负责人交接。具体门禁和导入结果见本节后续记录。
+
+实际执行 `/opt/saltstack/salt/bin/python3.10 -m unittest discover -s tests -v`：133 项、120 通过、13 skipped，8.886 秒，退出 0；包括六份来源 SHA256/替换合同与 owned 注册/NextN 合约。13 项 skipped 仍因未启用 `HCU_PLUGIN_RUN_LAYER_FIX_TESTS`。原始日志为 `artifacts/migration-20261105/unittest-glm-owned-wiring.log`。
+
+容器 Python 3.10.12，官方源码模式 `PYTHONPATH="$OFFICIAL/python:$PLUGIN"`、`SGLANG_PLUGINS=hcu`，禁用 HIP/ROCR/CUDA 可见设备且无 mock，分别执行真实 `hcu_sglang.register()` 与 `importlib.import_module("hcu_sglang.models.glm5_next.model")`：两项均 blocked，报 `RuntimeError: No CUDA GPUs are available`，子进程退出 1，`cuda_initialized_after=false`。完整调用与 traceback 保存在 `artifacts/migration-20261105/glm-owned-wiring-import.json` / `.log`；外层报告器退出 0 只代表证据已保存。五个 owned 依赖模块可用不等于完整模型导入通过。本轮不重跑严格 599 项加载，旧成功结果仍不可沿用。
+
+本轮结构门禁使用 Python 3.10 执行 `tools/build_migration_execution.py` 及 `--check`、`tools/build_guide.py` 及 `--check`、`ci/l0_gate.py`、`git diff --check`，并检查本节新增相对链接与台账引用锚点。逐条命令、退出码和输出保留在 `artifacts/migration-20261105/glm-owned-wiring-gates.json` / `.log`。导览仅做构建与快照检查，浏览器渲染、交互和窄屏视觉未验证。
+
+
+## 2026-11-05 Muse Spark owned 依赖接线补齐
+
+运行时负责人交付 Muse 依赖后，模型侧只改 [text 模型](../hcu_sglang/models/muse_spark/model.py) 14 处和 [omni 模型](../hcu_sglang/models/muse_spark/omni.py) 4 处 import，并同步 [来源合同](../tests/contracts/owned_model_sources.json)。覆盖顶层以及 int4、megamoe、FinalizePushWorkspace、processor 等延迟导入；两个计算 body、继承关系、原注释和 docstring 不变。上一节的 Muse 依赖未交接描述属于早期快照，当前映射如下；路径存在和静态符号可用不等于完整运行验证。
+
+| DAS 来源依赖 | owned 依赖 | 支持与验证边界 |
+|---|---|---|
+| `sglang.kernels.ops.muse_spark.*` | `hcu_sglang.kernels.ops.muse_spark.*` | 接通八个直接引用的 kernel Python 模块；未执行 kernel |
+| `sglang.srt.layers.muse_spark.*` | `hcu_sglang.layers.muse_spark.*` | 接通七个专用 layer 模块；BF16/FP4/int4/megamoe、audio/NaViT 完整计算未验证 |
+| `sglang.srt.configs.muse_spark` | [configs_muse_spark.py](../hcu_sglang/configs_muse_spark.py) | 使用同一 owned config 定义；自动配置发现与 checkpoint 加载未验证 |
+| `sglang.srt.multimodal.processors.muse_spark_omni` | [processor](../hcu_sglang/multimodal/processors/muse_spark_omni.py) | 在原方法内部延迟导入，processor 反向引用 owned omni；预处理完整执行未验证 |
+
+来源仍固定为 DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e` 和官方 `baa9befa381511cd4d56f83980951e5a45fffc6d`。18 个 import 位置及依赖 SHA256 保存在 `artifacts/migration-20261105/muse-owned-wiring.json`，两份模型逆转已声明替换后与固定来源逐字节相同。未修改运行时负责人所属文件；已通知其在本轮接线后复验 processor。运行时负责人的 Helion 缺包/门控证据单独保留，模型侧不将其转述为本轮 kernel 验证。HCU 仍按架构严格注册，缺依赖透传，不以官方回退掩盖异常；两个模型条目保持 in_progress。
+
+实际执行宿主 Python 3.10.19 的 `-m unittest discover -s tests -v`：135 项、13 skipped，因新增运行时来源合同的 32 个 subTest failure 而退出 1。失败位于 `test_runtime_owned_sources.RuntimeOwnedSourceTests.test_only_declared_deltas_change_fixed_source_bytes`：合同列了文件中未出现的反向替换，严格 `assertIn` 报错；已通知该合同负责人修复，不放宽断言或改来源注释来迎合合同。原日志 `artifacts/migration-20261105/unittest-muse-owned-wiring.log` 保留；这不是 32 个独立测试方法，也不记全量通过。
+
+容器禁 GPU 运行 `tests.runtime.owned_models_cpu`：11 项通过，0.048 秒、退出 0，CUDA 未初始化；原日志 `artifacts/migration-20261105/muse-owned-wiring-cpu.log`。这是原样 AST 定义的隔离 CPU 行为检查，不是完整模型。容器使用官方源码模式，HIP/ROCR/CUDA 可见设备均设 -1、无 mock；真实 `hcu_sglang.register()`、text 和 omni 整模块导入均被官方 `fp8_kernel -> is_gfx1250_supported -> torch.cuda.get_device_properties(0)` 阻塞，子进程退出 1、CUDA 未初始化。完整命令与 traceback 在 `artifacts/migration-20261105/muse-owned-wiring-import.json` / `.log`，外层报告器退出 0 只表示证据保存成功。
+
+本轮门禁使用 `tools/build_migration_execution.py` 及 `--check`、`tools/build_guide.py` 及 `--check`、`ci/l0_gate.py`、`git diff --check`，另单独运行模型来源/注册合约并检查本节链接。逐项结果记录到 `artifacts/migration-20261105/muse-owned-wiring-gates.json` / `.log`。这是含并行修改的脏工作树，不复用旧加载结论；未重跑 599 项严格加载，未执行 GPU、真实通信、完整模型、精度性能 A/B、wheel 或浏览器视觉验收，未 commit/push。
+
+
+### Muse 来源合同修正后全量复验
+
+运行时负责人修正冗余反向替换并收紧 import 检查后，模型侧经 SSH 使用宿主 Python 3.10.19 再执行 `-m unittest discover -s tests -v`：136 项、123 通过、13 skipped，9.360 秒、退出 0。来源合同及对应测试文件在本轮运行前后 SHA256 一致；校验三份文件为 runtime source 合同、其结构测试和 model source 合同。原 135 项/32 个 subTest 失败日志保留，不覆盖历史失败记录。新日志 `artifacts/migration-20261105/unittest-muse-owned-wiring-recheck.log`，命令/返回码/前后哈希在 `artifacts/migration-20261105/muse-owned-wiring-recheck.json`。
+
+这次只复验仓库单测，未重跑完整模型导入、GPU 或 processor，不改变此前导入 blocked 的边界。追加记录后重建执行台账和导览并检查快照，运行 L0 与 `git diff --check`；逐条结果在 `artifacts/migration-20261105/muse-owned-wiring-recheck-gates.json` / `.log`。统一 CSV 追加新结果，保留原 fail 行。
+
+
+## 2026-11-05 运行时目标映射、批量 FA 与 GLM/Muse 依赖收口
+
+### 固定来源、对应表与剩余工作
+
+本节覆盖运行时负责人分配的 Attention、量化、mem_cache、distributed/disagg，以及本轮优先接入的 GLM/Muse 依赖。来源固定为 DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e` 与官方 `baa9befa381511cd4d56f83980951e5a45fffc6d`；插件从 `1eb4abaa3a3ad5bb7bbc9a8b758488639f4db1c7` 的共享脏工作树继续，保留其他负责人的未提交修改。
+
+逐目标结果写入 [307 行历史对应表](../plans/hcu-runtime-target-review-20261105.csv)，非平凡适配写入 [20 行差异清单](../plans/hcu-runtime-differences-20261105.csv)。每条含注册目标、DAS 路径/符号、执行台账状态、Python 等价快照、Hook 类型、owned 定义、审查结论和已有测试索引。映射只证明静态对应与注册链，不等于整文件或模型等价。
+
+| 审查分类 | 目标数 | 含义与边界 |
+|---|---:|---|
+| Source/声明归一后 AST 一致 | 163 | REPLACE 定义在函数名、native 名称空间、super、文档缩进的显式规则下一致 |
+| 已记录的控制差异 | 20 | 逐项列出描述符、继承、V4/GDN/缓存适配理由；其中模型侧项继续由模型负责人审调用方 |
+| AROUND/AFTER 适配 | 120 | 保留当前有效 original，不把包装器文本与 Source 执行体混作 AST 相等 |
+| 原生复用/装饰器后的 owned 方法 | 2 | `get_kv_class` 方法体两侧一致；Mooncake send 可定位到 owned 实现 |
+| 官方独有、DAS 不适用 | 2 | `compress_hip` 的两个官方兼容目标在 DAS 无来源文件 |
+
+本轮更新 43 个运行时 decisions 键并重建执行台账。扩展后的本领域 307 条文件级记录为 `implemented=47`、`in_progress=19`、`pending=238`、`upstream=3`；因此仍有 257 条 pending/in_progress，不能宣称全量迁移或阶段一已完成。`sglang-das-python-equivalence.json` 仍只表示固定 official/fork 的整文件 AST 关系，没有用来覆盖人工审查或生成运行结论。
+
+### 批量 paged-varlen 的实际修复
+
+[flashattention_interface.py](../hcu_sglang/layers/attention/flashattention_interface.py) 原先在进入 paged varlen 分支前执行 `q.view(-1, max_seqlen_q, ...)`。`max_seqlen_q` 是批内最大长度，不是拉平 Q 的固定切分长度；c4 实例总 token=1138、max=1083，必然不能整除。DAS 对应接口明确要求这种形态直接使用 `cu_seqlens_q` 和 page table。修复仅把既有 `q_4d` 构造移到 varlen 返回之后，provider 参数和 decode 的单 token reshape 不变。
+
+新增 [flashattention_interface_cpu.py](../tests/runtime/flashattention_interface_cpu.py)，使用真实 CPU tensor 和 mock provider 保留公开入口/输出边界。修复前 c4/c8 分别报 `invalid for input of size 3495936/3686400`，c1 通过；修复后 c1/c4/c8 及 decode 共两个测试方法通过。真实 GPU/模型复跑留给后续验证，本阶段未执行。
+
+### GLM/Muse owned 依赖
+
+| 范围 | 本轮实现 | 验证边界 |
+|---|---|---|
+| GLM legacy/CP/communicator | 新增 `glm5_next_layer_boundary.py`、`glm5_next_cp_utils.py` 和三个 `communicator_glm5_next_*` 模块；复用已有 DSA、V4 CP、Mamba page-plan 与 fused-RMS owned helper | GLM text/vision/NextN 实际导入通过；未运行 decoder、CP/TP collective 或 kernel |
+| Muse layers/kernels/config/processor | 迁入 9 份 layer、23 份 kernel Python、1 份 config 和 1 份 processor；统一 owned import 前缀 | text/omni/processor 实际导入通过；未执行完整模型或媒体预处理 |
+| Muse Helion 兼容 | [muse_spark_spec.py](../hcu_sglang/kernels/muse_spark_spec.py) 固定 DAS backend 描述，并只补 `forward_helion` 映射/优先级 | 常规依赖导入及 CPU 能力拒绝通过；容器缺 `helion` 包，四个可选实现仍明确报错 |
+| Muse 媒体配置 | [encoder_preprocessing.py](../hcu_sglang/multimodal/encoder_preprocessing.py) 以冻结 dataclass 子类增加 `preprocess_off_event_loop`、`audio_sample_rate`，经正式类 REPLACE Hook 接入 | 新旧字段、默认值和公开应用通过；未验证 encoder DP 或实际媒体执行 |
+
+[运行时来源合同](../tests/contracts/runtime_owned_sources.json) 固定 40 份 GLM/Muse/spec 来源 SHA256、目标哈希及仅允许的可逆差异；[结构测试](../tests/test_runtime_owned_sources.py) 同时检查来源恢复、语法和家族 import 漂移。Muse 使用的 8 份 JIT `.cuh` 经 `tools/audit_jit_resources.py` 逐字节和模式核对，全部为 `identical_owner_only`，没有新增编译或数值证据。
+
+### 本轮实际验证
+
+所有命令均经 SSH 在 NMZ_zz_26 执行；容器为 `yangyn_sglang_plugin_1022`，容器 Python 3.10.12，官方源码模式使用 `PYTHONPATH="$OFFICIAL/python:$PLUGIN"` 和 `SGLANG_PLUGINS=hcu`。宿主解释器为 `/opt/saltstack/salt/bin/python3.10`（3.10.19）。日志保存在 `artifacts/kimi-runtime-closure-host-20261105/`；该目录不是 Git 跟踪证据，长期交接需保留对应路径。
+
+| 命令/检查 | 实际结果 |
+|---|---|
+| 宿主 `python3.10 -m unittest discover -s tests -v` | 136 项、123 通过、13 skipped，9.285 秒，退出 0；日志 `unittest-final.log` |
+| 容器 `python3 tests/runtime/flashattention_interface_cpu.py` | 2 项通过，12.679 秒；`flashattention.log` |
+| 容器 `python3 tests/runtime/glm_muse_dependencies_cpu.py` | 5 项通过，24.727 秒；`glm-muse-cpu.log` |
+| 容器 `python3 tests/runtime/muse_media_config_cpu.py` | 1 项通过，41.727 秒；`muse-media-config.log` |
+| 容器设 `SGLANG_USE_LIGHTOP_CHANNEL_FP8=1` 后运行 `tests/runtime/compressed_fp8.py` | 14 项通过，1.216 秒；`compressed-fp8.log`；缺省 opt-in 条件下的失败不记为代码回归 |
+| 真实 register/apply 后导入 GLM text/vision/NextN、Muse text/omni/processor | 6/6 `IMPORT_OK`；`owned-model-imports.log`。导入期 CUDA 已初始化，但没有运行 GPU kernel |
+| `tools/validate_plugin_runtime.py` 使用最新目标合同 | **600 registered / 600 applied / 0 unapplied / 0 errors**，4 个具名 seam；`strict-loader.json` |
+| `tools/audit_jit_resources.py` | Muse 8/8 资源来源字节和模式一致；`jit-resources.json` |
+| `tools/build_migration_execution.py` 及 `--check` | 重建与快照一致，退出 0 |
+
+未验证：全部 GPU kernel/Graph、完整模型服务、真实 CP/TP/PD collective、GLM/Muse 数值与性能、可选 Helion 执行、媒体数据执行、wheel 安装、浏览器视觉验收。其他 pending/in_progress 条目保持原状态；未 commit、未 push，未修改 DAS 或官方来源树。
+
+结构收尾时执行 `tools/build_guide.py` 及 `--check`、执行台账 `--check`、`ci/l0_gate.py` 和 `git diff --check`，均退出 0；L0 为 620 个 Python 文件、8 个 Skill、0 errors。导览已重建并通过快照检查；该结果不是浏览器截图或交互验收。原始输出见 `artifacts/kimi-runtime-closure-host-20261105/structure-final.log`。
+
+
+## 2026-11-05 KV CPU 缺口补齐（进行中）
+
+本轮接手 KV/PD/distributed/native 共 104 条；其中本范围 CPU-first 为 19 条。新增 [CPU 方法实现](../hcu_sglang/mem_cache/cpu_cache_methods.py) 与 [窄 Hook](../hcu_sglang/mem_cache/cpu_cache.py)，由 allocation 注册入口接入。当前抽取 token-major Mamba 共享 entry 偏移、超大多模态条目拒绝、HF3FS/SeaweedFS Mamba TP 键、TensorCast packed 检查、StorageAttachment 双窗口阈值/清理及 Mamba external-linker 生命周期，保留官方类身份和非 HCU original 回退。来源定义与文件 SHA 见 [独立合同](../tests/contracts/cpu_cache_sources.json)。此处为进行中记录，尚未完成本轮验证；不记 verified，也不据此关闭其余条目。
+
+
+## 2026-11-05 CPU 缓存许可、来源登记与文件头门禁
+
+按本轮合规审查，给 [CPU 方法副本](../hcu_sglang/mem_cache/cpu_cache_methods.py) 原样恢复 Tensorcast 的 SPDX 与 SGLang 版权两行，并补入 [第三方清单](../THIRD_PARTY_NOTICES.md)。方法正文未改动；[逐定义合同](../tests/contracts/cpu_cache_sources.json) 继续固定 20 个来源定义，不把局部抽取描述为整文件等价。
+
+[运行时来源合同](../tests/contracts/runtime_owned_sources.json) 新增 extracted_files 与 adapter_files：前者固定 CPU 方法目标 SHA、七个来源文件 SHA 并引用逐定义合同；后者登记 CPU Hook、模型 registry 和五个 entries 文件的目标 SHA、所接来源 SHA，明确为本仓原创接线，不伪装成来源整文件副本。原 files 的可逆差异语义保留。两份来源合同同时保存来源原始头部行供离线检查。
+
+[L0](../ci/l0_gate.py) 按来源注册表检查：来源路径、SHA256、原始头部与 source_declaration 必须齐全；有声明时逐字保留，只有一种声明时保留该声明；无声明时明确登记“来源无声明”，不补造归属。抽取副本逐来源登记，原创接线仅核验来源记录，不强制复制来源头。新增 [门禁回归](../tests/test_l0_migration_headers.py) 覆盖无声明、部分声明、元数据缺失、正文伪造头部、替换原版权、空文件绕过和原创适配边界；扩展 [来源测试](../tests/test_runtime_owned_sources.py) 核验新登记与去重。
+
+本轮验证结果随后追加。当前仍未完成 StorageAttachment 初始化、Mamba 正式 linker 接线和其余 104 条审查；本节许可修复不改变运行时完成状态。未执行 GPU、完整模型、性能、wheel 或浏览器视觉验收；不删除快照，不 commit/push。
+
+
+许可门禁首轮实际执行（宿主 `/opt/saltstack/salt/bin/python3.10`，Python 3.10.19）：`ci/l0_gate.py` 返回 1，649 个 Python、8 个 Skill，新增严格规则报告 60 个文件的 116 条 SPDX/版权缺项。逐文件回读固定 DAS 来源并核对 SHA，60/60 匹配；56 份来源本身两项皆无，4 份只有一种声明。这些不是本轮新增认定的“丢失来源声明”。未为通过门禁而改造这些来源副本；需要区分“完整保留原有声明”和“来源本身补齐声明”的合规处理。
+
+首轮全仓单测 150 项，失败 2、错误 2、跳过 13，10.351 秒，退出 1。三处整文件来源合同问题已交回对应负责人；本轮新增测试对量化逐定义合同的格式兼容随后修正，原始失败日志保留。聚焦门禁回归 9/9、CPU 来源合同 3/3 通过；不以此代替全仓通过。原始命令、返回码、日志与来源头核对分别保存在 `artifacts/license-gate-20261105/results.json`、`focused-results.json`、`source-header-audit.json` 及同目录日志。
+
+
+来源规则最终收敛为 Chief 确认的“有声明逐字保留、无声明登记但不补造”。回读两份合同全部来源并核对固定 SHA 后，在每条 source/source_sha256 旁增加 source_header_lines 与 source_declaration（“来源无声明”或“保留来源声明”）；extracted_files 按每个来源分别登记，adapter_files 只做溯源，不声称源头部应复制到原创文件。
+
+按最终规则首次复验：`/opt/saltstack/salt/bin/python3.10 ci/l0_gate.py` 返回 0，652 个 Python、8 个 Skill、0 errors；`/opt/saltstack/salt/bin/python3.10 -m unittest discover -s tests -v` 执行 157 项、142 通过、2 失败、13 skipped，10.123 秒，返回 1。两项失败均为 GLM kpool/planner 目标 SHA 与合同不同，已交原负责人核对；文件头规则 14 项全部通过。最终规则日志及命令返回码见 `artifacts/license-gate-20261105/source-aware-results.json`、`l0-source-aware.log`、`unittest-source-aware.log`；首轮严格规则失败保留为历史证据，不覆盖。
+
+
+## 2026-11-05 KV 等待状态与 Mamba linker 构造入口（进行中）
+
+在既有 [CPU Hook](../hcu_sglang/mem_cache/cpu_cache.py) 中增加 StorageAttachment.__init__ 的 AROUND 适配：先调用官方 original，再仅在 HCU 且 cache 缺字段时创建 _storage_prefetch_wait；已有等待状态不覆盖，非 HCU 不新增字段。另将 DAS UnifiedCacheLinkerWrapper.__init__ 原文抽入 [方法副本](../hcu_sglang/mem_cache/cpu_cache_methods.py)，通过正式 AROUND target 接入；只在私有 globals 字典中将 supported components 增加 MAMBA，避免污染 native 全局支持集合与非 HCU original 回退。目标列表和 [逐定义合同](../tests/contracts/cpu_cache_sources.json) 同步扩展为 21 个原文定义、9 个组，来源注册表追加 linker 来源与最新目标 SHA。
+
+[CPU 行为测试](../tests/runtime/cpu_cache_cpu.py) 增加等待状态初始化/保留、Mamba 构造接纳、其他组件拒绝及 HCU 调用后非 HCU 仍拒绝 Mamba。新增构造测试使用显式 namespace/cache fixture，并非完整 linker 模块导入；原来的两个 leaf 模块仍经真实 HookRegistry 应用。完整 storage/Mamba 的禁 GPU 导入仍有既知依赖阻塞，未扩大 mock 绕过。完整 linker 的 match/load_back、host-prefetch 与错误协商方法尚未迁入，不能据本节将该来源整文件标记 implemented/verified，也不能关闭全部 104 条。
+
+本节代码的实际复验结果随后追加；未运行 GPU、模型服务或性能测试，未 commit/push。
+
+
+断网前构造入口版本的实际结果已落盘：容器禁 GPU 执行 `python3 tests/runtime/cpu_cache_cpu.py`，11 项、0.036 秒、全部通过，退出 0；包括 GPU 未初始化断言。宿主执行 `python3.10 -m unittest discover -s tests -v`，157 项、143 通过、1 失败、13 skipped，10.080 秒，退出 1；剩余失败为 GLM kpool/planner 反向恢复来源 SHA，交原负责人修正。完整命令与返回码见 `artifacts/kv-cpu-20261105/constructor-results.json`，对应 `constructor-runtime.log` 与 `constructor-unittest.log`。随后的 SSH 超时退出 255，未执行远端读写；节点恢复后继续复验，不用断网前失败日志覆盖后续结果。
+
+
+节点恢复后复验构造入口版本：宿主 `/opt/saltstack/salt/bin/python3.10 ci/l0_gate.py` 返回 0，652 个 Python、8 个 Skill、0 errors，72.999 秒；同解释器执行 `-m unittest discover -s tests -v`，157 项、144 通过、13 skipped，13.654 秒，返回 0。GLM planner 的旧来源合同失败已由原负责人修复；日志和精确命令见 `artifacts/kv-cpu-20261105/resume-gate-results.json`、`resume-l0.log`、`resume-unittest.log`。这是新增 CP 登记前的结果，后续改动另行复验。
+
+## 2026-11-05 CP LayerSplit 四份完整文件审查
+
+回读固定 DAS HEAD，核对 CP LayerSplit 包入口、deepseek_v4_layout、pool_base、transfer 四份现有 owned 文件。逐字节反转声明的 import 差异后均恢复来源 SHA，计算正文没有其他变化；来源没有声明时仅登记“来源无声明”。完整映射和静态调用方见 [本批审查](../plans/hcu-kv-cpu-review-20261105.json) 与 [来源合同](../tests/contracts/runtime_owned_sources.json)。V4 sizing 和 CP pool 调用 layout、CP pool 继承 base；公开 setup-state 适配及 owned protocol/Mooncake 使用 transfer。
+
+本批只将上述四个文件处置为 implemented，不标记 validated/verified。prefill/decode 仍有两处 Source transfer import，保留为独立 PD 接线缺口；CPU 数值、真实 CP/PD、多进程、GPU、模型和性能未验证。104 条任务仍在进行，未 commit/push。
+
+
+CPU-first 逐文件复核新增六条 implemented：token_major、multimodal_cache、HF3FS、SeaweedFS、TensorCast、StorageAttachment。逐项比较固定官方与 DAS 的全部叶子定义，实际变更定义集合与 CPU 抽取合同逐项相等；同时人工审查完整文本 diff，记录额外类型导入和构造状态。六条使用 allocation → cpu_cache → 公开方法 Hook，保持 native 类身份。StorageAttachment 连接现有 window_cache_init/window_pipeline 的双窗口入口；完整 linker 仍是单独缺口。对应来源/官方 SHA、变更定义和适用验证边界追加到 [本批审查](../plans/hcu-kv-cpu-review-20261105.json)。此批已登记十条文件实现（四个完整副本、六个完整差异审查），均未标记运行时等价；104 条中其余 94 条仍未因本批审查而关闭。
+
+
+### 2026-11-05 KV 预算公式核对与 CPU adapter H1
+
+本批在新增 10 条 implemented 登记后补跑检查；这些登记不代表 validated 或 verified，其余 94 条仍在迁入审查。`hcu_sglang/mem_cache/cpu_cache.py` 为本轮原创接线，按 H1 补 HYGON Copyright 与 Apache-2.0 SPDX，并更新来源合同 adapter SHA；抽取方法的来源声明与来源 SHA 不变。
+
+固定官方 `baa9befa381511cd4d56f83980951e5a45fffc6d` 与 DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e` 核对：`KVCacheConfigurator._profile_available_bytes`、`_resolve_memory_pool_config`、`compute_post_capture_kv_resize` 三个函数逐字相同。普通非 GLM/非 MLA 的 MHA cell-size 在 4 组合成 CPU 输入下相同；无 spec、无 replay、无 fused draft 的 Mamba 预算在 54 组合成输入中 51 组相同。另 3 组为关闭 radix cache 且 max_running_requests=1、attn_dp_size=2：官方得 0 槽后 RuntimeError，DAS 以 max(1, ...) 得 1 槽。该边界差异不是本轮 A/B 已命中的证据。探针首次缺 get_memory 夹具，第二次触发该真实边界异常，最终探针记录两侧返回或异常并断言差异仅发生于此边界。
+
+证据：`artifacts/kv-cpu-20261105/budget-formula-review.json`。本次是从固定源码抽取函数并注入显式 namespace 的 CPU 公式探针，不是完整模块导入、真实 Hook、实际显存采样或模型验证。实际 A/B 日志及输入预算仍待核对，max_total_num_tokens 差 0.24% 的原因未确定；不据文件级函数计数推定漏迁。不运行 GPU，不 commit/push。
+
+
+### 2026-11-05 TreeComponent 完整差异审查
+
+`unified_cache/components/base.py` 全部差异已审查：`refresh_lru` 的 match 改 if/elif 在 WALKDOWN 空/非空、MATCH_END 空/非空、INSERT_END、非法 phase 六组显式 CPU namespace 夹具下返回/调用/异常相同。`create_buffer_pipeline` 反转 owned pipeline import 后 AST 相同，已有正式 AROUND 与 `init_hicache` 主/辅助 SWA consumer 接通；新增 SWAComponent 仅 TYPE_CHECKING。本条从 in_progress 改 implemented，累计本批 11 条、余 93 条仍未闭合，不晋升 validated/verified。证据存 `plans/hcu-kv-cpu-review-20261105.json`。未运行完整 controller/storage、PD/GPU、模型或性能验证。
+
+前一检查批：execution build/check、guide build/check、git diff --check 与 L0 退出 0；157 项全仓单测失败（13 skip，3 个失败断言，涉及 GLM dsa_backend.py/kpool/indexer.py 目标 SHA 漂移），已交对应负责人核对，不能记全仓通过。日志：`artifacts/kv-cpu-20261105/review-gate-results.json` 与 `review-unittest.log`。
+
+
+### 2026-11-05 A/B 容量差的实际预算证据
+
+只读核对仓外 `test-results/runs/dump-20261105` 的 A/B server 日志与 server_info。TP0 加载前可用显存 A=135.50 GB、B=135.64 GB；加载后 A=120.42 GB、B=120.71 GB；日志权重占用 A=15.08 GB、B=14.93 GB。mem_fraction_static 同为 0.842461484375，按已确认相同的预算采样公式，日志四舍五入数推算预算增量约 0.268 GB。Mamba 槽 A=652、B=654，SSM 日志 45.91→46.05 GB；KV token 3418432→3426496，内存 telemetry 52.162→52.285 GB。依据后者估算每 token 16384 bytes 时，8064 token 对应 0.123046875 GiB，和 Mamba 增量合起来与预算增量相容。该 16384 值由四舍五入 telemetry 推算，尚非实际运行时 cell_size 采样。
+
+本配方 radix 启用、attn_dp_size=1、spec/replay 关闭，因此 CPU 公式探针发现的小请求边界不适用。现有证据支持先核预算输入/驻留显存，不能仅凭 0.236% 容量差定性每 token 布局或构造漏迁。未采集实际未舍入 free memory/预算/每槽字节，未验证该差异与 logprob 偏差的因果关系。完整字段、SHA 和原日志行号：`artifacts/kv-cpu-20261105/ab-memory-budget-evidence.json`。
+
+### 2026-11-05 LRU 夹具证据更正
+
+复查发现前批 refresh_lru namespace 夹具误把 phase 与 node 的位置传反，六组旧输出全部落入非法 phase，不能支持正常分支验证；撤回该批六组行为通过结论。已保留 superseded_lru_fixture_outputs 并按真实签名 (self, phase, node, root_node) 重跑：WALKDOWN 空值无调用、非空仅 reset_node_mru；MATCH_END 空/非空均 reset_node_and_parents_mru，断言 node/root/predicate 身份；INSERT_END 无调用；非法 phase 仅 ValueError。六组官方与 DAS 结果一致且符合独立预期。证据：artifacts/kv-cpu-20261105/lru-corrected-fixture-results.json 与 plans/hcu-kv-cpu-review-20261105.json。范围仍限固定源码方法与显式 namespace，真实 Hook/完整模块/GPU/模型未验证；implemented 状态不变。
+
+
+### 2026-11-05 page-plan 原文恢复与 CPU 证据边界
+
+固定 DAS HEAD 的 layer_split.py 仅含 MainKVPagePlan、_build_unique_physical_pages、build_main_kv_page_plan 三个定义。本轮在 [既有 owned 模块](../hcu_sglang/mem_cache/dsa_cache_layer_split.py) 恢复来源 docstring 与完整声明，三个定义含 decorator 逐字相同；未修改 page-plan 算法。来源 SHA256 为 1c253a2104e15179f8585d35c17f70c3bcc41cabaf1dad041d9aa61ea23efa30。在 [定义合同](../tests/contracts/runtime_reviewed_definitions.json) 增加第九组，并在 [来源合同](../tests/contracts/runtime_owned_sources.json) 明确仅覆盖这三个定义；其余 LayerSplit pool 不据此关闭。正式 dsa 注册、DSA utils 与 GLM CP 调用链已静态审查。[本批审查](../plans/hcu-kv-cpu-review-20261105.json) 和 [迁移处置](../plans/sglang-das-decisions.json) 登记本条 implemented，累计 12 条，104 条中其余 92 条未因本批工作闭合，不晋升 validated/verified。
+
+容器 Python 3.10.12、Torch 2.11.0，HIP/ROCR/CUDA_VISIBLE_DEVICES 均为 -1。完整模块测试 dsa_plan_fix 尚未加载：首次导入触发 GPU 属性探测，加入显式硬件夹具后仍在 fp8_utils 的 capability 比较报 TypeError；两次均退出 1，不能计通过。改用固定源码显式 namespace，来源与 owned 各 7 例：空批、history/current 去重与 dummy 过滤、重复 request、非法 page、负 length、请求行不足、表容量越界；包含 dataclass 对象身份断言。合计 14 例通过，进程退出 0、4.217 秒，CUDA 未初始化。日志及脚本为 artifacts/kv-cpu-20261105/page-plan-mha-cpu-diagnostic*；完整导入失败日志 page-plan-runtime* 保留。此结果不代表真实模块/Hook/CP consumer 执行。
+
+同一 namespace 探针核对 MHA.set_kv_buffer：DAS 有 FP8 clamp，插件继承官方方法而在 _store_kv_layer 实现 HCU page 布局。首次探针预期官方将越界值写成 NaN，但该断言失败（退出 1、4.855 秒）；复核实测 Torch 2.11.0 CPU 的直接 cast 已将 +/-1000 饱和为 +/-448，两侧写入字节均为 [126,254]、NaN 数为 0。因此未复现 CPU 数值差异；仅登记静态 clamp 差异和 HCU/真实模型范围未验证，不记实证缺陷，不作为 r04 归因。失败日志 page-plan-mha-cpu-probe* 与新诊断产物分别保留，诊断中的 runner import 与官方 storage callback 均为显式夹具。
+
+未验证：完整模块/正式 Hook 的 page-plan CPU 用例、真实 CP/PD、多进程、GPU、模型数值与性能、wheel、导览浏览器渲染/交互/窄屏。未改 MHA 算法，未启动服务，未 commit/push。容量差按已确认口径归档：A 权重驻留后可用显存少 0.29 GB，KV 少 8064 token，Mamba 槽 652 对 654，原因未定位，不视为已对齐。本轮门禁结果随后追加。
+
+
+page-plan 批实际门禁（宿主 Python 3.10.19）：execution build/check、guide build/check、git diff --check 全部退出 0；L0 653 个 Python、8 个 Skill、0 errors，23.294 秒；全仓 unittest 157 项、144 通过、13 skipped，测试 10.134 秒、进程 10.293 秒，退出 0。此前 GLM 合同三处失败本轮未再出现，不覆盖旧失败记录。命令、返回码和合同前后 SHA 见 artifacts/kv-cpu-20261105/page-plan-gate-results.json；此结果是下面两份来源合同登记前的快照。
+
+### 2026-11-05 cleanup 与 CP utils 完整副本审查
+
+[cleanup](../hcu_sglang/mem_cache/cleanup.py) 与 [CP utils](../hcu_sglang/mem_cache/cp_cache_layer_split/utils.py) 均与固定 DAS 来源逐字节相同，无反向替换；SHA256 分别为 a3a347d73b6cdf1e48f4ef446d6b7ec51f14f17afac969d4abdf42731c3c0b3c、ebc80c484f4abbb729a3c32853e14c63b38e1b0c14689a72f28ac8a1679ecec8。两来源无声明，只在 [来源合同](../tests/contracts/runtime_owned_sources.json) 登记“来源无声明”，不补造归属。现有 common/PD prefill 与 CP pool_base/layout 调用方已审查；PD 正式注册路径为顶层 disaggregation → disagg.integration → prefill.register_hooks。回读共享处置表发现这两条原已 implemented，因此本轮仅增强审查/来源合同和 CPU 证据，不重复算状态晋升。本批审查共覆盖 14 条 implemented，104 条中另 90 条未因本批审查闭合；均不晋升 validated/verified。
+
+新增原创 [CPU 回归](../tests/runtime/cleanup_cp_utils_cpu.py)，按 H1 添加版权与 SPDX。容器源码模式、SGLANG_PLUGINS 为空、三组 GPU 可见开关均 -1，真实导入 owned cleanup、CP utils 与 pool_base；9 项测试通过，测试 0.055 秒、进程 9.397 秒，退出 0，CUDA 未初始化。覆盖完成结果对象身份及只释放一次、未知副作用隔离、显式无副作用失败重试、非 abort 回退、重入释放隔离、独立子步骤，以及 0..20 层/1..8 分片的连续不重叠覆盖、宽度均衡、owner 映射、真实 pool_base 全局偏移与非法输入；配置开关测试明确使用 parallel-state fixture。完整命令与日志：artifacts/kv-cpu-20261105/cleanup-cp-utils-runtime-results.json、cleanup-cp-utils-runtime.log。
+
+生产运行时代码本节未改；仅增加来源审查/合同与测试。真实 request allocator、副作用失败恢复、完整插件注册、scheduler/PD 通信、CP 多进程、GPU、模型数值与性能仍未验证。新增登记后的最终门禁另行追加；未 commit/push。
+
+
+### 2026-11-05 cleanup/CP 合同门禁与断联后文档收尾
+
+cleanup/CP 来源合同登记后的断网前门禁已核对原始 JSON 与日志：宿主 `/opt/saltstack/salt/bin/python3.10` 执行 execution build/check、guide build/check、`git diff --check` 均退出 0；L0 为 654 个 Python、8 个 Skill、0 errors，进程 19.669 秒；全仓 unittest 157 项、144 通过、13 skipped，测试 10.021 秒、进程 10.178 秒，退出 0。四份跟踪输入（runtime_owned_sources、runtime_reviewed_definitions、cleanup_cp_utils_cpu、dsa_cache_layer_split）的门禁前后 SHA 完全一致。完整命令、返回码、输入 SHA 与日志索引见 `artifacts/kv-cpu-20261105/helpers-gate-results.json`，原始输出为同目录 `helpers-l0.log`、`helpers-unittest.log`。上述结果产生于断网前，不代表恢复后新代码已通过；旧失败与探针预期错误的日志保留，不覆盖。
+
+原定最后一段开发记录追加在 SSH 连接阶段超时，退出 255，远端脚本未执行，追加后的检查当时未运行。2026-11-05 16:02 +08:00 恢复后重新读取本记录并独立执行 `ls -l`、`sha256sum`，五份已报告证据均存在，大小、SHA、修改时间与命令原始输出写入 `artifacts/kv-cpu-20261105/evidence-path-verification-20261105T1602.json`。此前群报告的远端相对路径被 Markdown 按本机工作目录解析，所给本机链接无效；后续群报告统一用代码块提供已核验的远端绝对路径。
+
+本次只追加开发记录并重建导览；追加后的 guide build/check、execution check、diff check 与 L0 按实际返回码独立保存至 `artifacts/kv-cpu-20261105/closing-doc-gate-results.json` 和同目录 `closing-*.log`，不复用断网前通过结果。恢复后全仓单测由并行负责人另行复验，本次文档收尾不声称其通过。未验证浏览器渲染、交互和窄屏布局；运行时/GPU/模型验证边界维持前文，未 commit/push。
+
+
+### 2026-11-05 阶段一 closure 生成与防漂移门禁
+
+新增 tools/build_runtime_closure.py，将 triage 的 257 个文件与当前 decisions 合并为每文件一行的 closure；未登记默认 pending，分类旧状态单列保留。输出保存完整 decision、实现/测试/证据字段及规范化输入摘要。ci/l0_gate.py 使用当前解释器调用 --check；decisions 变化而未重建时退出非零，包括范围外 decision 内容变化。--check 不写文件，禁止输出覆盖输入。新工具与 tests/test_runtime_closure.py 按 H1 添加原创版权和 SPDX。
+
+原 closure 为 307 符号行、72 来源文件，已逐字节保留到 plans/hcu-runtime-target-review-20261105.csv，不将符号数混算为 257 文件进度；历史刷新记录保留原 target_table 并增加保留后路径。旧 decision 的符号证据引用按 docs/migration.md 的说明读取历史表。本轮不改共享 decisions 的状态或来源证据，不据生成快照宣称新的运行时实现或数值等价。
+
+宿主 Python 3.10.19 首轮 build/check 退出 0；257 文件当前为 implemented 58、in_progress 12、pending 172、upstream 4、separate_component 11。聚焦 unittest 8 项通过，测试 0.323 秒；包含临时目录中修改 decision 后 --check/L0 检查失败、重建后恢复、检查不写产物及输入保护。日志为 artifacts/runtime-closure-20261105/focused-results.json 和 focused.log。文档与最终全仓门禁另存本目录 final-gate-results.json；完成后的实际汇总追加于后。
+
+工具不导入运行时，不跑 GPU；完整 attention/KV、模型精度/性能、wheel、网页浏览器渲染和交互均未因本工具验证。不 commit/push。
+
+
+closure 最终全仓门禁实绩（2026-11-05 16:16 +08:00，宿主 Python 3.10.19）：execution build/check、closure build/check、guide build/check、git diff --check 全部退出 0；L0 656 个 Python、8 个 Skill、0 errors，43.806 秒；全仓 unittest 165 项，152 通过、13 skipped，测试 10.471 秒、进程 10.631 秒，退出 0。七份关键输入（decisions、triage、生成器、回归、L0、两份来源/定义合同）前后 SHA 一致。历史符号表 SHA256 402683cd6128d9b9ca245fe7bd3da109f300b90e18b5b032830f8ac9ff065be2，与保留前原表一致。逐命令记录 final-gate-results.json、final-l0.log、final-unittest.log 位于 artifacts/runtime-closure-20261105/。本段追加后重新 build/check 导览、closure/execution check、diff check 和 L0，独立留存于 doc-close-results.json；不以此前结果代替追加后的检查。
+
+
+### 2026-11-05 memory_pool 81 项定义与注册链审查
+
+固定官方/DAS memory_pool.py 对比，函数叶子定义为 33 changed + 48 added = 81，不将包含方法的 class 节点重复计入。逐项来源行号/AST摘要、owned候选、目标位置与已审查注册链写入 artifacts/memory-pool-review-20261105/definition-review.json 及 .csv。38 项找到对应 owned 目标及静态接线（Mamba/MLA/DSA 33、MHA builder 替换子类 5），其余 43 项保留继承差异、API缺项或接线待核；10 项完整 AST 匹配。该映射仅审查，不代表执行通过，不改 decisions，也不关闭 memory_pool 整文件。
+
+Mamba constructor、_should_fuse_slot_ops、conv_window_dedup_enabled 三定义与来源完整AST相同；allocation → mamba_pool.register_hooks → HookRegistry AROUND 链已审查，HCU门控下用 FunctionType 重绑 native globals。MHA 仍继承官方 constructor/set_kv_buffer，并由子类 _store_kv_layer 负责 HCU page 布局；DAS显式 FP8 clamp、capture/alt_stream调度、prefix-valid默认分支及metadata API差异保留。extra buffer stride 的来源 stride(0) 与 owned shape乘积差异尚未行为验证。Hybrid root 的23个差异定义未在已审查链确认相应constructor/代理安装；子pool同名方法不能当root接线。DSA _should_allocate_index_layer 来源增加@property但仍要求参数，作为静态签名差异保留，未擅自复制或修复。GLM/DSA、MiniMax和当前Qwen3.5普通MHA的可达性分别保留，不混作容量归因。
+
+2026-11-05 16:29 +08:00 容器源码模式，SGLANG_PLUGINS为空、HIP/ROCR/CUDA_VISIBLE_DEVICES均为-1；只尝试导入真实memory_pool、owned Mamba/MHA。进程8.935秒、退出1：官方fp8_kernel导入时 is_gfx1250_supported 调用 torch.cuda.get_device_properties，报 No CUDA GPUs are available，尚未执行到池构造或Hook。未通过逐层mock将失败改称通过。命令与完整错误为 import-probe-results.json、import-probe.log，脚本 import_probe.py 均位于上述证据目录。
+
+容量差仍为原因未定位：A/B token 3418432/3426496、Mamba槽652/654；缺少未舍入预算、每槽字节和真实运行时构造采样，不视为已对齐，不据AST相同排除构造问题，也不据API缺项解释数值差。未修改生产运行时代码、未跑GPU、未启动服务、未commit/push；本轮文档追加后的guide build/check、closure/execution check、diff check、L0实绩独立保存到同目录 review-doc-gate-results.json，不复用前批结果。
+
+
+### 2026-11-05 memory_pool 剩余43项静态接线复核
+
+在第一轮81项叶子定义中精确筛选43项，独立保存 artifacts/memory-pool-review-20261105/wiring-review.json 与 wiring-review.csv，不覆盖第一轮证据。逐项记录DAS源码及decorator、官方定义/基类、owned同名候选、调用上下文、guard和触发配置。扫描489个owned Python文件、673个动态写入候选，输入逐文件留SHA；写入前重新核对。首次生成因并发修改flashattention_interface.py被摘要检查拦截，退出1且未写产物；重新采样后全部输入稳定，生成退出0。43项来源AST摘要均与第一轮一致，CSV/JSON定义集合一致。
+
+官方模块中32项缺对应定义，11项保留官方实现差异；已审查入口、Mamba/MLA/DSA注册与MHA builder未见这43项对应覆盖。此为静态覆盖清单，不能计为43个实证缺陷。23项属于Hybrid root：builder只替换full-attention child，child的LayerSplit方法不自动变成root代理。prefill与dsa_utils部分调用用getattr默认值回退，可能跳过分片/compact；GLM backend的PAGED位置转换、HCU/KPool写入与tail调用则有直接API调用，需该backend与实际Hybrid root组合才触发，尚未执行验证。普通非GLM get_kv_layer_ids分支仍与DAS相同。
+
+MHA继承官方setter而覆盖_store_kv_layer，已有HCU页布局接线；DAS clamp、非HCU-FA的NHD scaled-FP8 writer和prefix-valid默认分支分别保留差异，不混作当前配方归因。owned prepare_hicache_staging虽直接读取get_device_pool_infos，但全插件仅找到定义；cache_retention只接build_kv_cache，官方prepare入口继续使用旧pool协议，因此尚不能据缺provider判定当前启动必失败。MXFP8、MLA、MiniMax与当前普通MHA配置分别登记。DSA来源@property仍带local_layer_idx参数，官方保持可调用method、owned donor仍传参；只记录来源签名差异，不盲复制。
+
+未改生产运行时代码、decisions或已有证据，不晋升validated/verified，不关闭memory_pool整文件或104条范围。禁GPU导入阻塞沿用前批失败记录，本轮不重试；实际Hook、CPU构造、GPU/模型数值与性能、CP/PD多进程均未验证。652/654槽和8064token差仍原因未定位，等待运行时dump。文档门禁按实际命令及返回码独立留存同目录 wiring-doc-gate-results.json 与 wiring-*.log；本轮只新增证据和文档，不重跑全仓单测，不以16:16的165项/13skip代替本批验证。
+
+## 2026-11-05 A 侧 FA wrapper 对齐与单卡冒烟
+
+按“以 DAS 为基准”的口径对齐插件 `flashattention_interface`：decode 分支改为与 fork `L2577` 相同的 vendor `vllm_flash_attn_with_kvcache`（11 个参数：q/k_cache/v_cache/block_table/cache_seqlens/softmax_scale/causal/window_size/softcap/return_softmax_lse/num_splits，不传 layout/descale/kv_cache_dtype）；extend 分支保留 `vllm_flash_attn_varlen_func`，`fa_version=2`（与 fork 硬编码一致），并透传 `q_descale/k_descale/v_descale/softcap/s_aux/seqused_k/block_table`。`layout` 与 descale 在 fork wrapper 中只在 triton 分支转发，非 triton 的 vendor 调用不含它们，因此 A 不传与 B 一致。
+
+单卡冒烟（卡 1，`Qwen3-0.6B`，`--tp-size 1 --page-size 64 --mem-fraction-static 0.08 --attention-backend fa3 --disable-cuda-graph`，rust-1.92 env 且 `PATH` 追加 `/opt/dtk/bin`）：17:25:02 `The server is fired up and ready to roll!`，`POST /generate` 返回 200；随后停止，端口 30091 释放。extend（vllm varlen）与 decode（vllm with_kvcache）都在真实请求中执行，无 TypeError。对照：默认 page size 会以 `RuntimeError: Paged KV cache block size must be divisible by 64 at gfx936 platform` 退出，该约束已写入 [安装文档](installation.md#41-gfx936-上的-page-size-约束)。
+
+冒烟日志中的 `Failed to apply hooks to sglang.srt.mem_cache.storage.tensorcast_store.tensorcast_store._validate_storage_config` 已定位为容器缺可选依赖 `tensorcast`（`import tensorcast` → `ModuleNotFoundError`），HookRegistry 将导入失败表现为父包缺属性；官方 0.5.22 存在该 package，目标串本身正确，由 gpt61 按“缺依赖跳过可选 Hook”处理。
+
+未验证：27B 模型下 r01/r04 的重跑与 dump 对拍（卡 0 仍被他方冻结任务占用）；`_trim_padded_q_for_batch_api`/`_restore_padded_q_rows`（SP padding 裁剪，本配方 no-op）未迁入；量化 static/TENSOR 与 `w8a8_strategy` 2/3/4 路径未验证。未 commit/push。
+
+### 2026-11-05 SWA 默认属性、PD 接线与 Tensorcast 可选依赖
+
+本批修复三处接线，并完成两个 CPU-first 文件的处置登记。所有改动只影响 HCU 门控路径或缺失可选依赖时的注册行为。
+
+`hcu_sglang/mem_cache/swa.py` 在 HCU 门控内为 `BaseSWAKVPool` 设置 `request_window = None` 类属性默认值，不替换类对象、方法或抽象方法集合，已有值不覆盖。该默认值对应 DAS 相对固定官方文件唯一的差异：DAS 只增加这个可选类属性，没有可调用定义变化。五个容器内 CPU 用例覆盖既有实例获得属性、类与方法身份不变、非 HCU 基线不变、已有适配值不被覆盖、子类与实例同名属性保持私有、CUDA 未初始化。
+
+`hcu_sglang/disagg/prefill.py` 与 `decode.py` 的 `configure_v4_transfer` 改从 owned `hcu_sglang.mem_cache.cp_cache_layer_split.transfer` 导入，和同段 `DeepSeekV4TokenToKVPool` 的 owned 导入一致。此前两处仍指向 Source 命名空间，属于插件内消费者未用 owned 实现的真实接线缺陷；两文件各自的 33/27 个未覆盖定义仍未完成，处置保持 pending。
+
+`hcu_sglang/mem_cache/cpu_cache.py` 的 Tensorcast 可选钩子在 `find_spec("tensorcast")` 为 `None` 时跳过注册，目标串保持 `sglang.srt.mem_cache.storage.tensorcast_store.tensorcast_store._validate_storage_config` 不变。原因已在容器内实测：官方树有该模块，`import` 报 `ModuleNotFoundError: No module named 'tensorcast'`，HookRegistry 随后把它表现为父包缺少属性。只跳过缺依赖，不吞其它探测异常；三项 CPU 回归覆盖缺依赖不注册、依赖可用时仍注册同一公开目标、安装损坏时抛错。
+
+`unified_cache/components/mamba.py` 完成整文件差异审查并登记 implemented：5 个 changed + 2 个 added 叶子定义，六个 DAS 定义逐字抽取并经公开 AROUND 目标接线，`refresh_lru` 的 match 到 if/elif 改写经七组官方/DAS 显式 namespace 夹具逐项相同。triage 记 9 个 uncovered 是含模块级语句的计数，顶层函数与类方法审计为 7，未按 9 凑数。`cpu_cache_cpu.py` 另补两项包装回归：非 HCU 回退保留当前有效原函数、辅助方法在原构造器前安装且重复注册不改变身份。
+
+同一轮静态审查登记五项待迁入缺口：`hicache_key_scheme.py`（fork-only 8 个新增定义，无 owned 副本）、`linker_fault_injection.py`（fork-only 4 个定义，测试用途）、`hybrid_cache/linker_pool_assembler.py`（2 changed + 4 added，V4.1 与 Mamba/SWA direct-linker 组构造缺失）、`storage/mooncake_store/mooncake_store.py`（6 changed + 2 added，含 `layout_hcu` 页断言）、`unified_cache/unified_tree_core_interface.py`（两个抽象方法增加可选 `component_type` 参数，owned window 实现已带同名默认值，未复制 ABC 声明）。七项完整差异与逐符号证据在 `artifacts/kv-cpu-20261105/cpu-followup-review.json`。
+
+验证边界：`tests/runtime/swa_defaults_cpu.py` 5 项、`tests/runtime/cpu_cache_cpu.py` 16 项在容器源码模式下通过，GPU 可见开关均为 -1；`tests/test_pd_transfer_namespace.py` 1 项提供静态导入合同。没有执行真实 Hook apply（Tensorcast 依赖未安装）、V4.1 RequestWindow 构造与 encoder replay、unified_cache 控制器、storage 后端、PD 多进程、GPU、模型数值与性能；完整 `components.base` 导入仍被 fp8_kernel 的设备探测阻塞。本批不 commit、不 push。
+
+### 2026-11-05 mooncake_store 迁入与容量差归档
+
+`storage/mooncake_store/mooncake_store.py` 的 8 个变更/新增叶子中，7 个已逐字抽取到 [cpu_cache_methods](../hcu_sglang/mem_cache/cpu_cache_methods.py) 并经 [cpu_cache](../hcu_sglang/mem_cache/cpu_cache.py) 的公开 AROUND 目标接线：两个 client-HTTP 辅助（按物理调度进程 rank 取端口、叠加 dp 偏移）、`MooncakeStoreConfig.from_file` 与 `load_from_extra_config`（缺省 `protocol` 回退 `MOONCAKE_PROTOCOL.get()` 而非其 default）、`MooncakeBaseStore.register_buffer`（tuple/list 逐项注册）、`MooncakeStore.__init__`、`_get_hybrid_page_component_keys`（`DevicePoolEntry` 一页一对象分支）。
+
+`MooncakeStore.register_mem_pool_host` 未迁入：DAS 相对官方只多一条接受 `layout_hcu` 的 assert，但该方法体有两处 `super()`，当前 FunctionType 抽取无法重绑。`layout_hcu` 经 `hcu_host_pool.py` 可达，因此这是真缺口，只是当前配方不启用存储后端、短期不命中。该缺口按具名叶子记录，不按文件整体记完成。
+
+`mem_cache/hicache_key_scheme.py` 处置为 excluded，依据是上游自身没有启用：DAS 全树对该模块 import 数为 0（仅模块自身命中）、DAS `server_args` 未声明 `--hicache-storage-key-scheme`、模块外没有任何消费路径。保留原行不删；reason 写明「DAS 侧无消费者，插件侧不迁；若上游后续接线需重新评估」。
+
+同批核对 A/B 容量差的归账：dump 轮 token 差 8064 × 16383.6 B/token = 0.123 GiB，Mamba 差 2 槽 = 0.140 GiB，合计 0.263 GiB；输入端差 0.29 GiB（加载前 0.14 + 权重多占 0.15），token 比例 0.2353% 与加载后可用显存比例 0.2402% 一致。同一轮 TP1 上 A/B 四个数完全相同（135.93 / 120.85 / 15.08），A 两个 rank 自洽；TP0 相对自身 TP1 的间隙在四轮里从 −0.14 变到 −1.98 GiB。静态扫描插件 500+ 文件、13 处 rank 门控 GPU 分配，加载路径上无按 rank0 分配的代码。因此该容量差按“环境噪声、未定位”归档，不作为尾延迟归因，证据在 `artifacts/kv-cpu-20261105/ab-capacity-accounting.json`。
+
+验证边界：抽取契约 3 项、容器 CPU 缓存回归 20 项通过（含新增 4 项 mooncake 行为用例），GPU 可见开关均为 -1。未验证：真实 mooncake wheel 与 store、HiCache 存储流量、`layout_hcu` 注册、GPU/模型数值与性能；容量差与尾延迟的因果关系未验证。本批未 commit、未 push。
+
+### 2026-11-05 models 纳入清单与 Qwen3.5 空钩子清除
+
+此前阶段一清单只覆盖 layers、mem_cache、disaggregation、distributed、kernels 五类共 257 个文件，`srt/models` 一行没有；而 DAS 的 `srt/models` 相对固定官方有 113 个文件存在定义级差异。把 models 排除在等价声明之外等于宣告断言不完整，因此本批按当前目标配置（Qwen3.5 / TP2 / PP1 / attn_dp_size=1）的运行时可达性纳入全部 113 个文件。
+
+可达性判定用运行时路径而不是静态 import 闭包：加载的模型类只有 `Qwen3_5ForConditionalGeneration`，因此运行路径上仅 `qwen3_5.py` 一个文件；其余 112 个文件属于其它模型，在当前目标配置下不执行。两者都按 `not_applicable` 记入 triage 并附具体理由，而不是逐个声称已迁移。
+
+`qwen3_5.py` 的三处差异在本配置下判定为 no-op：`Qwen3_5GatedDeltaNet.forward` 的 `forward_mode`→`logical_forward_mode` 只在 DP relabel 时不同（`attn_dp_size=1` 两值相同）；`refreshes_rope_cos_sin` 在 DAS 全树没有读取方，仅 `qwen3_5.py` 与 `interns2_mobius.py` 两处赋值；`_refreshes_rope_cos_sin` 只被那处赋值调用。未验证 DP relabel 与 PP>1 的 stage 行为。
+
+同时清除插件侧的空钩子：`hcu_sglang/models/qwen/qwen3_5.py` 的 AROUND 直接 `return original(...)`，四个 import 均未使用，DAS 的 qwen3_5 也没有接 fused RMSNorm+RoPE。已从 [插件入口](../hcu_sglang/__init__.py) 移除该模块的导入与 `register()`，并从目标合同删除该字符串，新增 [回归](../tests/test_qwen3_5_hook_removed.py) 断言入口不再引用该模块、全插件没有模块注册该目标、合同不再声明它。源文件本体尚未删除，等用户确认后再删，避免违反“删文件先问用户”。
+
+清单分母变化：triage 257 → 370，closure 同步为 370，当前分布 implemented 73 / in_progress 23 / pending 155 / separate_component 114 / upstream 5。其中 in_progress 从 14 增至 23、upstream 从 4 增至 5，是因为 10 个 models 文件原本已有 decision 但未被旧清单计数，不是本批新增实现。
+
+验证边界：本批只做静态差异、可达性判定与注册清理；没有运行 Qwen3.5 逐层 dump、DP relabel、PP>1、GPU、模型数值或性能验证。113 个文件的 not_applicable 是配置范围判定，不是等价性证明。未 commit、未 push。
+
+### 2026-11-05 配置范围外行的措辞约束
+
+112 个 models 文件按配置范围判为不可达，全部以 `not_applicable` 记入清单，但这类行最容易在后续阅读中被误当成“已处置完成”。为此对这 112 条统一写入 `review_reason: 配置范围外，非等价证明`，并把同一措辞放在 `rationale` 开头；`qwen3_5.py` 作为配置内可达文件使用单独措辞，不带这句，避免被统计进来。
+
+closure 的 `rationale` 与 `decision_json` 两列都携带该字段，因此可以按措辞精确统计。新增回归断言 decisions 中恰好 112 条 review_reason 等于该措辞、路径都在 `srt/models/` 下且排除 `qwen3_5.py`，并断言 closure 的 rationale 列同样数出 112 条且 group 全为 models。这条约束写入测试后，任何人把配置外行改成“已完成”或改动措辞都会使单测失败。
+
+验证边界：措辞与统计是台账约束，不构成任何等价性证明；这 112 个文件的实际行为仍按其所属模型进入目标配置时重新评估。未 commit、未 push。
+
+### 2026-11-05 判据B：噪声基线容差等价
+
+layer 0 在 gfx936/BF16 KV 环境下首层最大绝对差 1.562e-2，至 layer 63 相对差 88.7%。**该 1.562e-2 未做 ulp 归一化**：在 |x|≈1 处约合 4 ulp；"端点比值约 16%/层"是由 layer 0 与 layer 63 反推的比值（1.562e-2×1.16^63≈181），**没有中间层实测斜率，不能当作观测结论**。跨 kernel 构建的栈上把“逐位相同”作为验收条件不可维护，但也不能凭主观阈值判“这只是舍入”。本批把验收口径改为**用同侧重跑噪声做基线**：
+
+1. B 侧（原生 DAS）在同环境、同 prompt 集、同 greedy 参数下独立启动两次，得到 B1/B2，逐条比较 input logprobs 的 max|Δ|、p99|Δ|、p50|Δ|、超差位置数与最差位置，并记录文本是否逐字符一致；
+2. 用同一组指标比较 A-vs-B；
+3. A-vs-B 的 max|Δ| 与 p99|Δ| 均不超过 B-vs-B 对应值 → 判数值等价，位置级超差记“数值放大”；任一指标显著大于 B-vs-B → 仍有真问题。
+
+“显著”的操作化倍数暂定 2 倍，需 Chief 批准后才写进结论；未批准前只报原始指标。**若 B-vs-B 基线为零（逐位相同），则 A-vs-B 的任何差异都不能归因于噪声，判据B不成立**，必须回到算子定位（GEMM 后端、`layer_boundary` 融合）。文本级分叉（r02/r08）不因此自动豁免，需给出分歧 token 处 top1/top2 logit 间距，证明扰动足以翻转近 tie。
+
+配套实验（26 上做，一轮只改一个变量，命中条件只有 `max_abs == 0`）：① 把 `bf16_gemm_backend`/`fp8_gemm_runner_backend` 固定为与 B 相同实现；② 若①不为 0，只停 `layer_boundary` 钩子、其它全留。gfx936/47 的观测不得外推到 26。
+
+**后续实测（2026-11-06）：判据B 已作废。** B-vs-B 两轮（47、同 prompt、同 greedy、各重启一次）逐位相同——27/27 张量键一致、五层 max_abs 全 0.000e+00、64 层哈希全等、embed 相同。同侧噪声基线为零，故 A-vs-B 的差异不能归因噪声；数值结论只剩两种：找到算子并对齐，或如实记为“数值不等价、源头未定位”。判据定义、作废依据与未验证项见 `artifacts/kv-cpu-20261105/criterion-b-noise-baseline.json`。未 commit、未 push。
+
+### 2026-11-05 closure 分母并集与缺记录门禁
+
+代码审核家用交集/差集量出台账口径问题：closure 的 370 行里，149 行在 decisions 中没有处置记录却被默认记成 pending（占四成）；另有 144 个 decision 键不在分母内。因此“370 个文件全部有处置状态”此前无法验证。
+
+本批按 Chief 的批准改了 [closure 生成器](../tools/build_runtime_closure.py)：分母改为 `triage ∪ decisions`（787 条补入后自动并入同一并集），仅存在于 decision 的路径以 `decisions_only` 分组进入；triage 有行但无 decision 时 execution_status 记 `missing_decision`，**构建与 `--check` 均以非零退出**，不再默认填 pending。[L0](../ci/l0_gate.py) 除 closure 检查外，另起一项直接统计 `missing_decision` 条数并作为门禁失败项。
+
+整改前基线（本次实测）：分母 514 条 = triage 370 ∪ decisions 365（交集 221）；`missing_decision` **149** 条；分布 implemented 154 / in_progress 61 / pending 6 / separate_component 114 / upstream 30。注意其中的 implemented 154 与旧口径 closure 的 74 是不同分母，不可互相印证。
+
+因此 L0 当前按设计**为失败状态**，失败项为「149 条缺处置记录」。这不是回归，而是把此前被默认值掩盖的缺口暴露出来：阶段一在补齐这 149 条处置之前不应判完成。回归同步更新：新增并集分母、`missing_decision` 不再默认 pending、L0 计数的断言。
+
+未验证：149 条处置本身尚未补写；787 条扩围未并入；并集分母下各分组的完成度未重算。未 commit、未 push。
+
+### 2026-11-06 hybrid_pool_assembler 13 定义迁入
+
+`hybrid_cache/hybrid_pool_assembler.py`（2753 行）是当前唯一被判定“启动路径可达且无覆盖”的大件：目标模型为混合 GDN/FA，启动日志 `UnifiedRadixCache hybrid_ssm=True`，该构造路径调用 `attach_hybrid_pool_to_unified_cache`。DAS 相对官方有 9 个 changed + 4 个 added 定义。
+
+本批按“只抽 13 个定义、其余 helper 走官方”的方案迁入 [cpu_cache_methods](../hcu_sglang/mem_cache/cpu_cache_methods.py)：`_MambaStrategy.build`、`_MambaSwaStrategy.build`、`_MambaSwaStrategy.build_direct_linker_pool_group`、`_build_mha_mla_host_pool`、`build_full_draft_pools`、`build_hybrid_mamba_stack`、`build_hybrid_mamba_swa_stack`、`build_hybrid_swa_group`、`build_kv_host_pool`、`build_mamba_host_pool`、`_mha_host_inputs`、`attach_hybrid_dsa_pool_to_hiradix_cache`、`attach_hybrid_minimax_sparse_pool_to_hiradix_cache`。9 个 changed 走公开 AROUND 目标，4 个 added 作为 helper 安装。
+
+**闭包断言由脚本证明**（[checker](../tools/check_hybrid_pool_closure.py)）：13 个定义共引用 16 个模块级 helper/类（`build_pool_entry`、`_split_hicache_size`、`_get_allocator_type`、`_build_pool_entries`、`_swa_allocation_callbacks`、`_uses_unified_page_envelope_host`、`_swa_layer_mappings`、`_mtp_swa_device_pools`、`_mtp_swa_sidecar_specs`、`_stage_local_layer_mapping`、`_evict_mamba_for_device_alloc`、`_evict_swa_for_device_alloc`、`build_kv_only_stack`、`build_host_pool_group`、`build_minimax_sparse_hicache_stack`、`StackBuildResult`），逐个断言官方与 DAS **AST 相同**（all_equal=true），证据 `artifacts/kv-cpu-20261105/hybrid-pool-closure.json`。因此残留调用走官方实现行为等价，不会出现“DAS 函数体 + 官方 helper”的混搭。
+
+**负例测试**证明该断言能拦住混搭：篡改官方 `_get_allocator_type` 后 checker 报 `all_equal=false` 并指出该 helper；删除官方 `build_pool_entry` 后同样报错。抽取契约同时按 SHA 逐定义校验，可逆变换回源字节。
+
+合规：`hybrid_pool_assembler.py` 在 DAS 与官方都无许可证头，因此 donor 与 glue 不补造 upstream 头、不加来源/迁移注释；来源与定义映射只写在 `cpu_cache_sources.json`。`cpu_cache_methods.py` 已在 `runtime_owned_sources.json` 的 `extracted_files` 中登记（10 个来源，含本文件，target SHA 固定）。
+
+边界：本批只做静态与 CPU/契约验证。真实混合池装配、`attach_hybrid_pool_to_unified_cache` 的实际调用、GPU 与模型数值均未验证，因此记 `implemented`，**不记 verified**。未 commit、未 push。
+
+### 2026-11-06 hybrid_pool_assembler 迁移尝试与回滚
+
+按“只抽 13 个定义、其余 helper 走官方”的方案完成抽取后，接线前做依赖核查时发现一个会直接导致 A 启动崩溃的依赖：抽取的函数 `build_mamba_host_pool`、`build_hybrid_mamba_stack`、`build_hybrid_mamba_swa_stack` 都调用 `buffer_info.validate(...)`，而官方 `DevicePoolInfo.buffer_info` 的类型是 `MambaStateBufferInfo`，**没有** `validate` 方法；`MHABufferInfo`/`MLABufferInfo` 这两个类本身是 DAS 新增，官方模块里根本不存在。
+
+可达链是实打实的：`attach_hybrid_pool_to_unified_cache` → `_select_strategy(...).build` → `_MambaStrategy.build` → `build_hybrid_mamba_stack` → `build_mamba_host_pool` → `buffer_info.validate()`。也就是说，哪怕 helper 闭包全部 AST 相同，**类型层面的 API 差异仍会炸**。
+
+处理：把 `hybrid_pool_assembler.py` 的 13 个定义抽取与 9 个 AROUND 接线、以及 `device_pool_info.py` 的 2 个 validate 一并回滚，仓库回到无接线状态；`tools/check_hybrid_pool_closure.py` 与 `tests/test_hybrid_pool_closure.py`（16/16 helper AST 相等 + 两条负例）保留，作为后续迁移的有效证据。两文件状态回到 pending，并写明前置条件：先迁 `MHABufferInfo`/`MLABufferInfo` 类、加宽 `DevicePoolInfo`，再配套 `memory_pool.get_device_pool_infos`，然后才允许重做装配器接线。
+
+教训（写给后来者）：**闭包断言只覆盖“函数级”等价，覆盖不了“被调用类型上的方法是否存在”**。以后做抽取式迁移，除 helper 闭包外还要断言“被调用对象的方法在官方类型上存在”，否则代码在静态层面全绿、运行时才炸。
+
+未验证：回滚后本轮未启动服务；真实混合池装配路径仍未在 GPU 上验证。未 commit、未 push。
+### 2026-11-06 注册目标可解析性检查、mooncake 注入式接线与运行时集合重判缺口
+
+运行时对账把「静态扫描已足够」推翻（静态 421 / 运行时 632 / static_only 74 / runtime_only 285），本轮按 R10 补齐三件事。
+
+**一、扫描器的未判定桶从计数变成可追溯**
+
+`tools/scan_hook_targets.py` 原来只输出 `unresolved: 45`，没有明细，无法复查。现在每条未判定记录 `{file, line, expr}`，45 条全部落盘，分布最多的是 `models/deepseek/hook_utils.py`(8) 与 `disagg/transport_mooncake.py`(4)。同时新增 `--check-resolvable`：按固定官方树（`../input-code/sglang/python`）静态解析每个注册目标能否在目标模块上 resolve，`unresolvable` 非空即非零退出。解析覆盖模块级绑定、类体成员、以及跨模块导入的基类（`from X import Y` 递归）；解析不到的基类进独立桶 `missing_but_opaque_base`，不并入任何既有分类。
+
+先在 `tests/test_hook_target_resolvability.py` 立两道自测关卡再出数：合成树上「已知存在必须解析到」（含 `if` 块内函数、跨模块继承方法）、「已知不存在必须报缺失」，外加对真实官方树回归两条（`fp8_kernel.scaled_fp8_quant` 必须解析到、`cp.utils.enable_cp_v2` 必须报缺失），5 项通过后才允许跑全量。
+
+三桶结果（421 个目标，实跑退出码 1）：
+
+```text
+resolvable 360 / unresolvable 21 / undetermined 45（targets 426 / unresolved 37；其中 9 条非 Hook 的 .register 已单列，5 个 l2norm 目标已并入，1 条 write_mtp_seed 属「插件先安装再注册」）
+unresolvable: missing_module_attribute 21 + missing_class_attribute 1
+```
+
+22 条不可解析按 owner 分布：`dsa_utils.py` 11、`cp_runtime.py` 9、`index_topk_share.py` 1（`write_mtp_seed`）、`distributed_backend.py` 1（`GroupCoordinator._init_attn_cp_overlap_group`）。
+
+**返工记录（写给自己和后来者）**：这份数字出过两次错。第一次把 `scaled_fp8_quant` 判成缺失——解析器只扫模块顶层语句，漏掉 `if` 块里的模块级定义，属于假阳性；第二次把 190 条因基类在别的模块而落进未判定桶，是收得太窄。两次都是「工具给自己一个看起来正常的结论」，所以现在改成先跑自测关卡再出数。这些是 DAS 独有的模块级或类成员名字，却按 AROUND 目标注册到官方模块上，与 mooncake 那次同类。**这不是已观测到的 apply 失败**：运行时对账只报了 2 条 mooncake 的 AttributeError，因为这 23 条所在模块在 dump 时未被导入；按「注册目标必须能在目标模块 resolve」的判据，它们属于潜在静默不生效，构建期就该拦住。
+
+**二、mooncake 两处从 AROUND 改为注入式接线**
+
+`_get_mooncake_client_http_port` / `_get_mooncake_client_http_setup_kwargs` 是 DAS 在官方 0.5.22 之外新增的**模块级**函数，官方模块没有这两个属性；原接线把它们当 AROUND 目标注册，注册成功、apply 时 `AttributeError`。现改为 `_MODULE_HELPERS` 注入：命中该模块的钩子在构造绑定命名空间时用 `setdefault` 注入这两个函数（已存在则不覆盖），owned `MooncakeStore.__init__` 通过同一命名空间解析到它们；同时禁止 `class_name` 为空的组注册 `parent.__init__`。
+
+回归：`tests/runtime/cpu_cache_cpu.py` 新增 2 项——注入后两个名字可用且嵌套调用可解析，以及注册表里不再出现这两个模块级目标、但仍有 `MooncakeStore.__init__`。全套 22 项通过。
+
+**三、用运行时集合重判剩余缺口（定义级）**
+
+新增 `tools/audit_gap_reachability.py`：对每个缺口文件用官方树与 DAS 树做定义级 AST 比较得到变更定义清单，再逐个与运行时注册目标集合精确匹配（`module.Name` 或 `module.Class.method`，含子属性前缀）；同时对 DAS 树做导入普查（解析失败、DAS 树不足 1000 文件均直接报错，不静默当空）。
+
+对 23 个仍在 pending/in_progress 的缺口文件（旧 36 条减去 13 条已归档）：
+
+```text
+23 个文件 / 92 个变更定义 / 87 个定义在运行时集合中没有对应注册目标
+5 个定义已被运行时覆盖：PagedTokenToKVPoolAllocator.__init__/alloc_extend/alloc_decode/free
+                       + kv_cache_builder.build_kv_cache
+2 个文件在 DAS 树内无静态导入方：custom_all_reduce_v2、triton_symm_mem_ag
+  （记为「无静态导入方」，不等于死代码——动态导入未排除）
+21 个文件存在「有导入方但定义未覆盖」
+同名定义出现在其它模块的情况：0 条（排除「换个模块注册也算覆盖」）
+```
+
+另有 `tools/build_runtime_gaps.py`：按 owned 全量/抽取来源、公开 Hook 目标两路覆盖来源给 `changed`/`fork_only` 文件分桶，无法判定时单列并非零退出。全仓口径实跑为 covered_owned 84 / covered_hook 148 / 无覆盖 1193 / 未判定 37，与本批 23 条是两个分母，不可混用。
+
+**验证边界**：本轮工具与接线只做静态与容器内 CPU 验证（GPU 可见开关均为 -1）；真实 Hook apply 只来自 kimi 在 GPU 上的那次 dump（648 注册 / 630 applied），本轮未重跑；23 条潜在不可解析目标未做运行时确认；`static_only 74` 的逐条理由尚未写。未 commit、未 push。
+### 2026-11-06 fla l2norm 整文件迁入、两机可用性实测与扫描器伪命中清理
+
+**一、`sglang/kernels/ops/attention/fla/l2norm.py` 整文件迁入**
+
+DAS 在该文件里给 `l2norm_fwd` 加了 vendor 快车道：`from sgl_kernel import l2norm` 成功，或 `torch.ops.sgl_kernel.l2norm` 存在，且输入是 CUDA fp16/bf16/fp32 时，改用该算子，否则回落到原有的两个 Triton kernel。固定官方 0.5.22 只有 Triton 实现，插件此前没有这个文件，因此 A 一直走 Triton、B 走 vendor 算子，而两侧调用点相同（`gdn_backend` 三处 `use_qk_l2norm_in_kernel=True` → `chunk.py`/`kda.py` 调用 `l2norm_fwd`）。
+
+迁移方式是逐字节复制到 [l2norm_source](../hcu_sglang/layers/attention/fla/l2norm_source.py)（`sha256 c8142677d81757f23de083f6952a3d81d7f1bba159f2440f3b0645655059f1d1`，与源文件相同），导入语句无需改写，`try/except` 回落逻辑原样保留。[l2norm](../hcu_sglang/layers/attention/fla/l2norm.py) 注册五个 REPLACE 目标：`l2norm.l2norm_fwd`、`l2norm.l2norm`、`l2norm.l2_norm`、`chunk.l2norm_fwd`、`kda.l2norm_fwd`。后两个是调用方模块里的已绑定名字——`chunk.py` 在模块导入时 `from ...l2norm import l2norm_fwd`，只替换定义模块的属性不会改变它的本地引用，因此必须同时替换调用方属性；钩子 apply 时 `pkgutil.resolve_name` 会先导入 `chunk`，`chunk.l2norm_fwd` 按目标名排序先于定义模块，替换结果对后续调用生效。
+
+注册写成五条字面量调用而不是遍历 `_HOOKS`：循环里的目标对静态扫描器是不可求值表达式，会被记进未判定桶——那正是本轮在治的盲区。
+
+五个目标先用 `scan_hook_targets.py --check-resolvable` 对固定官方树逐个验证可解析（5/5 resolvable），再登记 `runtime_owned_sources.json`（`reverse_replacements` 为空，反向重建等于源字节）与 `hcu_source_alignment_targets.json`。`plans/sglang-das-decisions.json` 该文件由 pending 改 in_progress，closure 重建后 in_progress 66→67、pending 646→645、missing_decision 0、`--check` rc 0。
+
+**二、26 与 47 两台机器的 `sgl_kernel.l2norm` 可用性（实测，互相矛盾的说法已裁定）**
+
+```text
+26（nmz26，容器 yangyn_sglang_plugin_1022，镜像 562c59c8…，torch 2.11.0，sgl_kernel 0.4.6.post1）
+  直接 hasattr(torch.ops.sgl_kernel, "l2norm")          → False（新进程、未导入 sgl_kernel 时）
+  from sgl_kernel import l2norm                          → ImportError: cannot import name 'l2norm'
+  执行 DAS 原始 try/except 之后                          → _has_l2norm_cuda = True，算子 sgl_kernel.l2norm
+47（bw47，容器 sglang-agent，同版本 sgl_kernel）
+  同样路径                                                → _has_l2norm_cuda = True，算子 sgl_kernel.l2norm
+```
+
+结论：**两台机器上 vendor 快车道都可用**。26 上出现「不可用」的读法来自检查顺序——`from sgl_kernel import l2norm` 虽然抛 ImportError，但这次失败导入已经把 sgl_kernel 的算子库加载进来并注册了 `torch.ops.sgl_kernel.l2norm`，所以 DAS 的 `except` 分支随后 `hasattr` 得到 True。新进程里先直接 `hasattr`、或先查 `torch.ops.sgl_kernel`，才会得到 False/ModuleNotFoundError。因此「这条 1 ulp 分歧是 47 特有、26 上两侧都回落 Triton」不能用该现象支撑，仍须在 26 上跑 A/B 的 layer 0 对比。
+
+**三、扫描器伪命中按接收者剔除**
+
+`sglang` 树里任何对象的 `.register(...)` 原来都被当成 HookRegistry 注册。现按接收者判定：只接受 `HookRegistry`、`*.HookRegistry`、以及从 `*hook_registry` 导入的别名；其余单列 `non_hook_register` 桶（不并入目标、不并入未判定）。实测 9 条：`poller.register`（disagg/transport_mooncake.py 两行各两次）、`atexit.register`（cpu_cache_methods.py、window_cache_init.py）、`self.kv_event_lora_names.register`、`AttentionBackendRegistry.register`、`registry.register`。未判定桶因此从 45 降到 37，目标 421→426（含新增的 5 个 l2norm 目标），`resolvable 360 / unresolvable 22 / undetermined 44`。
+
+**四、运行时 dump 增加 owner 与 apply 失败明细**
+
+`tools/dump_runtime_hook_targets.py` 现在记录每个目标的 `{module, name, file}`（取自钩子对象的 `__module__`），并在 `--apply` 时逐个目标捕获 `_apply_target` 的异常到 `apply_failures`，不再只依赖日志里的 `Failed to apply hooks`。这两项正是把 37 条未判定与 285 条 `runtime_only` join 起来、以及判断 mooncake 是否闭合所缺的字段。**该工具需要在真实 GPU 进程里跑，本轮未执行**。
+
+验证边界：本批完成静态、CPU 行为与合同验证（`tests/test_l2norm_migration.py` 5 项、`tests/test_hook_target_owner.py` 2 项；全仓 186 项通过 / 13 skip；L0 passed，671 Python / 8 Skill / 0 errors）。**未验证**：真实 vendor 算子执行、Hook apply 后 A 侧 op 集合是否出现 `sgl_kernel.l2norm`、layer 0 及后续层 `max_abs` 是否归零、性能影响、`chunk.py` 已绑定引用的实际替换效果。A 侧基线指纹 `7919f29e` 在迁移生效后必然失效，需按新代码重取两次自洽基线。未 commit、未 push。
+
+**五、`static_only 74` 逐条归因到具体门控**
+
+新增 `tools/explain_static_only.py`：对每条只出现于静态扫描的目标，定位它在插件里的注册语句（AST，含 for 循环字面量展开、f-string 与常量拼接求值），再向上收集外层条件链（`if` 条件、循环迭代式、所在函数），输出 `{target, line, guards}`。74 条全部定位到注册点，退出码 0（无“无注册点”“owner 未知”）。证据 `artifacts/kv-cpu-20261105/static-only-guards-20261106.json`。
+
+按机制归类（合计 74）：
+
+```text
+56  能力门控：官方没有该 DAS-only 符号 → 注册被跳过，改为 setattr 直接安装实现
+      dsa_utils.py 11        if hasattr(U, name)              U = sglang.srt.layers.attention.dsa.utils
+      cp_runtime.py 9        if hasattr(C, name)              C = sglang.srt.layers.cp.utils
+      transport_common.py 7  if hasattr(N.CommonKVManager, '<name>')
+      transport_mooncake.py 29  if hasattr(N.MooncakeKVManager, '<name>')
+    与 `--check-resolvable` 的 22 条不可解析同源：官方树没有这些属性，hasattr 为假，所以既不注册也不报错。
+ 1  显式按名字排除：distributed_backend.py 的循环里 `name != '_init_attn_cp_overlap_group'`
+16  注册函数没有调用点
+      layers/dp_attention.py 10   ← 聚合函数 `hcu_sglang.layers.register_hooks()` 无任何调用者
+      current_v4/backend.py 5、current_v4/compressor.py 1
+                                  ← 二者的 `register_hooks` 也无调用点；同包的
+                                    `hcu_backend/integration.py` 用 `_FORMAL` 表对
+                                    `DeepseekV4AttnBackend` 等做 class REPLACE，功能上可能已取代，
+                                    但“已取代”需要 DeepSeek V4 负责人确认，本轮不据此下结论
+ 1  空钩子已移除：models/qwen/qwen3_5.py 的 `register` 已从插件入口删除（文件本体待删）
+```
+
+两条需要决策的发现（本轮只报告，未改行为）：
+
+1. `hcu_sglang/layers/__init__.py::register_hooks()` 没有任何调用者，入口是逐个 import 子模块再调用各自 `register`。后果是 `dp_attention` 的 10 个 hook 在任何配置下都不会生效——运行时集合里 `dp_attention` 目标数为 0，与此一致。当前目标配置 `attn_dp_size=1` 不依赖它，所以不影响现有结论；但 DP attention 一旦启用，这批 hook 是静默不生效。
+2. `current_v4/backend.py` 与 `current_v4/compressor.py` 的 `register_hooks` 同样没有调用点。它们注册的是 `DeepseekV4AttnBackend.__init__/_forward_attention/_forward_prefill_sparse/enter_late_layer_tail/init_forward_metadata` 与 `_low_ratio_compress_fused`，而同包 `hcu_backend/integration.py` 已用 class REPLACE 接管该类。两种解释（旧路径被取代 / V4 缺 6 个 hook）在静态层面无法区分，需要模型负责人按 V4 用例确认。
+
+**验证边界**：归因是静态与集合差集推出来的，`dp_attention` 与 `current_v4` 两组“无调用点”在运行时集合中确为 0（`runtime_targets.json` 查询），但没有跑 DP attention 或 DeepSeek V4 用例来验证功能影响；`hasattr` 型 56 条的“官方无该符号”与本轮 `--check-resolvable` 的 22 条不可解析互相独立地指向同一批名字。未 commit、未 push。
+
+**六、V4 六个 hook 的取代判定与 DP attention 缺陷登记**
+
+按「静态能判的不留给人拍脑袋」，逐个核对 `current_v4/backend.py`(5) 与 `current_v4/compressor.py`(1) 的 `register_hooks` 所注册的目标是否已落在 `hcu_backend/integration.py` 的 class REPLACE 方法面里。
+
+结论：**6/6 全部 superseded**，证据 `artifacts/kv-cpu-20261105/v4-hook-supersession-20261106.json`。
+
+```text
+class REPLACE 条目      integration.py:32-34  DeepseekV4AttnBackend -> hcu_backend.backend.DeepseekV4AttnBackend
+注册动作                integration.py:603    HookRegistry.register(target, getattr(owned[module], name), HookType.REPLACE)
+替换类定义              hcu_backend/backend.py:765，共 107 个方法，基类 AttentionBackend/C4IndexerBackendMixin/CompressorBackendMixin
+六个方法在替换类中的位置
+  __init__                784-886     （17 个语句）
+  enter_late_layer_tail   1165-1203
+  init_forward_metadata   1442-1454
+  _low_ratio_compress_fused 1857-1887
+  _forward_attention      2642-2739
+  _forward_prefill_sparse 2741-2796
+```
+
+注意判定边界：这是**方法面覆盖**，即替换类自身定义了同名方法；方法体是否与旧 hook 行为等价，静态判定不了，需要 DeepSeek V4 用例验证，本轮未验证。旧 `register_hooks` 及其 `around_backend_init`/`around_init_forward_metadata`/`around_enter_late_layer_tail`/`_forward_attention`/`_forward_prefill_sparse` 因此成为无调用点的死代码；**删除需用户批准**，本轮不删。
+
+DP attention 缺陷按裁定只登记不改动，台账措辞：``启用 DP attention（`attn_dp_size>1`）时，`hcu_sglang/layers/dp_attention.py` 的 10 个 hook 静默不生效：`hcu_sglang.layers.register_hooks()` 无调用者；当前配置 `attn_dp_size=1` 不可达，运行时集合中 dp_attention 目标数为 0。不删除该函数（删除等于放弃 DAS 已有能力），待支持 DP attention 时接线并补 DP 配置验证。``
+
+未验证：DP attention 配置下的注册与行为、DeepSeek V4 用例下 6 个方法的功能等价。未 commit、未 push。
+
+**七、l2norm 闭环：47 上从 layer 0 到 layer 63 逐层零差**
+
+kimi 在 47（gfx936、BF16 KV）上完成验证：迁移落地后 A 侧两次独立启动（`/flush_cache` 后）自证 `A_m1 = A_m2 = 4f33666a`，`max_abs 0.0`；新 A 与 `B_ref` 在 `|1081` 键上逐层比较，layer 0/1/4/8/16/32/48/63 全部 `max_abs = 0.000e+00`，两侧哈希同值（`4f33666a / 544deb94 / 40b91b8e / e49ccccd / 2bdb650c / 4a5dbfe6 / c7d8f2d4 / 85a35a27`）。迁移前的旧 A 基线 `7919f29e` 作废。
+
+因此本条的定性是：**这是「少迁一个文件」导致的系统性差异，不是 kernel 不兼容**。DAS 给 `fla/l2norm.py` 增加了 vendor 快车道，插件没有迁这个文件，A 就一直走官方 Triton，B 走 vendor 算子；两侧调用点相同、权重逐字节相同，差异只来自同一个调用点落到不同实现。迁入后级联放大消失，原先按端点反推的「约 16%/层」放大率不再成立。**不需要在「逐位一致」和「融合性能」之间取舍**：vendor 算子本来就比 Triton 快。
+
+**方法沉淀（可提前发现同类问题）**：这类缺口可以用「运行时 op 集合 A-vs-B 对账」提前暴露——**B 有而 A 没有的算子即嫌疑**。本轮的 `sgl_kernel.l2norm.default` 就是先从那轮 ops 差集里看到的（当时因 R8 未通过只作旁证），再由三树静态比对定位到具体文件。以后每次 A/B 轮次都应顺带落一份 op 集合差集，作为「少迁实现」类缺口的早期信号；注意该差集本身不能作为数值结论，只能作为线索，数值结论仍须双侧 R8 通过后按 ulp 归一化给出。
+
+**边界（如实框住）**：结论只在 47 上成立；26（gfx938、fp8 KV）才是目标环境，未复核；性能影响未测；`r02`/`r08` 两条文本分叉在新代码下未重跑；旧 A 代码下产出的一切数值结论（BF16 `r04` 18.64 nats、各轮 layer 0 `1.562e-2`、`r02`/`r08` fail、`f1dc72a1` 相关轮次）随根因修复全部失效，须用新代码重跑后才可再次引用。未 commit、未 push。
+
+**八、开源合规补登：FLA MIT 全文、四个原创文件许可证头与来源合同重钉**
+
+代码审核家预审报的 A1 是阻塞项：FLA（flash-linear-attention）来源未登记、MIT 全文缺失。本轮补齐：
+
+```text
+licenses/{fla,deepep,flashmla,fast-hadamard-transform}.LICENSE
+                                        四份第三方许可证全文 + fast-hadamard 的 AUTHORS，逐字未改；分别取自固定 commit
+                                        fla 9e82a80f(2026-11-04)、deepep f6aa38fe(2026-10-21)、
+                                        flashmla 395cb3af(2026-10-27；代码来源为 fork 分支 endurehero:will_fp8_mr @7fafcd21，PR #54 未合并)、fast-hadamard sgl-project fork 7fd811c2(2025-10-06；与 Dao-AILab e7706faf 正文逐字节相同)，
+                                        取全文日期 2026-11-06；落盘后用 curl+sha256 与上游原文逐个比对，四份全部一致
+THIRD_PARTY_NOTICES.md §1               新增「flash-linear-attention（MIT）」条目：仓库 URL、许可证副本链接、
+                                        11 个本地文件路径、HYGON 修改说明
+```
+
+本地文件按实际 grep 结果登记 **11 个**，不是预审里列的 8 个：`layers/attention/fla/` 下 `chunk_delta_h_source.py`、`chunk_o_source.py`、`fused_recurrent_source.py`、`layernorm_gated_source.py`、`l2norm_source.py`，`layers/attention/linear/kda_kernels/` 下 `chunk_delta_h.py`、`chunk_intra.py`、`chunk_intra_token_parallel.py`、`fused_norm_gate.py`、`kda.py`、`l2norm.py`——预审漏了 `layernorm_gated_source.py`、`chunk_intra.py`、`chunk_intra_token_parallel.py`、`fused_norm_gate.py` 四个。登记按实际文件走，不照抄清单。
+
+B1：四个原创文件补 H1 头（`Copyright (c) 2026 Hygon…` + `SPDX-License-Identifier: Apache-2.0`）：`models/registry.py`、`models/glm5_next/entries/text.py`、`models/glm5_next/entries/nextn.py`、`models/muse_spark/entries/omni.py`。这四个都在 `runtime_owned_sources.json` 的 `adapter_files` 段，加头后 SHA 变化，已同步重钉（`d1695321→b392227d`、`32a791bd→c0763865`、`356277f6→02eb3318`、`71fba808→da67fd38`）。`adapter_files` 不参与「源文件头必须保留」的检查，因此加自家头与源声明义务不冲突。
+
+B2 经核实**不成立**，不改文件：预审称这四个文件「未进来源合同」，实际都在合同里且 SHA 已钉——
+
+```text
+hcu_sglang/layers/quantization/kv_cache.py      adapter? 否，extracted_files，1 个来源，target_sha256 已钉
+hcu_sglang/layers/quantization/moe_wna16.py     extracted_files，1 个来源，已钉
+hcu_sglang/layers/quantization/auto_round.py    extracted_files，1 个来源，已钉
+hcu_sglang/mem_cache/cpu_cache_methods.py       extracted_files，9 个来源，已钉
+合同总行数 79 = files 64 + extracted_files 6 + adapter_files 9；migration_header_errors 实跑 0 条。
+```
+差异来源应是预审只数了 `files` 段（64 行），把 `extracted_files`/`adapter_files` 段漏在外面。
+
+
+**R13 纠正记录**：最初为对齐本地文件头的 2023-2025，曾把 FLA 许可证正文的版权行改成 2023-2025，这违反“第三方许可证正文严禁修改”。已撤回：`licenses/fla.LICENSE` 恢复上游逐字原文（2023-2026），本地文件头与许可证年份的差异如实写进 `THIRD_PARTY_NOTICES.md` 的「版本口径」，不写进许可证文件。另补 DeepEP、FlashMLA 两份 MIT 全文与 fast-hadamard-transform 的 BSD-3 全文（此前已登记但缺全文）。
+
+验证：`migration_header_errors` 实跑 0 条；全仓单测 `Ran 187 tests, OK (skipped=13)`；`L0 passed`（672 Python / 8 Skill / 0 errors）。未验证：TensorRT-LLM、FasterTransformer、marlin、FastVideo 四家存在 main/PR/无版本引用，按「逐文件实际来源链」结论暂不取全文，标来源链未确认；pytorch 3 处与 flashinfer 的 topk_v2.cuh 判为注释级/信用引用，需在登记表写明排除理由。未 commit、未 push。
+
+**九、阶段一判据整改：措辞补齐、缺口表分栏、分母 593 与 qwen3_5 的口径纠正**
+
+测试校对家独立核对阶段一判据时发现两处状态冲突与本 bot 的三处数字问题，本批按裁定整改。
+
+**一、`separate_component` 措辞补齐（11 条）与 qwen3_5 的口径纠正（1 条）**
+
+`review_reason` 未写「配置范围外，非等价证明」原文的 12 条里，11 条按原文改写：`muse_spark/{helion_norm_fp4_quant,helion_norm_gate,helion_post_expert,helion_qk_norm}.py`（HELION 仅 `CapabilityRequirement.CUDA`，HCU 不命中）、`dsv4/compress_hip.py`（固定 DAS 无此文件）、`intel_amx_backend.py`/`xpu_backend.py`（registry 仅 intel_amx/XPU 条目导入）、3 个来源测试文件（`test_flash_with_topk_idx.py`、`test_fp8_attn_gemm.py`、`aibrix_kvcache/unit_test.py`、`tensorcast_store/test_tensorcast_store.py`）。
+
+第 12 条 `models/qwen3_5.py` **不能写那句**：它是目标配置**可达**的文件，差异只是 no-op（`attn_dp_size=1`/`pp_size=1` 下 `forward_mode` 重标两值相同、`refreshes_rope_cos_sin` 无读取方），写「配置范围外」是不实陈述。改为 `pending` 并带明确 todo：在 `attn_dp_size>1`、`pp_size>1` 下验证三处差异是否仍为 no-op，可达则迁移对应定义。因此 `separate_component` 由 593 变 **592**，repo 内对该措辞的机械校验计数由 591 更新为 **602**（`tests/test_runtime_triage.py` 两处断言同步）。
+
+**二、真缺口表与 `separate_component` 不再双记**
+
+原 `mem-cache-no-coverage-20261106.json` 的 36 条与 decisions 状态冲突：13 条同时被记为缺口又被关闭为配置范围外，且**所有条目都没有待办字段**。新增 [gap-ledger v2](../artifacts/kv-cpu-20261105/gap-ledger-20261106-v2.json)（schema 2）分两栏，36 = **open 23 + closed 13**：
+
+```text
+open_gaps 23  = 22 pending + 1 in_progress；每条带 todo，且 open/closed 交集为 0
+closed   13   = 配置范围外已关闭；每条保留 reason + evidence
+evidence 字段 = test-results/ab/dump47/A.log:29（A 侧实际生效 server_args 全量 dump）
+```
+
+13 条的可达性用**实际生效参数**逐条证明（不是推断）：
+```text
+disaggregation_mode='null'                    → decode_kvcache_offload_manager、decode_schedule_batch_mixin、fake/conn、mori/conn
+hicache_storage_backend=None                  → aibrix_kvcache_storage
+enable_unified_cache_external_linker=False    → unified_cache_linker、mooncake_direct_linker
+enable_unified_memory=False                   → unified_memory_pool
+speculative_algorithm=None                    → unified_draft_pool
+kv_cache_dtype='bf16'                         → pool_host/mha_mxfp8
+模型 layer_types 无滑窗层（uses_mamba_radix_cache=True、disable_hybrid_swa_memory=False）
+                                              → pure_swa_radix_cache、swa_memory_pool
+allocator/base.py：唯一差异方法 get_extend_allocation_demand 的唯一调用点在 A 侧无 Hook 且调用数为 0
+```
+
+**三、环境口径**：闭环与门禁脚本需 Python 3.10（`from __future__ import annotations`），宿主机默认 `python3` 是 3.6，直接跑会 SyntaxError 并被误判为回归；容器 `yangyn_sglang_plugin_1022` 内 `python3` 为 3.10.12，本轮全部门禁均在容器内执行。
+
+验证：closure 重建 `files 1464 / implemented 130 / in_progress 66 / pending 646 / separate_component 592 / upstream 30 / missing_decision 0`，`--check` rc 0；全仓 `Ran 187 tests, OK (skipped=13)`；`L0 passed`（672 Python / 8 Skill / 0 errors）。未 commit、未 push。
+
+**十、阶段二支撑：0.6B 逐层 dump 驱动参数化与 pending 待办补齐**
+
+**一、`ab.sh` 新增 `layerdump` 子命令（0.6B / 27B 同一脚本，参数全走环境变量）**
+
+```text
+AB_MODEL                模型路径（容器内路径）
+AB_TP                   TP 大小（config.env 由写死 TP=2 改为 ${AB_TP:-2}）
+CARDS                   卡号（沿用原有变量）
+AB_MEM_FRAC             显存比例（沿用；26 上 0.6B 建议 0.12–0.15）
+AB_KV_DTYPE             KV 类型（沿用；26 目标 fp8_e4m3）
+AB_CONTAINER            容器名（config.env 新增 ${AB_CONTAINER:-yangyn_sglang_plugin_1022}，47 上为 sglang-agent）
+ATTN_DUMP_TOKENS        dump 命中 token（默认 1078；0.6B 短请求需显式传小值）
+ATTN_DUMP_MODEL_MODULES 需要打层钩的模型模块（默认 sglang.srt.models.qwen3_5,sglang.srt.models.qwen3）
+PORT_A / PORT_B / RUN_ID / OUT 沿用
+```
+
+`layerdump` 的流程：清掉容器内旧 dump → 起 A → 等就绪 → 发 `requests.jsonl` 首条请求 → `docker cp` 取回 `layer-dump / layer0-ops / layer0-weights / layer0-taps / tensors.pt` → 停 A → 对 B 重复 → 容器内跑 `compare_dumps.py` 比对。两侧 PYTHONPATH 前置 `dump_shim` 并注入 `ATTN_DUMP_SIDE/TOKENS/MODEL_MODULES`，仍只 kill 自己 pidfile 里的进程。
+
+26 上 0.6B 的调用示例（`/mnt/qwen3/Qwen3-0.6B` 为容器内实际路径）：
+```bash
+AB_MODEL=/mnt/qwen3/Qwen3-0.6B AB_TP=1 CARDS=3 AB_MEM_FRAC=0.14 AB_KV_DTYPE=fp8_e4m3 \
+ATTN_DUMP_TOKENS=32 PORT_A=30091 PORT_B=30092 RUN_ID=26-0p6b-dump \
+./ab.sh layerdump
+```
+
+**二、dump shim 支持非 Qwen3.5 模型**
+
+原 shim 只 patch `sglang.srt.models.qwen3_5` 里的 `Qwen3_5LinearDecoderLayer/Qwen3_5AttentionDecoderLayer`，0.6B（`sglang.srt.models.qwen3`）不会挂任何层钩，dump 会是空的。现新增 `patch_generic_model`：按 `*DecoderLayer` 命名约定包装模块内所有 Decoder 层，Qwen3.5 专有 taps 仍由 `getattr(..., None)` 保护、缺失即跳过；模型模块列表由 `ATTN_DUMP_MODEL_MODULES` 控制。Gated DeltaNet 的 `_forward_input_proj` tap 仍是 Qwen3.5 专属，0.6B 不会走。
+
+**三、pending 待办补齐**
+
+按要求先补 `srt/configs/qwen3_5.py`，随即审计发现**646 条 pending 中 644 条都没有 todo**（不止这一条）。按统一模板补齐，模板含该文件的 group / relation / 未覆盖定义数：
+
+```text
+核对 N 个未覆盖定义（group=…, relation=…）在声明配置下的实际调用可达性：
+可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending
+```
+
+补齐后 `pending=646 / 缺 todo=0`，closure 一致（`--check` rc 0）。
+
+验证边界：`layerdump` 与 shim 改动**只做了语法与静态检查**（`bash -n ab.sh`、`ast.parse` shim），没有 GPU 窗口的实际执行；0.6B 在 26 上能否正常出 dump、`ATTN_DUMP_MODEL_MODULES` 是否覆盖其层类，待 kimi 实跑确认。未 commit、未 push。
+
+**十一、B 侧 0.6B 类型错误定性（只定性，未改 fork 源码）**
+
+现象（kimi 实测，26 上 0.6B）：B（原生 sglang-das）启动后请求即崩 `RuntimeError: expected scalar type BFloat16 but found Float`，**fp8_e4m3 与 bf16 两种 KV 都一样**。
+
+静态排查结论与已排除项：
+
+```text
+排除 1  KV dtype 参数——两种 KV 类型报同一个错，且报的是 BFloat16/float 而不是 Float8
+排除 2  fork 的融合 qk-norm-RoPE 路径——models/qwen3.py:70 _use_fused_qwen_bailing_rotary
+        取 SGLANG_USE_FUSED_RMS_ROTARY（默认 false），ab.sh 未设置；:299 分支不进入
+排除 3  enable_fused_set_kv_buffer 差异——DAS models/utils.py 在 _is_hcu 下返回 cuda_enabled（要求 _is_cuda，
+        在 HCU 恒 False），而插件 hcu_sglang/models/model_utils/methods/utils.py 的同名实现是同一逻辑，
+        A/B 两侧一致，不构成差异源
+排除 4  确定性/RL 的 fp32 norm 分支——models/qwen3.py:216-222、:486-495 都由
+        get_exec().deterministic.rl_on_policy_target is not None 门控，本配方未开启
+```
+
+**已由 kimi 在 47 上取到的 traceback 校正（该假设作废，lightop RMSNorm 无关）**：
+
+```text
+RuntimeError: expected scalar type BFloat16 but found Float
+  qwen3.py:417 forward → qwen3.py:341 forward_prepare_native → kernels/fused_op.py:653 forward
+  → rotary_embedding/base.py:593 forward_cuda → base.py:158 _launch_rotary_embedding → :136 _launch
+  → sgl_kernel/elementwise.py:433 rotary_embedding
+```
+
+静态对照后机制明确：`rotary_embedding/base.py` 的 fallback 分支里，`_is_hip` 为真时
+`self.cos_sin_cache = self.cos_sin_cache.to(query.device)` **只搬设备、不转 dtype**（缓存保持 fp32），
+随后 `_launch_rotary_embedding(self.fallback_rotary_embedding, …, self.cos_sin_cache, …)` 把它交给
+`sgl_kernel.rotary_embedding`，而该算子要求与 bf16 的 query 一致 → 报此错。
+
+一处必须写准的边界：**这段 fallback 代码在固定官方 0.5.22 与 DAS 中逐字相同**（官方 base.py:159-171、DAS base.py:281-293 与 444-452/582-590 两处分支一致），因此它**不是 DAS 私有缺陷**。
+
+**A 与 B 的分支关系（已用代码与单测坐实，不再是推理）**：A 也走 fallback 分支，差别在被调用的 fallback kernel 不同。插件 `hcu_sglang/layers/rotary.py:100-107` 在 `RotaryEmbedding.__init__` 之后（HcuRotaryFallback，AFTER 钩子）把 `layer.fallback_rotary_embedding` 换成 `HcuRotaryFallback`；该包装器 `:90-98` 在调用原 kernel 前把 `cos_sin_cache` 转成 `query.dtype`（带 memo，缓存对象本身不改）。B 没有这层包装，fp32 cache 直接进入 `sgl_kernel.rotary_embedding`，与 bf16 query 冲突 → 报错。
+
+这条已固化为 CPU 回归 `tests/test_rotary_fallback_dtype.py`（3 项）：fp32 cache 被转成 query dtype、dtype 一致时原样透传、转换结果按缓存对象 memo 复用；同时断言传入的 cache 张量本身未被改写。即在无 GPU 的环境下也能复现并证明“A 有转换、B 没有”。
+
+风险边界：触发条件是「该模型的 rotary 在 HCU 上落到 fallback 分支」。**不排除其它小模型/小配置同样触发**；
+遇到同一条错误可直接复用上面这串调用栈判断，不必重新排查。
+
+验证边界：以上为静态排除，未实际运行；`0.6B 在 47 上 B 是否同样失败`是区分「模型相关」与「机器相关」的关键实验，由 kimi 的 47 对照顺带给出。未 commit、未 push。
+
+**十二、阶段二验收记录（47：精度与性能；26：精度已验证、性能未验证）**
+
+本节的数字全部来自 47（gfx936、BF16 KV、Qwen3.6-27B-INT8-w8a8、TP2）与 47 上的 0.6B 缺陷复现。**26 的精度结论见本节下文（A1=A2 与 A=B 文本均 8/8 逐字一致、逐层 dump 45 键张量全等）；26 的性能未验证（用户要求停止，只有一轮标定，不作结论）。**
+
+**一、精度（47）**
+
+```text
+l2norm 迁入后 A/B 逐层 dump：layer 0/1/4/8/16/32/48/63 全部 max_abs = 0.000e+00（|1081 键）
+A 侧两次独立启动逐位相同（A_m1 = A_m2 = 4f33666a）；旧基线 7919f29e 作废
+确定性文本：r02、r08 在新代码下 A/B 逐字一致（8/8 请求；独立复算 id/text/usage 哈希
+  r02 两侧 d3582051242f、r08 两侧 d372fb258587）
+```
+
+**二、性能（47，同配方）**
+
+每侧 3 次独立启动（新进程，每次 5 轮），轮内算分位数后取轮次中位数，再对 3 次启动取中位数；
+R19 门禁剔除 r02 单独入批等无效轮后，源为 `artifacts/kv-cpu-20261105/perf-quantitative-v3.json`。
+下表由本 bot 直接读该文件的 A/B 三次启动数组重算（非引用他人汇总）：
+
+```text
+output tok/s  -0.926%   B 优      req/s      -0.926%   B 优
+TTFT p50      +0.381%   B 优      TTFT p99   +1.117%   B 优
+TPOT p50      +1.440%   B 优      TPOT p99   -0.421%   A 优
+E2E  p50      +0.119%   B 优      E2E  p99   +0.949%   B 优
+
+中位数差范围      -0.926% ~ +1.440%
+方向               B 在 7 项上数值略优；A 仅 TPOT p99 一项略优（不得写“A 略优”）
+同侧极差最大      A 0.52–2.70 pp / B 2.97–5.30 pp
+结论              未观测到可分辨差异；不给差异上界；不得写成“性能等价”
+```
+
+口径变更（必须与旧表述区分）：
+
+```text
+旧判据 ≤3% pass / 3–10% warn / >10% fail  → 失效（噪声地板已大于 3%）
+旧“噪声地板 2.3–6.8pp”                    → 作废（由两个不同窗口的两轮对比得出，含跨窗口环境差异）
+现行判据                                 → 以同侧多次独立启动的极差为尺度；中位数差不得表述为“差异上界”
+```
+
+**三、26（目标环境）——精度已验证、性能未验证**
+
+26 上已取得（本轮之前的窗口，本 bot 本轮独立复算）：
+
+```text
+文本   A1/A2/B1 三次运行的 8 条请求：A1==A2 8/8、A==B 8/8（按 text + prompt_tokens + completion_tokens 哈希；
+       r02 99 字符/54 token，r08 430 字符/225 token）
+张量   test-results/ab/dump26/{A,B}/tensors.pt：45 个键两侧全存在、形状一致、torch.equal 全等（mismatched 0）
+       注意 layer.json 只含 layer_0_in / layer_63 两个哈希键且两侧相同，kimi 报的“8 层×3 行”来自 tensors.pt
+性能   仅一轮标定（test-results/runs/verify26-cal-A）：该轮 8 并发 token 集 {r01 4, r02 42, r03 18, r04 6,
+       r05 4, r06 32, r07 51, r08 208}，与 47 不同 → 26 性能「未验证（用户要求停止）」，不进性能结论表
+遗留    layer.json 的 sha 与 fa.json 在 26 上存在首调用捕获缺陷（A 的 json sha 与自身张量重算不符；
+       FA 页 1/2 不同但 layer_4 逐位相同），这两份快照不能用于 A/B 比对，已记工具 todo
+```
+
+27B TP2 仍起不来：`yuanyuan` 的 `rye_sglang_dpsk-v41` 占 119.5–120.8 GB/卡（Total 147.44 GB，余 26.6–28.3 GB），
+`rest_memory` 为负 → 容量不足，非参数问题。0.6B 替代路径不可用：B 侧 fused rotary dtype 缺陷（见第十一节）。
+
+**R18 口径（批组成）**：26 上同一请求串行 54 token、并发 42 token；47 是 33/54。这是批形状影响输出的又一次体现，
+两侧行为一致、各机自身稳定，**不写成跨机差异证据**。
+
+
+**推送前基线**：`HEAD = 6005118`（164 文件，+64136/−1628，分支 main，ahead 1 / behind 0，未 fetch）。
+本节与交付记录的文档同步（SHA、性能 R19 口径、26 结论、R18 表述）作为其后的一次补丁提交；
+push 到 origin 仍未执行，等用户明确确认。
+
+**四、已知不透明点：插件不是透明替换**
+
+两侧在 HCU 上都走 `rotary_embedding/base.py` 的 fallback 分支，差别在被调 kernel：A 由插件的
+`HcuRotaryFallback`（`hcu_sglang/layers/rotary.py:85-107`）在调用前把 fp32 `cos_sin_cache` 转成 `query.dtype`
+（带 memo、不改原张量），B 无此包装，fp32 cache 直接进入 `sgl_kernel.rotary_embedding`。
+证据为插件代码 + `tests/test_rotary_fallback_dtype.py`（3 项 CPU 通过），**不是运行期取证**（两侧分支命中日志未打印）。
+含义：27B 上逐位一致只说明该模型上这层转换无副作用，**不等于插件对所有模型都是 no-op**。
+
+未 commit、未 push。

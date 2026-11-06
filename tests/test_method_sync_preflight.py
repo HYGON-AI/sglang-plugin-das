@@ -136,3 +136,54 @@ class ReplacementNamespaceTests(unittest.TestCase):
         exec(mapped, namespace)
         self.assertEqual(namespace["forward"](None, 7), 23)
         self.assertEqual(transform(mapped, {"helper": "native_provider.helper"}), mapped)
+
+
+class CurrentV4ProfileTests(unittest.TestCase):
+    def make_tree(self, root):
+        from tools.sync_deepseek_methods import CURRENT_V4_METHODS
+        source = root / "source"
+        models = root / "hcu_sglang/models"
+        owned = models / "deepseek/current_v4/execution/core.py"
+        source.mkdir()
+        owned.parent.mkdir(parents=True)
+        content = "class DeepseekV4DecoderLayerBase: pass\n"
+        content += "class DeepseekV4PlatformDecoderLayer(NonCudaDecoderMixin, DeepseekV4DecoderLayerBase): pass\n"
+        for class_name, names in CURRENT_V4_METHODS.values():
+            content += f"class {class_name}:\n"
+            content += "".join(f"    def {name}(self): return super().forward()\n" for name in names)
+        (source / "deepseek_v4.py").write_text(content)
+        owned.write_text(content)
+        return source, models, owned
+
+    def test_profile_preserves_class_owner_and_only_plans_facades(self):
+        from tools.sync_deepseek_methods import plan_current_v4_updates
+        with tempfile.TemporaryDirectory() as task_dir:
+            source, models, owned = self.make_tree(Path(task_dir))
+            before = owned.read_bytes()
+            updates = plan_current_v4_updates(source, models, "hcu_sglang")
+            self.assertEqual(len(updates), 2)
+            self.assertEqual(owned.read_bytes(), before)
+            self.assertTrue(all(path.parent == models / "deepseek/deepseek_v4/methods" for path, _ in updates))
+            self.assertIn("_forward_impl = C.DeepseekV4Model._forward_impl", updates[0][1])
+            self.assertNotIn("super(", updates[0][1])
+
+    def test_source_class_split_drift_fails_before_any_write(self):
+        from tools.sync_deepseek_methods import plan_current_v4_updates
+        with tempfile.TemporaryDirectory() as task_dir:
+            source, models, owned = self.make_tree(Path(task_dir))
+            path = source / "deepseek_v4.py"
+            path.write_text(path.read_text().replace("(NonCudaDecoderMixin, DeepseekV4DecoderLayerBase)", "(DeepseekV4DecoderLayerBase, NonCudaDecoderMixin)"))
+            before = owned.read_bytes()
+            with self.assertRaisesRegex(ExtractionError, "Platform decoder MRO"):
+                plan_current_v4_updates(source, models, "hcu_sglang")
+            self.assertEqual(owned.read_bytes(), before)
+            self.assertFalse((models / "deepseek/deepseek_v4/methods").exists())
+
+    def test_owned_missing_forward_body_fails_before_any_write(self):
+        from tools.sync_deepseek_methods import plan_current_v4_updates
+        with tempfile.TemporaryDirectory() as task_dir:
+            source, models, owned = self.make_tree(Path(task_dir))
+            owned.write_text(owned.read_text().replace("def _forward_impl(", "def other("))
+            with self.assertRaisesRegex(ExtractionError, "DeepseekV4Model._forward_impl is absent"):
+                plan_current_v4_updates(source, models, "hcu_sglang")
+            self.assertFalse((models / "deepseek/deepseek_v4/methods").exists())

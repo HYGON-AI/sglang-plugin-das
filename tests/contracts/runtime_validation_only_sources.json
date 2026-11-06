@@ -1,0 +1,298 @@
+{
+  "schema_version": 1,
+  "source_head": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+  "semantics": "Full committed Source AST equals owned implementation and explicit module caller exists. This supports implemented disposition only; it is not runtime verification.",
+  "files": [
+    {
+      "source": "python/sglang/srt/disaggregation/glm5_next.py",
+      "owned": "hcu_sglang/disagg/glm5_next.py",
+      "source_ast_sha256": "88039bbf01ab58a29ff3b456b53075f939eda1fb515bfe1a45590fb1983f9c92",
+      "owned_ast_sha256": "88039bbf01ab58a29ff3b456b53075f939eda1fb515bfe1a45590fb1983f9c92",
+      "callers": [
+        "hcu_sglang/disagg/utils.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/disaggregation/hidden_state.py",
+      "owned": "hcu_sglang/disagg/hidden_state.py",
+      "source_ast_sha256": "f131d682b319f078f01d2fc2b806b9f3d98ae06588eda53e6f0de4cab9bba8eb",
+      "owned_ast_sha256": "f131d682b319f078f01d2fc2b806b9f3d98ae06588eda53e6f0de4cab9bba8eb",
+      "callers": [
+        "hcu_sglang/forward_batch.py",
+        "hcu_sglang/disagg/prefill.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/dsa_backend_mtp_precompute.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/dsa_backend_mtp_precompute.py",
+      "source_ast_sha256": "1d5219bb0a4f412f9423b007285b6f8f8670ae35ea43e091627e3095e1126074",
+      "owned_ast_sha256": "1d5219bb0a4f412f9423b007285b6f8f8670ae35ea43e091627e3095e1126074",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/dsa_metadata_manager.py",
+        "hcu_sglang/layers/attention/current_dsa/dsa_indexer_metadata.py",
+        "hcu_sglang/layers/attention/current_dsa/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/flashmla_backend.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/flashmla_backend.py",
+      "source_ast_sha256": "59682983f0959435e77844191ba7330d931d344ec9c738748b1b34b618c00e77",
+      "owned_ast_sha256": "59682983f0959435e77844191ba7330d931d344ec9c738748b1b34b618c00e77",
+      "callers": [
+        "hcu_sglang/layers/attention/debug_flash_mla_adapter.py",
+        "hcu_sglang/layers/attention/current_dsa/dsa_metadata_manager.py",
+        "hcu_sglang/layers/attention/current_dsa/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/forward_batch_utils.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/forward_batch_utils.py",
+      "source_ast_sha256": "d55d2802a48e31408db95ba0f76adbe90320c594cba7bbe8ff93919c3871ff58",
+      "owned_ast_sha256": "d55d2802a48e31408db95ba0f76adbe90320c594cba7bbe8ff93919c3871ff58",
+      "callers": [
+        "hcu_sglang/dsa_utils.py",
+        "hcu_sglang/layers/attention/current_dsa/indexer.py",
+        "hcu_sglang/layers/attention/current_dsa/cp_helpers.py",
+        "hcu_sglang/layers/attention/current_dsa/backend.py",
+        "hcu_sglang/models/deepseek/current_v4/execution/cp_helpers.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/hcu_sparse_mqa.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/hcu_sparse_mqa.py",
+      "source_ast_sha256": "63ef25ede76841d67535f9fca15cce80bc81fb98710073651e7c53e1b3537fda",
+      "owned_ast_sha256": "63ef25ede76841d67535f9fca15cce80bc81fb98710073651e7c53e1b3537fda",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/indexer.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/paged_mqa_pers_jit.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/paged_mqa_pers_jit.py",
+      "source_ast_sha256": "6e20ac5a85fc83db90ee9ccc5bde600b3d6286d3ed5886362b59ae50b64182f5",
+      "owned_ast_sha256": "6e20ac5a85fc83db90ee9ccc5bde600b3d6286d3ed5886362b59ae50b64182f5",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/indexer.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/prefill_sparse_lightop.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/prefill_sparse_lightop.py",
+      "source_ast_sha256": "9eb5e743590acf63a04ca25065d13f245d91e9ef022e2fc99af6eb5af7b5815e",
+      "owned_ast_sha256": "9eb5e743590acf63a04ca25065d13f245d91e9ef022e2fc99af6eb5af7b5815e",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/rlc.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/rlc.py",
+      "source_ast_sha256": "167c848da3b26b7ace8c956ee89370114fe0f5436bb47f5449ae4c5a7e3bb9e3",
+      "owned_ast_sha256": "167c848da3b26b7ace8c956ee89370114fe0f5436bb47f5449ae4c5a7e3bb9e3",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/compressor.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/mqa_logits_utils.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/mqa_logits_utils.py",
+      "source_ast_sha256": "eb15bd20812895c8ee549799fcfcfedda176d726ac823221d233a371c7ec6a84",
+      "owned_ast_sha256": "eb15bd20812895c8ee549799fcfcfedda176d726ac823221d233a371c7ec6a84",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/indexer.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/quantization/gptq_triton.py",
+      "owned": "hcu_sglang/layers/quantization/gptq_triton.py",
+      "source_ast_sha256": "7938115ae683c76f349f196b3818aa082b3b15d69de84959e674477cace8d6ba",
+      "owned_ast_sha256": "7938115ae683c76f349f196b3818aa082b3b15d69de84959e674477cace8d6ba",
+      "callers": [
+        "hcu_sglang/layers/quantization/gptq.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/quantization/hcu_deepgemm_w8a8_utils.py",
+      "owned": "hcu_sglang/layers/quantization/hcu_deepgemm_w8a8_utils.py",
+      "source_ast_sha256": "12ed3c59a67735cd1a73c092b00ceba65999b6b7ca66ed28bb4336ea95070868",
+      "owned_ast_sha256": "12ed3c59a67735cd1a73c092b00ceba65999b6b7ca66ed28bb4336ea95070868",
+      "callers": [
+        "hcu_sglang/layers/quantization/compressed_w8a8_int8_moe.py",
+        "hcu_sglang/layers/quantization/compressed_moe_marlin.py",
+        "hcu_sglang/layers/moe/deepep_int8.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/quantization/w4a8_utils.py",
+      "owned": "hcu_sglang/layers/quantization/w4a8_utils.py",
+      "source_ast_sha256": "77b7a5b1829f660aeb0b549c5f6d1c4fdb1602fae090b06b96b43709355dac36",
+      "owned_ast_sha256": "77b7a5b1829f660aeb0b549c5f6d1c4fdb1602fae090b06b96b43709355dac36",
+      "callers": [
+        "hcu_sglang/layers/quantization/slimquant_w4a8_marlin.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/cleanup.py",
+      "owned": "hcu_sglang/mem_cache/cleanup.py",
+      "source_ast_sha256": "2d36a39c36abfe7a84a0c815cb91649c629e5d4ab98f67e4270d137cf2c27bfd",
+      "owned_ast_sha256": "2d36a39c36abfe7a84a0c815cb91649c629e5d4ab98f67e4270d137cf2c27bfd",
+      "callers": [
+        "hcu_sglang/disagg/prefill.py",
+        "hcu_sglang/mem_cache/common.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/broadcast.py",
+      "owned": "hcu_sglang/mem_cache/cp_cache_layer_split/broadcast.py",
+      "source_ast_sha256": "bcee9302792a1989ae550b80482ac157bf7b88864248f813d1f09bbf99478cc3",
+      "owned_ast_sha256": "bcee9302792a1989ae550b80482ac157bf7b88864248f813d1f09bbf99478cc3",
+      "callers": [
+        "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_pool.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/utils.py",
+      "owned": "hcu_sglang/mem_cache/cp_cache_layer_split/utils.py",
+      "source_ast_sha256": "09ec812296493133ebbedb3c262d5604328bb981bd1ecaf9af581dc94e8e5a2d",
+      "owned_ast_sha256": "09ec812296493133ebbedb3c262d5604328bb981bd1ecaf9af581dc94e8e5a2d",
+      "callers": [
+        "hcu_sglang/mem_cache/cp_cache_layer_split/pool_base.py",
+        "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/dsa_indexer_metadata.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/dsa_indexer_metadata.py",
+      "source_ast_sha256": "e0ab5639ac438e0391c1f93f5985711c166bf841ff4ed5c6003d2d5f61dc5a9b",
+      "owned_ast_sha256": "e0ab5639ac438e0391c1f93f5985711c166bf841ff4ed5c6003d2d5f61dc5a9b",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/dsa_metadata_manager.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/dsa_metadata_manager.py",
+      "source_ast_sha256": "caae2fababdd1bfb1773a5aabe6a6c0b72c50df23dad0591c5d10660fa11450c",
+      "owned_ast_sha256": "caae2fababdd1bfb1773a5aabe6a6c0b72c50df23dad0591c5d10660fa11450c",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/dsa_topk_backend.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/dsa_topk_backend.py",
+      "source_ast_sha256": "18e4a8e09632f4bddf3dac76df5d084351f0c9b1cbe58aa62bdc4250c6badb8f",
+      "owned_ast_sha256": "18e4a8e09632f4bddf3dac76df5d084351f0c9b1cbe58aa62bdc4250c6badb8f",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/dsa_indexer_metadata.py",
+        "hcu_sglang/layers/attention/current_dsa/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsa/paged_mqa_logits_backend.py",
+      "owned": "hcu_sglang/layers/attention/current_dsa/paged_mqa_logits_backend.py",
+      "source_ast_sha256": "afdbeaef80be83830d319a67301edec5d6f7b925b54fd6861b0558348648cca5",
+      "owned_ast_sha256": "afdbeaef80be83830d319a67301edec5d6f7b925b54fd6861b0558348648cca5",
+      "callers": [
+        "hcu_sglang/layers/attention/current_dsa/indexer.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/candidate_indexer_lightop.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/candidate_indexer_lightop.py",
+      "source_ast_sha256": "3b673eb32aba9fa96dfa1b421251e07f7b4dd6d65883da13fa927d7fede8e900",
+      "owned_ast_sha256": "3b673eb32aba9fa96dfa1b421251e07f7b4dd6d65883da13fa927d7fede8e900",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/candidate_indexer.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/dsv41_sparse.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/dsv41_sparse.py",
+      "source_ast_sha256": "09c6de114d2c3bf95c1b63ac38e7e007f5fbfa758f317f5a9936105c99b73245",
+      "owned_ast_sha256": "09c6de114d2c3bf95c1b63ac38e7e007f5fbfa758f317f5a9936105c99b73245",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/integration.py",
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/backend.py",
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/scoring.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/hcu_int8_index_k_cache.py",
+      "owned": "hcu_sglang/layers/attention/hcu_int8_index_k_cache.py",
+      "source_ast_sha256": "a78c34b86661407b9a87d169de65c41b2534fc6d233294cc7f53168d16d791aa",
+      "owned_ast_sha256": "a78c34b86661407b9a87d169de65c41b2534fc6d233294cc7f53168d16d791aa",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/indexer.py",
+        "hcu_sglang/mem_cache/hcu_v4_pool.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/low_ratio_backend_hip.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/low_ratio_backend_hip.py",
+      "source_ast_sha256": "077efb0ab5474816351d7ea5ce611a9ee36e46793651016f9e89d19fcddaf162",
+      "owned_ast_sha256": "077efb0ab5474816351d7ea5ce611a9ee36e46793651016f9e89d19fcddaf162",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/integration.py",
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/q_indexer_int8_jit.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/q_indexer_int8_jit.py",
+      "source_ast_sha256": "85fdd50ec4ffbec0bf8840306740099202b6e90b46971650a8d6fa497ab81dac",
+      "owned_ast_sha256": "85fdd50ec4ffbec0bf8840306740099202b6e90b46971650a8d6fa497ab81dac",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/indexer.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/sparse_prefill_utils.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/sparse_prefill_utils.py",
+      "source_ast_sha256": "5e188f7376e49f178233a14e54d6f20a273ff826b65de0ca3e882285b7c46bd9",
+      "owned_ast_sha256": "5e188f7376e49f178233a14e54d6f20a273ff826b65de0ca3e882285b7c46bd9",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/integration.py",
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/dsv4/v41_indexer/sparse_table.py",
+      "owned": "hcu_sglang/models/deepseek/current_v4/hcu_backend/sparse_table.py",
+      "source_ast_sha256": "0049e084a90ded7ccd166d9df7e50b0fcb64cb2b4132353b45b2e0fa6db94daf",
+      "owned_ast_sha256": "0049e084a90ded7ccd166d9df7e50b0fcb64cb2b4132353b45b2e0fa6db94daf",
+      "callers": [
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/integration.py",
+        "hcu_sglang/models/deepseek/current_v4/hcu_backend/backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/hcu_mla_backend.py",
+      "owned": "hcu_sglang/layers/attention/hcu_mla_backend.py",
+      "source_ast_sha256": "3443ae01c2e8e10c5cf54da695467192e80d38255b259312ab8f94d12e1dabcd",
+      "owned_ast_sha256": "3443ae01c2e8e10c5cf54da695467192e80d38255b259312ab8f94d12e1dabcd",
+      "callers": [
+        "hcu_sglang/layers/attention/hcu_mla_registry.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/attention/linear/kernels/kda_hcu.py",
+      "owned": "hcu_sglang/layers/attention/linear/kda_hcu.py",
+      "source_ast_sha256": "a757b03f7623c6c4449073ca597ec85441870ee56cf123325300826e2bd89f1f",
+      "owned_ast_sha256": "a757b03f7623c6c4449073ca597ec85441870ee56cf123325300826e2bd89f1f",
+      "callers": [
+        "hcu_sglang/layers/attention/linear/kda_backend.py"
+      ]
+    },
+    {
+      "source": "python/sglang/srt/layers/quantization/slimquant_w4a8_marlin.py",
+      "owned": "hcu_sglang/layers/quantization/slimquant_w4a8_marlin.py",
+      "source_ast_sha256": "701c5f07613aa0a64030b73ea40e45b092aec8ad9ab8ce2d7465e957e6c892ce",
+      "owned_ast_sha256": "701c5f07613aa0a64030b73ea40e45b092aec8ad9ab8ce2d7465e957e6c892ce",
+      "callers": [
+        "hcu_sglang/layers/quantization/slimquant_w4a8.py",
+        "hcu_sglang/layers/quantization/registry.py"
+      ]
+    }
+  ]
+}

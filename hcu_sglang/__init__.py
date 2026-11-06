@@ -36,10 +36,12 @@ def register() -> None:
         current_dsa,
         dsv4_compressor,
         flashattention_backend,
+        index_topk_share,
         triton_hcu,
     )
     from hcu_sglang.layers.attention import hcu_mla_registry
     from hcu_sglang.layers.attention.fla import (
+        l2norm,
         layernorm_gated,
         linear_attention,
     )
@@ -70,7 +72,7 @@ def register() -> None:
     from hcu_sglang.multimodal_gen import qknorm_rope
     from hcu_sglang.multimodal_gen import wan_sla
     from hcu_sglang.models.deepseek import register_hooks as register_deepseek
-    from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_5, qwen3_moe
+    from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_moe
 
     jit_overlay_loader.register_hooks()
     configs.register_hooks()
@@ -93,12 +95,14 @@ def register() -> None:
     dsa_topk.register_hooks()
     current_dsa.register_hooks()
     dsv4_compressor.register_hooks()
+    index_topk_share.register_hooks()
     triton_hcu.register_hooks()
     gdn_backend.register()
     from hcu_sglang.layers.attention.linear import kda_backend
     kda_backend.register_hooks()
     linear_attention.register()
     layernorm_gated.register()
+    l2norm.register()
     from hcu_sglang.layers.moe import routing
     routing.register_hooks()
     from hcu_sglang.eplb import integration as load_aware_integration
@@ -198,7 +202,6 @@ def register() -> None:
     qwen2.register()
     qwen3.register()
     qwen3_moe.register()
-    qwen3_5.register()
     from hcu_sglang import speculative_dspark
     speculative_dspark.register_hooks()
     logger.info("[hcu_sglang] optimization hooks registered")

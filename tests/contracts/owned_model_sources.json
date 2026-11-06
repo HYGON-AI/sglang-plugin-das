@@ -1,0 +1,123 @@
+{
+  "fork_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+  "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+  "files": [
+    {
+      "source": "python/sglang/srt/models/hcu/glm5_next.py",
+      "owned": "hcu_sglang/models/glm5_next/model.py",
+      "source_sha256": "51ab7078e530b9ac5ebae1b27c6f0c0fb8077409c4dd51e40f8247fcae776c47",
+      "replacements": {
+        "from sglang.srt.layers.fused_rms_quant import": "from hcu_sglang.layers.fused_rms_quant import",
+        "from sglang.srt.models.deepseek_common.utils import": "from hcu_sglang.models.deepseek.deepseek_v2.constants import",
+        "from sglang.srt.layers.attention.glm5_next.runtime import": "from hcu_sglang.glm5_next_policy import",
+        "from sglang.srt.models.glm5_next_vision import": "from hcu_sglang.models.glm5_next.vision import",
+        "from sglang.srt.models.glm_visual import": "from hcu_sglang.models.glm5_next.visual import",
+        "from sglang.srt.layers.attention.dsa.utils import can_dsa_cp_split as can_cp_split": "from hcu_sglang.dsa_utils import can_dsa_cp_split as can_cp_split",
+        "from sglang.srt.layers.utils.cp_utils import": "from hcu_sglang.models.deepseek.current_v4.hcu_backend.hcu_cp_utils import",
+        "from sglang.kernels.ops.attention.fla.hcu.fused_norm_gate import": "from hcu_sglang.layers.attention.linear.kda_kernels.fused_norm_gate import",
+        "from sglang.srt.layers.layer_boundary.hcu_legacy import": "from hcu_sglang.layers.glm5_next_layer_boundary import",
+        "from sglang.srt.layers.utils.glm5_next_cp import": "from hcu_sglang.layers.glm5_next_cp_utils import",
+        "from sglang.srt.layers.communicator_glm5_next_cp import": "from hcu_sglang.layers.communicator_glm5_next_cp import",
+        "from sglang.srt.layers.communicator_glm5_next_mhc import": "from hcu_sglang.layers.communicator_glm5_next_mhc import",
+        "from sglang.srt.layers.communicator_glm5_next_mhc_cp import": "from hcu_sglang.layers.communicator_glm5_next_mhc_cp import"
+      },
+      "source_header_lines": [
+        "# Copyright 2023-2024 SGLang Team",
+        "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+        "# you may not use this file except in compliance with the License.",
+        "# You may obtain a copy of the License at",
+        "#",
+        "#     http://www.apache.org/licenses/LICENSE-2.0",
+        "#",
+        "# Unless required by applicable law or agreed to in writing, software",
+        "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+        "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+        "# See the License for the specific language governing permissions and",
+        "# limitations under the License.",
+        "# =============================================================================="
+      ],
+      "source_declaration": "保留来源声明"
+    },
+    {
+      "source": "python/sglang/srt/models/glm5_next_vision.py",
+      "owned": "hcu_sglang/models/glm5_next/vision.py",
+      "source_sha256": "842e68f8f6df6d48dc6546ae1e9f29fa19affafcef3700082c17885e946c9d9a",
+      "replacements": {},
+      "source_header_lines": [
+        "# SPDX-License-Identifier: Apache-2.0"
+      ],
+      "source_declaration": "保留来源声明"
+    },
+    {
+      "source": "python/sglang/srt/models/glm5_next_nextn.py",
+      "owned": "hcu_sglang/models/glm5_next/nextn.py",
+      "source_sha256": "e5447d0ac47222ef7c80041e099803e2b88ff41a4ae503e79955950dc412dc4d",
+      "replacements": {
+        "from sglang.srt.models.glm5_next import": "from hcu_sglang.models.glm5_next.model import"
+      },
+      "source_header_lines": [
+        "# Copyright 2023-2024 SGLang Team",
+        "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+        "# you may not use this file except in compliance with the License.",
+        "# You may obtain a copy of the License at",
+        "#",
+        "#     http://www.apache.org/licenses/LICENSE-2.0",
+        "#",
+        "# Unless required by applicable law or agreed to in writing, software",
+        "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+        "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+        "# See the License for the specific language governing permissions and",
+        "# limitations under the License.",
+        "# =============================================================================="
+      ],
+      "source_declaration": "保留来源声明"
+    },
+    {
+      "source": "python/sglang/srt/models/glm_visual.py",
+      "owned": "hcu_sglang/models/glm5_next/visual.py",
+      "source_sha256": "e25559fbd440eaa28ccae6f9665ec24ec9e7ba4c79a0e54c6af9c7070438feac",
+      "replacements": {},
+      "source_header_lines": [
+        "# SPDX-License-Identifier: Apache-2.0"
+      ],
+      "source_declaration": "保留来源声明"
+    },
+    {
+      "source": "python/sglang/srt/models/muse_spark.py",
+      "owned": "hcu_sglang/models/muse_spark/model.py",
+      "source_sha256": "cd12755d2a71940ad33df3993c140be46b5eb0aaee191ba2d42a3b5fd15b22bc",
+      "replacements": {
+        "from sglang.kernels.ops.muse_spark.all_gather_norm_residual import": "from hcu_sglang.kernels.ops.muse_spark.all_gather_norm_residual import",
+        "from sglang.kernels.ops.muse_spark.fused_muse_spark_routing import": "from hcu_sglang.kernels.ops.muse_spark.fused_muse_spark_routing import",
+        "from sglang.kernels.ops.muse_spark.fused_norm_gate import": "from hcu_sglang.kernels.ops.muse_spark.fused_norm_gate import",
+        "from sglang.kernels.ops.muse_spark.fused_norm_residual import": "from hcu_sglang.kernels.ops.muse_spark.fused_norm_residual import",
+        "from sglang.kernels.ops.muse_spark.fused_qk_norm import": "from hcu_sglang.kernels.ops.muse_spark.fused_qk_norm import",
+        "from sglang.kernels.ops.muse_spark.gemm_ag import": "from hcu_sglang.kernels.ops.muse_spark.gemm_ag import",
+        "from sglang.kernels.ops.muse_spark.router_gemm import": "from hcu_sglang.kernels.ops.muse_spark.router_gemm import",
+        "from sglang.srt.configs.muse_spark import": "from hcu_sglang.configs_muse_spark import",
+        "from sglang.srt.layers.muse_spark.muse_spark_bf16_moe import": "from hcu_sglang.layers.muse_spark.muse_spark_bf16_moe import",
+        "from sglang.srt.layers.muse_spark.muse_spark_fp4_moe import": "from hcu_sglang.layers.muse_spark.muse_spark_fp4_moe import",
+        "from sglang.srt.layers.muse_spark.muse_spark_layers import": "from hcu_sglang.layers.muse_spark.muse_spark_layers import",
+        "from sglang.srt.layers.muse_spark.muse_spark_int4_moe import": "from hcu_sglang.layers.muse_spark.muse_spark_int4_moe import",
+        "from sglang.srt.layers.muse_spark.muse_spark_megamoe import": "from hcu_sglang.layers.muse_spark.muse_spark_megamoe import",
+        "from sglang.kernels.ops.muse_spark.fi_trtllm_moe_finalize_with_rmsnorm_cutedsl import": "from hcu_sglang.kernels.ops.muse_spark.fi_trtllm_moe_finalize_with_rmsnorm_cutedsl import"
+      },
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "source": "python/sglang/srt/models/muse_spark_omni.py",
+      "owned": "hcu_sglang/models/muse_spark/omni.py",
+      "source_sha256": "f186e56bbfa76ecb06d92330a5597513f5179efd7c1b9bc567955d4e800ef777",
+      "replacements": {
+        "from sglang.srt.models.muse_spark import": "from hcu_sglang.models.muse_spark.model import",
+        "from sglang.srt.layers.muse_spark.muse_spark_audio import": "from hcu_sglang.layers.muse_spark.muse_spark_audio import",
+        "from sglang.srt.layers.muse_spark.muse_spark_layers import": "from hcu_sglang.layers.muse_spark.muse_spark_layers import",
+        "from sglang.srt.layers.muse_spark.muse_spark_navit import": "from hcu_sglang.layers.muse_spark.muse_spark_navit import",
+        "from sglang.srt.multimodal.processors.muse_spark_omni import": "from hcu_sglang.multimodal.processors.muse_spark_omni import"
+      },
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    }
+  ]
+}

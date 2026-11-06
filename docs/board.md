@@ -42,3 +42,14 @@ V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构
 状态：in-progress。固定来源、阶段与实际结果见 [开发迁移记录](hcu-sglang-development.md#6-2026-10-29-分阶段继续迁移)，逐路径范围见 [执行台账](../plans/sglang-das-execution.json)。2026-10-29 已完成当前包工具支持、HCU 标准分发哨兵修复及源码/wheel/embedded 加载复验；全量源码与行为处置仍未闭合。
 
 下一阶段先审查 DeepSeek V4 平台类拆分和当前 `current_v4` profile，随后按领域继续审阅 Attention/KV、量化/通信、GLM5-next/Muse Spark 与扩展功能。每项补充行为、实现、支持/回退及 CPU/GPU/Graph/模型证据；只有实际满足该阶段退出条件才更新状态。保持用户要求：提交本地仓库，不推送远程。
+
+
+## 6. 2026-11-05 模型侧迁移收口
+
+| 字段 | 本轮记录 |
+|---|---|
+| ID / 负责人 / 状态 | models-20261105 / 模型领域负责人 / blocked（完整 GLM/Muse 依赖与加载）；V4 接线和同步工具的已审改动已完成 CPU 自测 |
+| 行为与接受条件 | V4 public forward 安装缺失 helper；current_v4 保留方法类上下文；GLM5-next 与 Muse 迁入完整 owned body、正式架构注册和来源合同；完整模型验收需解除运行时依赖阻塞 |
+| 基线与工作树 | main 起始 `1eb4abaa3a3ad5bb7bbc9a8b758488639f4db1c7`，插件工作树含本轮及并行运行时修改，未提交；DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`、官方 `baa9befa381511cd4d56f83980951e5a45fffc6d`，来源只读 |
+| 依赖与下一步 | 运行时领域补 GLM 五个专用模块及 Muse kernels/layers/config/processor 后，模型侧更新 import 对应并复验完整导入；599 项严格 loader 尚无本轮通过证据；GPU/模型 A/B 由独立测试负责人统一执行 |
+| 证据与交接 | [模型开发记录](hcu-sglang-development.md#2026-11-05-glm5-next-与-muse-spark-owned-模型迁入)、[V4 修复记录](hcu-sglang-development.md#2026-11-05-v4-平台类与方法同步模型侧)、[交付边界](delivery-validation.md#2026-11-05-模型侧阶段记录)；来源及状态见执行台账，不宣称全模块迁移完成 |
