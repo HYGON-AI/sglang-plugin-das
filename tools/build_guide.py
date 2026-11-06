@@ -229,11 +229,11 @@ def build(root: Path) -> str:
         else:
             body = '<h1>{}</h1><pre><code>{}</code></pre>'.format(html.escape(title), html.escape(text))
             headings = []
-        catalog.append({"path": name, "title": title, "kind": category(name), "text": text, "html": body, "headings": headings})
+        catalog.append({"path": name, "title": title, "kind": category(name), "html": body, "headings": headings})
     for name in sorted(folders):
         children = sorted(n for n in known if n != name and Path(n).parent.as_posix() == name)
         body = '<h1>{}</h1><ul>{}</ul>'.format(html.escape(name + "/"), ''.join('<li><a href="{}">{}</a></li>'.format(html.escape(route(child), quote=True), html.escape(Path(child).name + ("/" if child in folders else ""))) for child in children))
-        catalog.append({"path": name, "title": name + "/", "kind": "目录", "text": "", "html": body, "headings": []})
+        catalog.append({"path": name, "title": name + "/", "kind": "目录", "html": body, "headings": []})
     template = (root / "templates/architecture.html").read_text(encoding="utf-8")
     digest = hashlib.sha256((template + json.dumps(contents, ensure_ascii=False, sort_keys=True)).encode()).hexdigest()[:12]
     payload = json.dumps(catalog, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c").replace("&", "\\u0026")
