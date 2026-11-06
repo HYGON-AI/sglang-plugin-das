@@ -397,3 +397,35 @@ wheel-readoutfix-runtime.json 是初次隔离助手错误引用外部源码时�
 - 两侧在 HCU 上都走 `rotary_embedding/base.py` 的 fallback 分支，差别在被调 kernel：A 由 `HcuRotaryFallback`（`hcu_sglang/layers/rotary.py:85-107`）在调用前把 fp32 `cos_sin_cache` 转成 `query.dtype`（带 memo、不改原张量），B 无此包装。
 - 证据：插件代码 + `tests/test_rotary_fallback_dtype.py`（3 项 CPU 通过）；**运行期分支命中日志未打印**，属代码级证据而非运行期取证。
 - 含义：27B 逐位一致只说明该模型上该转换无副作用，不等于插件对所有模型是 no-op。
+
+## 2026-11-06 拉取远端：origin/main 被第三方 force push 与变基记录
+
+**事实**：拉取时 `origin/main` 发生强制更新 `+ 1eb4aba...548e677`（forced update），**远端历史被第三方改写，非本次操作所致**。我们未推送过任何内容。
+
+**为什么不直接 `git pull --rebase`**：本地 17 个 "ahead" 中只有 2 个是本仓提交，另外 15 个是远端本次改写掉的旧提交；`git diff --stat 1eb4aba 900b7fc` 为空，说明远端只重写历史、内容未变。直接 rebase 会尝试重放那 15 个重复提交，结果不可预测。实际采用 `git rebase --onto origin/main 1eb4aba main`，只重放本仓的 2 个提交。
+
+**冲突处理**：唯一冲突文件 `architecture.html`（`tools/build_guide.py` 的生成产物），两处差异均为“生成时输入不同”的自然结果（Skill/工具计数、快照哈希与内嵌 catalog JSON），无语义冲突。按方案 A 逐字执行（rebase 期间 `--ours` 为基线侧、本仓提交为 `--theirs`），随后用容器 Python 3.10 重跑 `build_guide.py` 重建并以 `--check` 验证 `Guide is up to date`，生成物最终内容由生成器决定，未手工合并。
+
+**变基前后 SHA 对照**
+
+```text
+远端改写   1eb4aba → 900b7fc（内容等价，git diff --stat 为空）
+本仓提交   6005118 → a765f62（feat: 阶段一/二迁移收口）
+            c053168 → 4ad9b96（docs: 阶段二等价性验证报告与口径同步）
+新增       81d82d4（chore: 变基后重建导览快照，仅 architecture.html）
+基线       548e677（远端新 main）
+退回点     backup/pre-rebase-c053168 = c053168（推送完成后清理）
+```
+
+**变基后状态与门禁（容器 Python 3.10.12）**
+
+```text
+HEAD 81d82d4，main ahead 3 / behind 0，git status 空
+ci/l0_gate.py → passed（673 Python / 8 Skill / 0 errors）
+python3 -m unittest discover -s tests → Ran 190 tests，OK（skipped=13）
+python3 tools/build_guide.py --check → Guide is up to date
+```
+
+**重叠文件复核**（远端新 main 与本地改动都触碰的 4 个文件，均未丢本地改动）：`docs/ci.md` 的「L0 迁移文件头」行在；`hcu_sglang/environ.py` 的 `SGLANG_REQUIRE_KV_CACHE_SCALES` 在；`hcu_sglang/layers/attention/flashattention_interface.py` 的 `q_4d` 构造在 varlen 分支之后；`architecture.html` 由生成器重建。远端新增的 `.github/workflows/quality-gate.yml` 亦在。
+
+**推送状态**：未执行。推送前须重新 `git fetch` 确认 `behind` 仍为 0（远端可能再次被 force push），之后 `git push origin main` 并用 `git ls-remote` 与 `rev-list` 核对远端新提交。
