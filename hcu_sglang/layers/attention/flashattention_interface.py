@@ -24,6 +24,16 @@ def is_native_fp8(dtype: torch.dtype) -> bool:
     )
 
 
+_current_max_seq_len_k: Optional[int] = None
+
+
+def _set_current_max_seq_len_k(value: Optional[int]) -> Optional[int]:
+    global _current_max_seq_len_k
+    previous = _current_max_seq_len_k
+    _current_max_seq_len_k = value
+    return previous
+
+
 def _apply_out(result, out, return_softmax_lse):
     if out is None:
         return result
@@ -91,20 +101,18 @@ def flash_attn_with_kvcache(
     ver=3,
     out=None,
     max_seqlen_k: Optional[int] = None,
+    layout=None,
 ):
     from flash_attn import (
-        flash_attn_with_kvcache as hcu_flash_attn_with_kvcache,
         vllm_flash_attn_varlen_func,
         vllm_flash_attn_with_kvcache,
     )
 
     k_cache, v_cache = _restore_hcu_cache_layout(k_cache, v_cache)
-    q_4d = q
-    if q.ndim == 3:
-        query_len = max_seqlen_q or 1
-        q_4d = q.contiguous().view(-1, query_len, q.shape[-2], q.shape[-1])
 
     if _layout_enabled() and max_seqlen_q is not None and max_seqlen_q > 1:
+        if max_seqlen_k is None:
+            max_seqlen_k = _current_max_seq_len_k or None
         page_capacity = (
             page_table.shape[1] * k_cache.shape[2]
             if max_seqlen_k is None and page_table is not None
@@ -123,32 +131,18 @@ def flash_attn_with_kvcache(
             window_size=window_size,
             block_table=page_table,
             fa_version=2,
+            softcap=softcap,
+            s_aux=sinks,
             q_descale=q_descale,
             k_descale=k_descale,
             v_descale=v_descale,
         )
         return _apply_out(result, out, return_softmax_lse)
 
-    if _layout_enabled():
-        result = vllm_flash_attn_with_kvcache(
-            q=q_4d,
-            k_cache=k_cache,
-            v_cache=v_cache,
-            block_table=page_table,
-            cache_seqlens=cache_seqlens,
-            softmax_scale=softmax_scale,
-            causal=causal,
-            window_size=window_size,
-            softcap=softcap,
-            return_softmax_lse=return_softmax_lse,
-            num_splits=num_splits,
-        )
-        return _apply_out(result, out, return_softmax_lse)
-
-    if not is_native_fp8(k_cache.dtype):
-        k_cache = k_cache.to(q.dtype)
-        v_cache = v_cache.to(q.dtype)
-    result = hcu_flash_attn_with_kvcache(
+    q_4d = q
+    if q.ndim == 3:
+        q_4d = q.contiguous().view(-1, 1, q.shape[-2], q.shape[-1])
+    result = vllm_flash_attn_with_kvcache(
         q=q_4d,
         k_cache=k_cache,
         v_cache=v_cache,
@@ -210,10 +204,19 @@ def flash_attn_varlen_func(
         cu_seqlens_k=cu_seqlens_k,
         max_seqlen_q=max_seqlen_q,
         max_seqlen_k=max_seqlen_k,
+        seqused_k=seqused_k,
+        block_table=page_table,
         softmax_scale=softmax_scale,
         causal=causal,
-        return_attn_probs=return_softmax_lse,
+        window_size=window_size,
         softcap=softcap,
+        return_attn_probs=return_softmax_lse,
+        q_descale=q_descale,
+        k_descale=k_descale,
+        v_descale=v_descale,
+        num_splits=num_splits,
+        fa_version=ver,
+        s_aux=sinks,
     )
     return _apply_out(result, out, return_softmax_lse)
 

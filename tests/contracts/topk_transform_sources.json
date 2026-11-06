@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_root": "sglang-das",
+  "scope": "Shared TopkTransformMethod enum extracted to break the dsa_backend/kpool.indexer import cycle; definition bytes unchanged",
+  "definitions": [
+    {
+      "source": "python/sglang/srt/layers/attention/glm5_next/dsa_backend.py",
+      "source_symbol": "TopkTransformMethod",
+      "source_sha256": "9cbf93216b537f00cbe5a01e58c979ae0df6f04d94db68bd4eee3e7fce58cd04",
+      "source_definition_sha256": "0c53fc589ad71980e23cbcfd622f41b5ddb12dfa7ee4588c7dc9ef02dd720891",
+      "owned_symbol": "TopkTransformMethod",
+      "helper": false
+    }
+  ]
+}

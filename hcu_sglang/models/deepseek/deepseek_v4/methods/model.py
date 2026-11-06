@@ -5,3 +5,4 @@ _check_late_layer_tail_readers = C.DeepseekV4Model._check_late_layer_tail_reader
 _forward_layers_hc_pre_from_prev = C.DeepseekV4Model._forward_layers_hc_pre_from_prev
 _forward_layers_tbo = C.DeepseekV4Model._forward_layers_tbo
 forward = C.DeepseekV4Model.forward
+_forward_impl = C.DeepseekV4Model._forward_impl

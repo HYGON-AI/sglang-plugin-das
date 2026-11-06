@@ -541,7 +541,7 @@ class PrefillBootstrapQueue:
             pd_hidden_pool=getattr(self.metadata_buffers, "pd_hidden_pool", None),
         )
         if isinstance(self.token_to_kv_pool, DeepSeekV4TokenToKVPool):
-            from sglang.srt.mem_cache.cp_cache_layer_split.transfer import (
+            from hcu_sglang.mem_cache.cp_cache_layer_split.transfer import (
                 configure_v4_transfer,
             )
 

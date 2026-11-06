@@ -165,6 +165,16 @@ python3 -m hcu_sglang --model-path "$MODEL" --port 30001
 
 先确认 GPU、容量与端口，保留完整启动参数。验证监听进程归属、`/health`、`/v1/models` 和真实请求；按 [响应校验](validation.md#7-确定性生成响应的离线验收) 检查答案、模型身份与正常 stop。服务后清理自己创建的进程。历史四卡配方与实际结果见 [开发迁移记录](hcu-sglang-development.md)。
 
+### 4.1 gfx936 上的 page size 约束
+
+HCU gfx936 平台的 paged FlashAttention kernel 要求 `page_size` 为 64 的倍数。用默认 page size 启动时，extend 路径会在 `vllm_flash_attn_varlen_func` 内直接失败：
+
+```text
+RuntimeError: Paged KV cache block size must be divisible by 64 at gfx936 platform
+```
+
+启动参数显式加 `--page-size 64`（或其它 64 的倍数）。该约束与模型规模无关：单卡 0.6B 冒烟同样触发，加上 `--page-size 64` 后正常 ready。
+
 ## 5. 停用、卸载与常见问题
 
 `SGLANG_PLUGINS` 是入口白名单；在 pinned loader 中，未设置或空字符串会发现所有插件，不能用于停用。新进程中若需屏蔽 general plugins，可使用确认不存在的名称，例如 `SGLANG_PLUGINS=__no_general_plugins__`；保留部署所需的 adapter/platform 基线。

@@ -1,4 +1,5 @@
 # Copyright 2023-2026 SGLang Team
+# Copyright 2026 SGLang Team
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -63,11 +64,11 @@ logger = logging.getLogger(__name__)
 
 @dataclass(eq=False, frozen=True)
 class MainKVPagePlan:
-    """Physical pages needed by one ordinary prefill ``ForwardBatch``.
+    """Physical pages needed by one ordinary prefill ForwardBatch.
 
-    ``history_page_ids`` is the unique payload copied from each layer owner.
+    ``history_page_ids`` is the unique payload copied from the layer owner.
     ``all_page_ids`` additionally contains pages receiving this step's newly
-    computed KV. Object identity deliberately serves as the batch identity.
+    computed KV.  Object identity deliberately serves as the batch identity.
     """
 
     history_page_ids: torch.Tensor
@@ -151,7 +152,12 @@ def build_main_kv_page_plan(
     current_locs: torch.Tensor,
     page_size: int,
 ) -> MainKVPagePlan:
-    """Build the deterministic, CP-global compact layout for one batch."""
+    """Build the deterministic, CP-global compact layout for one batch.
+
+    The ForwardBatch request metadata remains global when NSA prefill CP splits
+    query tokens, so every rank independently obtains the same two sorted page
+    sets without a metadata collective.
+    """
 
     history_page_ids = _build_unique_physical_pages(
         req_to_token,

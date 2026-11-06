@@ -73,7 +73,7 @@ class GuideTests(unittest.TestCase):
         original = '# 内容\n\n__TOOL_COUNT__ </script><script>globalThis.injected=true</script>\n'
         (self.root / 'docs/raw.md').write_text(original, encoding='utf-8')
         catalog = self.catalog()
-        self.assertEqual(catalog['docs/raw.md']['text'], original)
+        self.assertNotIn('text', catalog['docs/raw.md'])
         self.assertNotIn('<script>', catalog['docs/raw.md']['html'])
         self.assertIn('&lt;script&gt;', catalog['docs/raw.md']['html'])
         self.assertEqual(build(self.root), build(self.root))

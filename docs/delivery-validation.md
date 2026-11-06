@@ -350,3 +350,75 @@ wheel-readoutfix-runtime.json 是初次隔离助手错误引用外部源码时�
 70 项离线测试、4 项真实公共 dispatcher CPU 张量回归、L0、3 个修改 Skill 元信息及导览检查通过。源码、隔离 wheel、禁用外部 entry point 的实际 embedded 均为 364/364 项 Hook 和 3 个具名 seam；wheel 527 项包文件与源码相同，embedded 532 项哈希通过。桌面和 390px 窄屏阅读器、导航开关已实际检查。
 
 本记录是本轮阶段交付，**全量 DAS 迁移尚未完成**。DeepSeek V4 旧抽取 profile 因平台类拆分正确拒绝预检；完整 GPU 数值、Graph、多进程 EP 与模型服务未执行。未审核路径保留 pending，不能据此推断现有实现缺失或全部 fork 等价。
+
+
+## 2026-11-05 模型侧阶段记录
+
+本轮在插件 main 起始 `1eb4abaa3a3ad5bb7bbc9a8b758488639f4db1c7` 的工作树中修复 V4 public forward 的 `_forward_impl` 接线，新增 current_v4 同步 profile，并迁入 GLM5-next（含 vision、NextN、shared visual）和 Muse Spark text/omni 的完整 owned 源码及按需严格注册。DAS 来源固定 `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`、官方固定 `baa9befa381511cd4d56f83980951e5a45fffc6d`；未提交或推送。文件、对应表、命令与所有验证边界见 [V4 记录](hcu-sglang-development.md#2026-11-05-v4-平台类与方法同步模型侧) 和 [模型迁入记录](hcu-sglang-development.md#2026-11-05-glm5-next-与-muse-spark-owned-模型迁入)。
+
+宿主 Python 3.10.19 全量 unittest 为 133 项、120 通过、13 skipped；current_v4 --check 两份 facade unchanged。容器 Python 3.10.12 禁 GPU 后新增 11 项隔离 CPU 定义测试通过，CUDA 未初始化；这不替代整模块导入或真实 collective。先前 V4 九项 CPU 和旧 598/598 loader 是各自快照证据，不升级为新增后的通过结论。
+
+GLM 五个专用 runtime 模块与 Muse kernels/layers/config/processor 未齐，已审七个模型键保持 in_progress。最新禁 GPU 的 599-target 严格 loader 退出 1、0 registered / 0 applied；完整模型导入与 V4 真实路由回归也在官方依赖的导入期设备查询处受阻，Muse 还报专用 kernel 包缺失。原始成功/失败日志均保存在 ignored `artifacts/migration-20261105/`；长期统一测试表由测试负责人追加，不将报告器退出 0 当模型导入成功。模型 GPU、精度/性能 A/B、CP/TP/Graph、wheel 与导览浏览器视觉验收未执行。本轮是部分迁移与证据交接，阶段一未完成。
+
+## 2026-11-06 阶段二验收：47 精度与性能对齐、26 环境阻塞
+
+**精度（47 / gfx936 / BF16 KV / Qwen3.6-27B-INT8-w8a8 / TP2）**
+
+- l2norm 迁入后 A/B 逐层 dump：layer 0/1/4/8/16/32/48/63 全部 `max_abs = 0.000e+00`（|1081 键）；A 侧两次独立启动逐位相同（`4f33666a`），旧基线 `7919f29e` 作废。
+- 确定性文本：r02、r08 在新代码下 A/B 逐字一致（8/8 请求；独立复算 id/text/usage 哈希 r02 两侧 `d3582051242f`、r08 两侧 `d372fb258587`）。
+- 结论：在该配方上等价性成立；不外推至 26。
+
+**性能（同上配方）**
+
+- 每侧 3 次独立启动（新进程、各 5 轮），轮内算分位数后取轮次中位数；R19 门禁剔除无效轮后源为 `perf-quantitative-v3.json`。
+- 8 项指标中位数差 **−0.926% ~ +1.440%**；方向为 **B 在 7 项上数值略优，A 仅 TPOT p99 一项略优**（不得写“A 略优”）。
+- 同侧极差实测 **A 0.52–2.70 pp / B 2.97–5.30 pp**。
+- 结论：**未观测到可分辨差异**，不给差异上界。不得表述为“性能等价”或“差异 <1%”。
+- 口径变更：旧 `≤3% pass` 判据因噪声地板大于 3% 而失效；旧“2.3–6.8pp 噪声地板”由两个不同窗口的两轮对比得出、含跨窗口环境差异，作废；现行尺度改为同侧多次独立启动的极差。
+
+**26（gfx938 / fp8 KV，目标环境）——未验证 · 环境阻塞**
+
+- **精度已取得**：26 上 A1/A2/B1 三次运行 8 条请求，`A1==A2 8/8`、`A==B 8/8`（text + prompt/completion token 哈希）；`dump26/{A,B}/tensors.pt` 45 个键形状一致且 `torch.equal` 全等。
+- **性能未验证（用户要求停止）**：仅有一轮标定，且该轮并发 token 集与 47 不同，不构成性能结论。
+- 27B TP2 起不来：`rye_sglang_dpsk-v41` 占 119.5–120.8 GB/卡（余 26.6–28.3 GB），`rest_memory` 为负 → 容量不足，非参数问题。
+- 0.6B 替代路径不可用：B 侧 fused rotary dtype 缺陷（`expected scalar type BFloat16 but found Float`），47/26 均可复现；调用栈见开发记录第十一节。
+- 遗留：26 的 `layer.json`/`fa.json` 存在首调用捕获缺陷，两份快照不能用于 A/B 比对（已记工具 todo）；A/B 结论以 `tensors.pt` 为准。
+- R18 口径：26 串行 r02=54 / 并发 42、47 为 33/54 —— 批组成影响输出，两侧一致、各机自身稳定，不写成跨机差异证据。
+
+**已知不透明点：插件不是透明替换**
+
+- 两侧在 HCU 上都走 `rotary_embedding/base.py` 的 fallback 分支，差别在被调 kernel：A 由 `HcuRotaryFallback`（`hcu_sglang/layers/rotary.py:85-107`）在调用前把 fp32 `cos_sin_cache` 转成 `query.dtype`（带 memo、不改原张量），B 无此包装。
+- 证据：插件代码 + `tests/test_rotary_fallback_dtype.py`（3 项 CPU 通过）；**运行期分支命中日志未打印**，属代码级证据而非运行期取证。
+- 含义：27B 逐位一致只说明该模型上该转换无副作用，不等于插件对所有模型是 no-op。
+
+## 2026-11-06 拉取远端：origin/main 被第三方 force push 与变基记录
+
+**事实**：拉取时 `origin/main` 发生强制更新 `+ 1eb4aba...548e677`（forced update），**远端历史被第三方改写，非本次操作所致**。我们未推送过任何内容。
+
+**为什么不直接 `git pull --rebase`**：本地 17 个 "ahead" 中只有 2 个是本仓提交，另外 15 个是远端本次改写掉的旧提交；`git diff --stat 1eb4aba 900b7fc` 为空，说明远端只重写历史、内容未变。直接 rebase 会尝试重放那 15 个重复提交，结果不可预测。实际采用 `git rebase --onto origin/main 1eb4aba main`，只重放本仓的 2 个提交。
+
+**冲突处理**：唯一冲突文件 `architecture.html`（`tools/build_guide.py` 的生成产物），两处差异均为“生成时输入不同”的自然结果（Skill/工具计数、快照哈希与内嵌 catalog JSON），无语义冲突。按方案 A 逐字执行（rebase 期间 `--ours` 为基线侧、本仓提交为 `--theirs`），随后用容器 Python 3.10 重跑 `build_guide.py` 重建并以 `--check` 验证 `Guide is up to date`，生成物最终内容由生成器决定，未手工合并。
+
+**变基前后 SHA 对照**
+
+```text
+远端改写   1eb4aba → 900b7fc（内容等价，git diff --stat 为空）
+本仓提交   6005118 → a765f62（feat: 阶段一/二迁移收口）
+            c053168 → 4ad9b96（docs: 阶段二等价性验证报告与口径同步）
+新增       81d82d4（chore: 变基后重建导览快照，仅 architecture.html）
+基线       548e677（远端新 main）
+退回点     backup/pre-rebase-c053168 = c053168（推送完成后清理）
+```
+
+**变基后状态与门禁（容器 Python 3.10.12）**
+
+```text
+HEAD 81d82d4，main ahead 3 / behind 0，git status 空
+ci/l0_gate.py → passed（673 Python / 8 Skill / 0 errors）
+python3 -m unittest discover -s tests → Ran 190 tests，OK（skipped=13）
+python3 tools/build_guide.py --check → Guide is up to date
+```
+
+**重叠文件复核**（远端新 main 与本地改动都触碰的 4 个文件，均未丢本地改动）：`docs/ci.md` 的「L0 迁移文件头」行在；`hcu_sglang/environ.py` 的 `SGLANG_REQUIRE_KV_CACHE_SCALES` 在；`hcu_sglang/layers/attention/flashattention_interface.py` 的 `q_4d` 构造在 varlen 分支之后；`architecture.html` 由生成器重建。远端新增的 `.github/workflows/quality-gate.yml` 亦在。
+
+**推送状态**：未执行。推送前须重新 `git fetch` 确认 `behind` 仍为 0（远端可能再次被 force push），之后 `git push origin main` 并用 `git ls-remote` 与 `rev-list` 核对远端新提交。

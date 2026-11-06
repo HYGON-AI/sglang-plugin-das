@@ -52,6 +52,40 @@ class V4ExecutionTests(unittest.TestCase):
         self.assertEqual(obj.alt_streams,streams);self.assertEqual(len(calls),1)
         self.assertIs(C.DeepseekV4DecoderLayer,C.DeepseekV4PlatformDecoderLayer)
 
+    def test_native_model_public_forward_reaches_owned_body(self):
+        model=object.__new__(C.NativeDeepseekV4Model)
+        calls=[]
+        marker=object()
+        def body(owner,*args):
+            calls.append((owner,args))
+            return marker
+        args=tuple(object() for _ in range(5))
+        with patch.object(C,'_is_cuda',False),patch.object(C.NativeDeepseekV4Model,'_forward_impl',body):
+            self.assertIs(model.forward(*args),marker)
+        self.assertEqual(calls,[(model,args)])
+
+    def test_native_model_public_forward_executes_owned_pp_body(self):
+        model=object.__new__(C.NativeDeepseekV4Model)
+        torch.nn.Module.__init__(model)
+        model.pp_group=SimpleNamespace(is_first_rank=False,is_last_rank=False,world_size=3)
+        model.hc_mult=2;model.hidden_size=3;model.dspark_layers_to_capture=None
+        model.start_layer=0;model.end_layer=0;model.hc_pre_from_prev_sublayer=False
+        model.use_fused_mhc_post_pre=False;model._can_run_tbo=lambda batch:False
+        hidden=torch.arange(12.).reshape(2,6)
+        proxy=C.PPProxyTensors({'hidden_states':hidden})
+        fb=SimpleNamespace()
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(C,'_is_cuda',False))
+            stack.enter_context(patch.object(C,'_is_npu',False))
+            stack.enter_context(patch.object(C,'is_cp_v2_active',return_value=False))
+            stack.enter_context(patch.object(C,'dsa_use_prefill_cp',return_value=False))
+            stack.enter_context(patch.object(C,'get_parallel',return_value=SimpleNamespace(attn_dp_size=1)))
+            stack.enter_context(patch.object(C,'get_attn_backend',return_value=SimpleNamespace()))
+            output=model.forward(torch.tensor([1,2]),torch.tensor([0,1]),fb,None,proxy)
+        self.assertIsInstance(output,C.PPProxyTensors)
+        torch.testing.assert_close(output['hidden_states'],hidden)
+        self.assertEqual(output['hidden_states'].data_ptr(),hidden.data_ptr())
+
     def test_platform_mixin_initializes_state_after_base(self):
         calls=[]
         def base(self,*args,**kwargs):

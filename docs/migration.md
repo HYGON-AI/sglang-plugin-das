@@ -114,6 +114,22 @@ PYTHONPATH="$OFFICIAL/python:$PLUGIN" python3 tools/validate_hook_signatures.py 
   --output "$ARTIFACTS/hook_signatures.json"
 ```
 
+对于已拆为 Base/CUDA/Platform decoder 的 V4 来源，显式选择 `current_v4`：
+
+```bash
+python3 tools/sync_deepseek_methods.py \
+  --fork-python "$FORK/python" --plugin-root "$PLUGIN" \
+  --profile current_v4 --check
+```
+
+该 profile 要求来源和 owned `current_v4/execution/core.py` 都存在显式的
+`DeepseekV4PlatformDecoderLayer(NonCudaDecoderMixin, DeepseekV4DecoderLayerBase)`，
+并预检 Model/CausalLM 的全部重导出方法。所有预检完成后才更新两份方法 facade；
+不覆盖 owned 计算实现，也不将含 `super()` 的方法从类上下文中抽离。
+它检查结构和重导出合同，不比较来源/owned 方法体、数值、性能或全部辅助模块。
+默认 `legacy` 保持旧抽取行为；新来源类结构漂移时失败退出 2，零输出写入。
+`--check` 有差异退出 1、相同退出 0；实际应用仅在计划开发的插件树内执行。
+
 签名检查只覆盖所选包 `models` 下已注册的 REPLACE Hook，比较参数结构、默认值数量等；不比较默认值语义，不覆盖所有 AROUND/BEFORE/AFTER、动态别名或全部类契约。必须另测完整预期 targets、重复/组合顺序、apply 解析、fallback 与模型语义。空集合不能当作完整通过。
 
 输出 `history/model-pr-history-notes.md` 记录来源 commit、符号、影响的选型和回归风险；模板见 [history-notes](../templates/history-notes.md)。验收按 [validation](validation.md) 的适用矩阵，缺 GPU 的 lane 记 pending。
@@ -152,6 +168,20 @@ python3 tools/build_migration_execution.py --check
 ```
 
 新增实现须记录目标文件、理由、测试和验证范围；validated 必须有证据。来源变化后重新采集盘点并复审决定，不能仅重建旧台账继承完成结论。具体实施与阶段退出条件见 [当前开发记录](hcu-sglang-development.md)。
+
+
+### 阶段一运行时文件处置快照
+
+[阶段一 closure](../plans/hcu-runtime-target-closure-20261105.csv) 由 [生成器](../tools/build_runtime_closure.py) 读取 [triage](../plans/hcu-runtime-triage-20261105.csv) 与 [当前处置](../plans/sglang-das-decisions.json) 的**并集**生成。每个文件恰有一行；execution_status 仅取当前 decision。**triage 有行但 decision 缺失时记 `missing_decision` 并以非零退出**，不再默认成 pending；仅存在于 decision 的路径以 `decisions_only` 分组进入分母。classification_status_snapshot 保留分类时状态，不能替代当前进度。implementation、tests、evidence、完整 decision 与两个输入的规范化 SHA256 一并保存，不自动把 implemented 改成 validated。
+
+```bash
+python3 tools/build_runtime_closure.py
+python3 tools/build_runtime_closure.py --check
+```
+
+修改 decisions 或 triage 后重建，再执行只读 --check；L0 已调用该检查。任何 decision 内容改变，包括清单范围以外的决定，都会使现存 closure 过期。键顺序与 triage 行顺序不影响输出。字段缺失、重复路径、未知状态、无理由处置、缺实现路径的 implemented、无证据的 validated 与缺处置记录均拒绝生成；L0 另单列一项统计缺记录条数。不得手填 closure 状态。
+
+全量执行台账按所有非 same 路径计数，阶段一 closure 按 370 文件计数；[历史符号审查表](../plans/hcu-runtime-target-review-20261105.csv) 是原 307 符号行、72 来源文件的完整保留，分类与刷新时间保持原值。三者分母不同，不互换统计数。[历史刷新记录](../plans/hcu-runtime-target-refresh-20261105.json) 的 target_table 保留当时路径，preserved_target_table 指向保留后的符号表。旧 decision 里的 closure 证据引用对应当时符号审查，复核原内容时读取历史符号审查表；当前 closure 用于文件状态，不替代符号或数值证据。
 
 
 ### 原样 Python 代码的复用证据
