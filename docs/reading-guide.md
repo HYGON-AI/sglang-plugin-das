@@ -62,7 +62,7 @@
 - 方法工具：[环境准备](bootstrap.md)、[三方迁移](migration.md)、[源码回溯](backtracking.md)。
 - 工程规范：[配置管理](configuration.md)、[验证规范](validation.md)、[协作流程](contributing.md)。
 - 历史故障：[开发经验与故障案例索引](development-methodology.md)、[V3 实践记录](v3-runtime-validation.md)。
-- 方法来源与交付：[vLLM Skill 迁移分析](vllm-skill-migration.md)、[交付记录](delivery-validation.md)。
+- 方法来源与交付：[vLLM Skill 迁移分析](vllm-skill-migration.md)、[交付记录](delivery-validation.md)、[等价性验证报告](equivalence-validation-report.md)。
 
 当前需求的实现范围、验证结果和 HCU 逻辑差异见 [V3 2026-10-26 实施记录](hcu-sglang-development.md#2026-10-26-v3-2026-10-26-实施与验证记录)。历史经验用于定位相似问题，当前支持范围以对应固定版本的实施记录为准。
 

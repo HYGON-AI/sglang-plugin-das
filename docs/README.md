@@ -67,6 +67,7 @@ flowchart TB
 | [版本升级与发版](upgrading.md) | 升级工作流、Skill 调用、补丁处置与验收 | 指定官方目标升级或发布交付 | 升级流程或验收契约变化 |
 | [vLLM Skill 迁移](vllm-skill-migration.md) | 方法取舍、SGLang 改写和新增升级发版入口 | 升级/发版、维护来源与能力边界 | 来源或方法迁入变化 |
 | [交付记录](delivery-validation.md) | 按版本保存范围、命令和验证结果 | 核对本次完成情况 | 一次交付实际完成后 |
+| [等价性验证报告](equivalence-validation-report.md) | A/B 逻辑、数值与性能一致性结论、结论边界与未验证项 | 交付验收、复核迁移等价性 | 精度/性能结论或验证范围变化 |
 
 浏览器导览为 [architecture.html](../architecture.html)，提供离线全文检索、内部文档跳转与窄屏导航。页面由 [网页模板](../templates/architecture.html) 和 [构建工具](../tools/build_guide.py) 生成；修改共享内容后运行 `python3 tools/build_guide.py`，通过 `--check` 检查快照是否最新。详细规则仍以 Markdown 原文为准。
 

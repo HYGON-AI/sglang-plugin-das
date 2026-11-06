@@ -1716,6 +1716,103 @@ KV 三项测试验证真实构造/公共写入、位置与关键字参数及重�
 实际验证（bw47 / `yht-plugin-qwen38-dtk2610-bw47-1104` / DTK2610 / 物理卡 4,5,6,7 / 2026-11-05）：PD 拓扑为 P `TP2+EP2`（卡 4,5）、D `TP2+EP2 + attention-DP2`（卡 6,7）、mooncake over TCP；`17*23` 端到端返回 391 且 `finish_reason=stop`。SLA（1024 输出、radix cache 开启、实测缓存命中 85%）三档 TTFT/TPOT P90 为 64K 1.62s/15.39ms、128K 3.15s/18.88ms、256K 9.96s/15.53ms，均满足 10s/15s/15s 与 30/40/50ms 门限；同机 IFB 单实例（TP4+attention-DP4+EP4）为 1.59s/15.96ms、3.63s/14.23ms、12.48s/17.51ms。回归：新增 `tests/runtime/fix_pd_official_host.py` 8 项；既有 PD runtime 测试 `fix_pd_transport`(8)、`fix_pd_decode_hicache`(5)、`fix_pd_dspark_worker`(6)、`replay_validation_cpu`(5) 全通过；L0 门禁通过（583 Python / 8 skills）。
 
 未验证模式：本次 PD 因节点资源受限只跑通 TP2，未测 TP4+TP4 同口径；decode 侧 radix cache、PD 下的 HiCache/HiSparse、DeepEP、PD 角色切换、多节点与 RDMA（本机无 IB，mooncake 走 TCP）、其他模型/量化均未验证。`_send_kv_metadata` 的 hook 注册使本仓实现在官方线上首次真正生效；与官方 v0.5.22 逐行比对，本函数除按接收方签名过滤未知 kwarg 外与官方完全一致（官方本就含同一 time_stats 记录），注册 hook 的净行为变化即 kwargs 过滤本身。完整 unittest 套件在本容器内 20 分钟未跑完，中途仅 `test_tool_contracts.test_verifier_cli_failure_is_nonzero` 报 ERROR，已在未改动的干净工作树上复现同错，与本提交无关。
+**已由 kimi 在 47 上取到的 traceback 校正（该假设作废，lightop RMSNorm 无关）**：
+
+```text
+RuntimeError: expected scalar type BFloat16 but found Float
+  qwen3.py:417 forward → qwen3.py:341 forward_prepare_native → kernels/fused_op.py:653 forward
+  → rotary_embedding/base.py:593 forward_cuda → base.py:158 _launch_rotary_embedding → :136 _launch
+  → sgl_kernel/elementwise.py:433 rotary_embedding
+```
+
+静态对照后机制明确：`rotary_embedding/base.py` 的 fallback 分支里，`_is_hip` 为真时
+`self.cos_sin_cache = self.cos_sin_cache.to(query.device)` **只搬设备、不转 dtype**（缓存保持 fp32），
+随后 `_launch_rotary_embedding(self.fallback_rotary_embedding, …, self.cos_sin_cache, …)` 把它交给
+`sgl_kernel.rotary_embedding`，而该算子要求与 bf16 的 query 一致 → 报此错。
+
+一处必须写准的边界：**这段 fallback 代码在固定官方 0.5.22 与 DAS 中逐字相同**（官方 base.py:159-171、DAS base.py:281-293 与 444-452/582-590 两处分支一致），因此它**不是 DAS 私有缺陷**。
+
+**A 与 B 的分支关系（已用代码与单测坐实，不再是推理）**：A 也走 fallback 分支，差别在被调用的 fallback kernel 不同。插件 `hcu_sglang/layers/rotary.py:100-107` 在 `RotaryEmbedding.__init__` 之后（HcuRotaryFallback，AFTER 钩子）把 `layer.fallback_rotary_embedding` 换成 `HcuRotaryFallback`；该包装器 `:90-98` 在调用原 kernel 前把 `cos_sin_cache` 转成 `query.dtype`（带 memo，缓存对象本身不改）。B 没有这层包装，fp32 cache 直接进入 `sgl_kernel.rotary_embedding`，与 bf16 query 冲突 → 报错。
+
+这条已固化为 CPU 回归 `tests/test_rotary_fallback_dtype.py`（3 项）：fp32 cache 被转成 query dtype、dtype 一致时原样透传、转换结果按缓存对象 memo 复用；同时断言传入的 cache 张量本身未被改写。即在无 GPU 的环境下也能复现并证明“A 有转换、B 没有”。
+
+风险边界：触发条件是「该模型的 rotary 在 HCU 上落到 fallback 分支」。**不排除其它小模型/小配置同样触发**；
+遇到同一条错误可直接复用上面这串调用栈判断，不必重新排查。
+
+验证边界：以上为静态排除，未实际运行；`0.6B 在 47 上 B 是否同样失败`是区分「模型相关」与「机器相关」的关键实验，由 kimi 的 47 对照顺带给出。未 commit、未 push。
+
+**十二、阶段二验收记录（47：精度与性能；26：精度已验证、性能未验证）**
+
+本节的数字全部来自 47（gfx936、BF16 KV、Qwen3.6-27B-INT8-w8a8、TP2）与 47 上的 0.6B 缺陷复现。**26 的精度结论见本节下文（A1=A2 与 A=B 文本均 8/8 逐字一致、逐层 dump 45 键张量全等）；26 的性能未验证（用户要求停止，只有一轮标定，不作结论）。**
+
+**一、精度（47）**
+
+```text
+l2norm 迁入后 A/B 逐层 dump：layer 0/1/4/8/16/32/48/63 全部 max_abs = 0.000e+00（|1081 键）
+A 侧两次独立启动逐位相同（A_m1 = A_m2 = 4f33666a）；旧基线 7919f29e 作废
+确定性文本：r02、r08 在新代码下 A/B 逐字一致（8/8 请求；独立复算 id/text/usage 哈希
+  r02 两侧 d3582051242f、r08 两侧 d372fb258587）
+```
+
+**二、性能（47，同配方）**
+
+每侧 3 次独立启动（新进程，每次 5 轮），轮内算分位数后取轮次中位数，再对 3 次启动取中位数；
+R19 门禁剔除 r02 单独入批等无效轮后，源为 `artifacts/kv-cpu-20261105/perf-quantitative-v3.json`。
+下表由本 bot 直接读该文件的 A/B 三次启动数组重算（非引用他人汇总）：
+
+```text
+output tok/s  -0.926%   B 优      req/s      -0.926%   B 优
+TTFT p50      +0.381%   B 优      TTFT p99   +1.117%   B 优
+TPOT p50      +1.440%   B 优      TPOT p99   -0.421%   A 优
+E2E  p50      +0.119%   B 优      E2E  p99   +0.949%   B 优
+
+中位数差范围      -0.926% ~ +1.440%
+方向               B 在 7 项上数值略优；A 仅 TPOT p99 一项略优（不得写“A 略优”）
+同侧极差最大      A 0.52–2.70 pp / B 2.97–5.30 pp
+结论              未观测到可分辨差异；不给差异上界；不得写成“性能等价”
+```
+
+口径变更（必须与旧表述区分）：
+
+```text
+旧判据 ≤3% pass / 3–10% warn / >10% fail  → 失效（噪声地板已大于 3%）
+旧“噪声地板 2.3–6.8pp”                    → 作废（由两个不同窗口的两轮对比得出，含跨窗口环境差异）
+现行判据                                 → 以同侧多次独立启动的极差为尺度；中位数差不得表述为“差异上界”
+```
+
+**三、26（目标环境）——精度已验证、性能未验证**
+
+26 上已取得（本轮之前的窗口，本 bot 本轮独立复算）：
+
+```text
+文本   A1/A2/B1 三次运行的 8 条请求：A1==A2 8/8、A==B 8/8（按 text + prompt_tokens + completion_tokens 哈希；
+       r02 99 字符/54 token，r08 430 字符/225 token）
+张量   test-results/ab/dump26/{A,B}/tensors.pt：45 个键两侧全存在、形状一致、torch.equal 全等（mismatched 0）
+       注意 layer.json 只含 layer_0_in / layer_63 两个哈希键且两侧相同，kimi 报的“8 层×3 行”来自 tensors.pt
+性能   仅一轮标定（test-results/runs/verify26-cal-A）：该轮 8 并发 token 集 {r01 4, r02 42, r03 18, r04 6,
+       r05 4, r06 32, r07 51, r08 208}，与 47 不同 → 26 性能「未验证（用户要求停止）」，不进性能结论表
+遗留    layer.json 的 sha 与 fa.json 在 26 上存在首调用捕获缺陷（A 的 json sha 与自身张量重算不符；
+       FA 页 1/2 不同但 layer_4 逐位相同），这两份快照不能用于 A/B 比对，已记工具 todo
+```
+
+27B TP2 仍起不来：`yuanyuan` 的 `rye_sglang_dpsk-v41` 占 119.5–120.8 GB/卡（Total 147.44 GB，余 26.6–28.3 GB），
+`rest_memory` 为负 → 容量不足，非参数问题。0.6B 替代路径不可用：B 侧 fused rotary dtype 缺陷（见第十一节）。
+
+**R18 口径（批组成）**：26 上同一请求串行 54 token、并发 42 token；47 是 33/54。这是批形状影响输出的又一次体现，
+两侧行为一致、各机自身稳定，**不写成跨机差异证据**。
+
+
+**推送前基线**：`HEAD = 6005118`（164 文件，+64136/−1628，分支 main，ahead 1 / behind 0，未 fetch）。
+本节与交付记录的文档同步（SHA、性能 R19 口径、26 结论、R18 表述）作为其后的一次补丁提交；
+push 到 origin 仍未执行，等用户明确确认。
+
+**四、已知不透明点：插件不是透明替换**
+
+两侧在 HCU 上都走 `rotary_embedding/base.py` 的 fallback 分支，差别在被调 kernel：A 由插件的
+`HcuRotaryFallback`（`hcu_sglang/layers/rotary.py:85-107`）在调用前把 fp32 `cos_sin_cache` 转成 `query.dtype`
+（带 memo、不改原张量），B 无此包装，fp32 cache 直接进入 `sgl_kernel.rotary_embedding`。
+证据为插件代码 + `tests/test_rotary_fallback_dtype.py`（3 项 CPU 通过），**不是运行期取证**（两侧分支命中日志未打印）。
+含义：27B 上逐位一致只说明该模型上这层转换无副作用，**不等于插件对所有模型都是 no-op**。
 
 本提交的干净分支 `feat/qwen38-pd-disagg-clean` 于 2026-11-06 基于 upstream 最新 `release/sglang_v0.5.22@c6b0998` 直接 cherry-pick 实测提交 `a1a57ef` 生成，无冲突；三处缺陷在最新上游仍全部存在（`prefill.py:1459` / `prefill.py:1998,2072,2428,2642` / `decode.py:2386`）。改动文件与 `a1a57ef` 逐字节相同，L0（584 Python / 8 skills）与 `fix_pd_official_host.py` 8/8 在该分支复跑通过，服务与 SLA 结论沿用同日 bw47 实测。配套 adapter 无需改动：upstream `release/sglang_v0.5.22@0d5d73b` 与实测用 `2d43c67` 整树哈希同为 `f7c1dc4`。
 未 commit、未 push。
