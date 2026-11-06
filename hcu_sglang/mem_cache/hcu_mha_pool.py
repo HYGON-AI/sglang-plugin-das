@@ -40,11 +40,11 @@ class HCUMHATokenToKVPool(_mha_pool_base()):
         page_num = (self.size + self.page_size) // self.page_size
         return (
             (page_num, self.head_num, self.page_size, self.head_dim),
-            (page_num, self.head_num, self.v_head_dim, self.page_size),
+            (page_num, self.head_num, self.page_size, self.v_head_dim),
         )
 
     def _kv_tokens_per_row(self) -> int:
-        # Both HCU buffers lead with pages, including the transposed V layout.
+        # K and V are both BHSD: [pages, heads, page, dim].
         # The base layout label may still be NHD; descriptors follow storage.
         return self.page_size
 
@@ -116,11 +116,11 @@ class HCUMHATokenToKVPool(_mha_pool_base()):
             self.alt_stream.wait_stream(current_stream)
             self.k_buffer[layer_idx][page_indices, :, offsets, :] = cache_k
             with self.device_module.stream(self.alt_stream):
-                self.v_buffer[layer_idx][page_indices, :, :, offsets] = cache_v
+                self.v_buffer[layer_idx][page_indices, :, offsets, :] = cache_v
             current_stream.wait_stream(self.alt_stream)
             return
         self.k_buffer[layer_idx][page_indices, :, offsets, :] = cache_k
-        self.v_buffer[layer_idx][page_indices, :, :, offsets] = cache_v
+        self.v_buffer[layer_idx][page_indices, :, offsets, :] = cache_v
 
     def _move_kv_cache_impl(self, tgt_loc: torch.Tensor, src_loc: torch.Tensor):
         target_pages = tgt_loc // self.page_size
@@ -131,8 +131,8 @@ class HCUMHATokenToKVPool(_mha_pool_base()):
             key_buffer[target_pages, :, target_offsets, :] = key_buffer[
                 source_pages, :, source_offsets, :
             ]
-            value_buffer[target_pages, :, :, target_offsets] = value_buffer[
-                source_pages, :, :, source_offsets
+            value_buffer[target_pages, :, target_offsets, :] = value_buffer[
+                source_pages, :, source_offsets, :
             ]
 
     def get_cpu_copy(self, indices, mamba_indices=None):
@@ -148,7 +148,7 @@ class HCUMHATokenToKVPool(_mha_pool_base()):
                 page_indices = chunk_indices // self.page_size
                 offsets = chunk_indices % self.page_size
                 key = self.k_buffer[layer_id][page_indices, :, offsets, :]
-                value = self.v_buffer[layer_id][page_indices, :, :, offsets]
+                value = self.v_buffer[layer_id][page_indices, :, offsets, :]
                 result[-1].append(
                     [
                         key.to("cpu", non_blocking=True),
@@ -173,7 +173,7 @@ class HCUMHATokenToKVPool(_mha_pool_base()):
                 page_indices = chunk_indices // self.page_size
                 offsets = chunk_indices % self.page_size
                 self.k_buffer[layer_id][page_indices, :, offsets, :] = key
-                self.v_buffer[layer_id][page_indices, :, :, offsets] = value
+                self.v_buffer[layer_id][page_indices, :, offsets, :] = value
         current_platform.synchronize()
 
 

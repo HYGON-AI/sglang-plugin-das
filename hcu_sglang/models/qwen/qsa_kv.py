@@ -17,8 +17,8 @@ def around_paged_attention(original, backend, q, layer, forward_batch, topk_indi
     v = pool.get_value_buffer(layer.layer_id)
     if k.ndim != 4 or v.ndim != 4:
         return original(backend, q, layer, forward_batch, topk_indices)
-    if (k.shape[2], k.shape[3]) != (v.shape[3], v.shape[2]):
-        raise ValueError("QSA expected HCU FA K/V layout")
+    if k.shape != v.shape:
+        raise ValueError("QSA expected HCU FA BHSD K/V layout")
     meta = backend._resolve_metadata(forward_batch)
     indices = backend._expand_block_indices(topk_indices, meta).to(torch.int32).contiguous()
     batch, topk = indices.shape
@@ -52,7 +52,7 @@ def around_pack_prefill(original, *, k, v, req_to_token, req_indices, cu_k, tota
     slots = req_to_token[req_indices[rows].long(), packed - cu_k[rows]].long()
     pages, offsets = slots // k.shape[2], slots % k.shape[2]
     return (k[pages, :, offsets, :].to(output_dtype or k.dtype),
-            v[pages, :, :, offsets].to(output_dtype or v.dtype))
+            v[pages, :, offsets, :].to(output_dtype or v.dtype))
 
 def is_fp8_kv_dtype(dtype: torch.dtype) -> bool:
     return dtype in _FP8_DTYPES
@@ -101,7 +101,7 @@ def _compact_kv_hcu_fa(
 ):
     """Gather selected tokens from HCU FA paged KV into packed NHD rows.
 
-    K is (pages, heads, page, dim); V is (pages, heads, dim, page). Physical
+    K and V are both (pages, heads, page, dim). Physical
     slots are page * page_size + offset, matching MHATokenToKVPool.set_kv_buffer
     under SGLANG_KV_LAYOUT_HCU_FA. This does not change the pool layout.
     """
@@ -193,8 +193,8 @@ def qwen_sparse_kv_extraction_compact_hcu_fa_triton(
         k.stride(3),
         v.stride(0),
         v.stride(1),
-        v.stride(3),
         v.stride(2),
+        v.stride(3),
         out_k.stride(0),
         out_k.stride(1),
         out_k.stride(2),
