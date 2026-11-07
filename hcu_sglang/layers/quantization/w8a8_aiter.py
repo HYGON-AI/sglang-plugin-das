@@ -121,11 +121,6 @@ def register_hooks() -> None:
         ),
     ):
         HookRegistry.register(
-            f"{module}.{class_name}.create_moe_runner",
-            around_create_moe_runner,
-            HookType.AROUND,
-        )
-        HookRegistry.register(
             f"{module}.{class_name}.apply",
             apply_hook,
             HookType.AROUND,

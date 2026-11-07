@@ -19,6 +19,7 @@ def register_hooks() -> None:
         w8a8_aiter,
         w8a8_fp8,
         w8a8_lightop,
+        w8a8_runner_dispatch,
     )
 
     auto_round.register_hooks()
@@ -33,6 +34,7 @@ def register_hooks() -> None:
     unquantized_marlin.register_hooks()
     w8a8_aiter.register_hooks()
     w8a8_lightop.register_hooks()
+    w8a8_runner_dispatch.register_hooks()
     logger.debug("[hcu_sglang] quantization hooks registered")
 
     from . import compressed_targets

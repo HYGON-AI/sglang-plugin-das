@@ -186,11 +186,6 @@ def register_hooks() -> None:
     )
     for target, process_hook, apply_hook in hook_specs:
         HookRegistry.register(
-            f"{target}.create_moe_runner",
-            around_create_moe_runner,
-            HookType.AROUND,
-        )
-        HookRegistry.register(
             f"{target}.process_weights_after_loading",
             process_hook,
             HookType.AROUND,

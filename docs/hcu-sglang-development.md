@@ -2379,3 +2379,32 @@ push 到 origin 仍未执行，等用户明确确认。
 含义：27B 上逐位一致只说明该模型上这层转换无副作用，**不等于插件对所有模型都是 no-op**。
 
 未 commit、未 push。
+
+## 2026-11-07 Phase 1 去重：fla×2 hook 退役 + W8A8 create_moe_runner 双注册收敛
+
+**fla/GDN hook 退役（A1/A2）**：`hcu_sglang/__init__.py` 不再 import/注册
+`layers/attention/fla/linear_attention.py` 与 `layernorm_gated.py`（合计 5 个
+REPLACE 目标：chunk_delta_h.chunk_gated_delta_rule_fwd_h、chunk_o.chunk_fwd_o、
+fused_recurrent...packed_decode、layernorm_gated._layer_norm_fwd、
+gdn_triton.TritonGDNKernel.target_verify）。依据：adapter gdn_aiter 生产级路由已
+承接 fwd_h/packed decode（官方 inplace_update 签名兼容），chunk_o/layernorm 上游
+triton 即正确路径，target_verify 与前四项同族且已在组合栈验证窗口随整模块禁用
+通过（247 tok/s / GSM8K 96%）。`*_source.py` 保留（tests/runtime/
+fix_attention_models_gpu.py 直接对拍引用）；l2norm hook 属 #20 新迁移（vendor fast
+path），不在本次退役范围。契约 `hcu_source_alignment_targets.json` 同步摘除 5
+目标（636→631），新增 `tests/test_fla_gdn_hooks_removed.py` 钉死（入口不引用、
+契约不列出、l2norm 保留三项断言）。
+
+**W8A8 create_moe_runner 双注册修复**：w8a8_aiter 与 w8a8_lightop 原本对
+W8A8Int8/W8A8FP8 两目标各自注册 AROUND（"Multiple AROUND hooks" 告警、隐式链序
+依赖）。新增 `layers/quantization/w8a8_runner_dispatch.py` 单点注册：lightop 请求
+时走 lightop 臂，否则 aiter 臂（两臂原有 guard 不变，均含 original 回退）；
+两个臂模块移除 w8a8 目标的 create_moe_runner 注册，compressed 目标（原本就单
+注册）留在 lightop。新增 `tests/test_w8a8_runner_dispatch.py` 5 项：AST 结构
+（臂模块零注册、dispatcher 恰一次、compressed 留守）+ 行为（lightop 优先 /
+aiter 回退，mock 臂隔离）。
+
+**本地验证**：`python -m unittest tests.test_fla_gdn_hooks_removed
+tests.test_w8a8_runner_dispatch -v` 8/8 通过；全量 L0 + unittest discover 见
+提交记录。容器/GPU 组合 e2e（官方 v0.5.22 + adapter + 本分支 plugin）与基线
+（fix/combo 四崩修复后的 main）对拍为后续 nmz26 验证项。
