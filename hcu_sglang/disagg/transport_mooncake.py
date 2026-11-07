@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from sglang.srt.disaggregation.mooncake import conn as N
-from hcu_sglang.disagg import utils as U
 from hcu_sglang.disagg.common_utils import TransferKVChunk, FastQueue, pack_string_list, unpack_string_list
 from hcu_sglang.disagg.protocol import StateType, TransferInfo, KVArgsRegisterInfo, resolve_state_component_dst_index
 from hcu_sglang.disagg.transport_hidden_events import PDHiddenEventManager
@@ -12,10 +11,46 @@ from hcu_sglang.mem_cache.cp_cache_layer_split.transfer import encode_v4_transfe
 from hcu_sglang.utils.detection import is_hcu
 from sglang.srt.utils.common import get_bool_env_var
 
-globals().update({name: value for name, value in vars(N).items() if not name.startswith("__") and name not in ("StateType", "TransferInfo", "KVArgsRegisterInfo", "TransferKVChunk", "FastQueue", "pack_string_list", "unpack_string_list", "PDHiddenEventManager", "SourceDrainTracker", "encode_v4_transfer_metadata", "decode_v4_transfer_metadata", "is_hcu")})
-for _name in ("build_dsa_tail_transfer_blocks", "build_transfer_entry_pairs", "compute_mamba_state_slice_byte_blocks", "pack_state_types", "is_elided_entry", "resolve_dcp_dst_entry_indices", "should_send_replicated_state", "slice_dsa_tail_dst_ptrs_for_pp", "unpack_state_types"):
-    if hasattr(U, _name):
-        globals()[_name] = getattr(U, _name)
+from sglang.srt.disaggregation.mooncake.conn import (
+    ABORT_ACK_TAG,
+    AbortNotification,
+    DecodeStagingContext,
+    Dict,
+    DisaggregationMode,
+    KVArgs,
+    KVPoll,
+    List,
+    MooncakeKVManager,
+    MooncakeRequestStage,
+    NetworkAddress,
+    Optional,
+    PrefillStagingContext,
+    ServerArgs,
+    Set,
+    TraceNullContext,
+    TraceReqContext,
+    Tuple,
+    Union,
+    _validate_efa_allocator_compatibility,
+    check_mooncake_custom_mem_pool_enabled,
+    concurrent,
+    defaultdict,
+    envs,
+    get_observability,
+    handle_staging_rsp,
+    handle_watermark_msg,
+    logger,
+    mooncake_trace_func,
+    np,
+    npt,
+    os,
+    pack_int_lists,
+    struct,
+    threading,
+    time,
+    zmq,
+)
+from hcu_sglang.disagg.utils import build_transfer_entry_pairs
 _is_hcu = is_hcu()
 _kv_layout_hcu_fa = _is_hcu and get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="true")
 

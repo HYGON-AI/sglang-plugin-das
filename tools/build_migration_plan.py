@@ -19,7 +19,9 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[1]
 NATIVE = {'.cu', '.cuh', '.cpp', '.hpp', '.h', '.cc', '.c', '.hip'}
 CODE = NATIVE | {'.py', '.json'}
-CONTRACT = 'tests/contracts/targets_v0_5_22.json'
+CONTRACT = 'tests/contracts/hcu_source_alignment_targets.json'
+LEGACY_CONTRACT = 'tests/contracts/targets_v0_5_22.json'
+PLUGIN_PREFIXES = ('hcu_sglang/', 'sglang_hcu_plugin/')
 
 
 @dataclass
@@ -113,7 +115,7 @@ def extract_provenance(fork: Repository, plugin: Repository) -> tuple[dict, list
     source_names = set(fork.files)
     source_heads = {'fork_commit', 'fork_head'}
     for path in sorted(plugin.files):
-        if not path.startswith('sglang_hcu_plugin/') or 'provenance' not in path or not path.endswith('.json'):
+        if not path.startswith(PLUGIN_PREFIXES) or 'provenance' not in path or not path.endswith('.json'):
             continue
         try:
             document = json.loads(content(plugin, path) or b'null')
@@ -206,16 +208,19 @@ def validate_plan(plan: dict) -> None:
 
 def inventory(official: Repository, fork: Repository, plugin: Repository, plan: dict) -> dict:
     validate_plan(plan)
-    if CONTRACT not in plugin.files:
+    contract_path = CONTRACT if CONTRACT in plugin.files else LEGACY_CONTRACT
+    if contract_path not in plugin.files:
         raise ValueError('Pinned HCU target contract is missing: ' + CONTRACT)
-    contract = json.loads(content(plugin, CONTRACT) or b'[]')
+    contract = json.loads(content(plugin, contract_path) or b'[]')
+    if isinstance(contract, dict):
+        contract = contract.get('expected_hook_targets')
     if not isinstance(contract, list) or not contract or any(not isinstance(value, str) for value in contract):
         raise ValueError('Expected a string-list target contract')
     targets = sorted(set(contract))
     target_set = set(targets)
     literal_sites = defaultdict(list)
     for path in sorted(plugin.files):
-        if not path.startswith('sglang_hcu_plugin/') or not path.endswith('.py'):
+        if not path.startswith(PLUGIN_PREFIXES) or not path.endswith('.py'):
             continue
         body = content(plugin, path)
         if body is None:
@@ -246,7 +251,7 @@ def inventory(official: Repository, fork: Repository, plugin: Repository, plan: 
     provenance, provenance_diagnostics = extract_provenance(fork, plugin)
     native_by_oid = defaultdict(list)
     for path, item in plugin.files.items():
-        if path.startswith('sglang_hcu_plugin/') and Path(path).suffix in NATIVE and item['size'] >= 64:
+        if path.startswith(PLUGIN_PREFIXES) and Path(path).suffix in NATIVE and item['size'] >= 64:
             native_by_oid[item['oid']].append(path)
     rows = []
     semantics = {}
@@ -312,7 +317,7 @@ def inventory(official: Repository, fork: Repository, plugin: Repository, plan: 
             'top_level': [{'name': name, 'counts': dict(value)} for name, value in sorted(top_level.items())],
             'phases': plan['phases'], 'groups': summaries, 'files': rows,
             'unmatched_targets': unmatched, 'provenance_diagnostics': provenance_diagnostics,
-            'target_contract': CONTRACT, 'historical_evidence': plan['historical_evidence'],
+            'target_contract': contract_path, 'historical_evidence': plan['historical_evidence'],
             'semantics': {'comparison': 'Pinned HEAD trees only; dirty working-tree edits are recorded but not analyzed. Current same-path blob/mode comparison, not merge-base attribution or behavioral equivalence.',
                           'symbols': 'Top-level Python class/function/async-function names and source line numbers; non-Python symbols are not parsed.',
                           'mapping': 'Declared target contracts, literal source locations, provenance claims and identical native blobs are static clues, not runtime coverage.',

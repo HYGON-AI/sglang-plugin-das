@@ -131,6 +131,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_USE_LIGHTOP_MOE_SUM_MUL_ADD": (EnvBool, False),
     "SGLANG_USE_LINEAR_BF16_FP32_USE_BLASLT": (EnvBool, False),
     "SGLANG_USE_OPT_CAT": (EnvBool, False),
+    "SGLANG_HCU_USE_LIGHTOP_ROPE": (EnvBool, False),
 }
 
 _HCU_DEFAULT_OVERRIDES: dict[str, tuple[type, Any]] = {

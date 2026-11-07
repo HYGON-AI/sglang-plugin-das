@@ -15,6 +15,10 @@
 from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.model_runner import ModelRunner
 from sglang.srt.layers.cp import utils as C
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.cp_token_counts import (

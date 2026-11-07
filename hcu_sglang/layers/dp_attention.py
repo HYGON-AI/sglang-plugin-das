@@ -1,10 +1,39 @@
 from __future__ import annotations
 
 import functools
+from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
+
+import torch
 from sglang.srt.layers import dp_attention as N
 from hcu_sglang.utils.detection import is_hcu
+from sglang.srt.layers.dp_attention import (
+    _DpGatheredBufferWrapper,
+    _USE_ROCM700A_WA,
+    _cp_shard_rows,
+    _dp_gather_via_all_gather,
+    _dp_gather_via_all_gatherv,
+    _dp_gatherv_sizes,
+    _note_dp_gather_in_prefill_graph,
+    _tbo_event,
+    dp_gather_width,
+    dp_slot_in,
+    envs,
+    get_device,
+    get_dp_global_num_tokens,
+    get_dp_tbo_comm_stream,
+    get_flags,
+    get_parallel,
+    is_dp_gatherv_active,
+    memcpy,
+    set_dp_buffer_len,
+    tensor_model_parallel_all_reduce,
+    world_dp_gather_enabled,
+)
 
-globals().update({name: value for name, value in vars(N).items() if not name.startswith("__")})
+if TYPE_CHECKING:
+    from sglang.srt.configs.model_config import ModelConfig
+    from sglang.srt.model_executor.forward_batch_info import ForwardBatch
+
 _is_hcu = is_hcu()
 DpPaddingMode = N.DpPaddingMode
 

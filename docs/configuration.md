@@ -118,3 +118,19 @@ V3 的外部运行时输出实际引入 `HCU_PLUGIN_MINIMAX_OPT`，由 `--minima
 ## 5. 变更与排障记录
 
 每次配置改动同步默认值说明、支持范围、测试与启动日志示例。发生冲突时先列出“原始值 → 解析值 → 最终值 → 实际分支命中”，再修改实现。验证模板见 [validation-record](../templates/validation-record.md)，详细状态约束见开发 Skill 的 [runtime-and-env](../skills/hcu-plugin-dev/references/runtime-and-env.md)。
+
+## 6. GLM CT W4A8 的原生 BF16 RoPE 选择
+
+插件开关 `SGLANG_HCU_USE_LIGHTOP_ROPE` 为布尔型，默认 `False`；在 GLM-5.3 CT W4A8 配方中显式设置为 `1`。它在 HCU 的 BF16 `RotaryEmbedding` 构造结束后准备镜像内公共 LightOp `rotary_embedding_fuse`，由正式 `forward_cuda` AROUND Hook 消费；修改后需重新构造服务。默认关闭时保留既有分发，非 HCU、非 BF16 或融合 KV-store 调用保留当前有效原实现。
+
+该路径使用已有 `HcuRotaryFallback` 的 typed cache memo，为 LightOp 提供与 query 同 dtype/device 的缓存视图；框架持有的 FP32 `cos_sin_cache` 及其他 indexer 消费者保持原所有权。LightOp 的缺失或执行错误直接暴露，不在数值失败后静默切换其他算法。此选择不改变 CT W4 权重、动态 INT8 激活或 GEMM 分发。
+
+LightOp 自行选择 launch，不套用旧 sgl_kernel 的 256-thread head 分块；真实 64-head 输入完整调用与拆成 8-head 调用的数值并不相同。offsets 在调用前按原语义加到 positions，返回原地更新的 query/key。
+
+适用证据和待验证范围见[开发记录](hcu-sglang-development.md#2026-11-05-glm-ct-w4a8-的-bf16-rope-选择)。两组八 rank 的真实 Q/K 及更换输入后的组件 Graph 已逐元素对齐原生，完整服务仍待复测。
+
+## 7. GLM CT W4A8 的公共 W8A8 GEMM 分发
+
+`SGLANG_HCU_W8A8_USE_LIGHTOP` 为插件布尔开关，默认 `False`。GLM CT W4A8 配方显式设置为 `1`，使既有 `triton_scaled_mm` 接口使用镜像内公共 LightOp 分发，跳过插件自行选择的 smooth ASM 快路径；公共接口内部仍可能使用 ASM。开关不改变输入 INT8 量化值、token scale、权重或输出 dtype；默认关闭及非 HCU 的行为保持原样。应在服务启动前设置，Graph 捕获后不要切换后端。
+
+真实首层 Q-b 的两组八 rank 输入、权重和 scale 对照中，两套镜像的公共接口均逐元素重建原生输出；插件的 ASM 快路径有四个元素不同。该有限组件证据不证明所有 shape 或完整模型通过，后续分发和模型复测见[开发记录](hcu-sglang-development.md#2026-11-05-glm-ct-w4a8-的-w8a8-gemm-分发)。

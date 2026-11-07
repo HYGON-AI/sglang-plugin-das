@@ -29,10 +29,17 @@ INDEX_K_BYTES_PER_TOKEN = INDEX_K_HEAD_DIM + INDEX_K_SCALE_BYTES
 INDEX_K_EPSILON = 1e-6
 
 
-class IndexKCacheMode(str, Enum):
-    BF16 = "bf16"
-    FP8_SCALED = "fp8_scaled"
-    INT8_SCALED = "int8_scaled"
+try:
+    # Native pools and plugin consumers must compare the same enum instances.
+    from sglang.srt.layers.attention.dsa.hcu_int8_index_k_cache import IndexKCacheMode
+except ModuleNotFoundError as exc:
+    if exc.name != "sglang.srt.layers.attention.dsa.hcu_int8_index_k_cache":
+        raise
+
+    class IndexKCacheMode(str, Enum):
+        BF16 = "bf16"
+        FP8_SCALED = "fp8_scaled"
+        INT8_SCALED = "int8_scaled"
 
 
 def is_hcu_gfx936() -> bool:

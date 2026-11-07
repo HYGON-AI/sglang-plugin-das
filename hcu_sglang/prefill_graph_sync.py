@@ -3,6 +3,12 @@
 # Modified by Hygon Information Technology Co., Ltd., 2026.
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.model_runner import ModelRunner
+    from sglang.srt.managers.scheduler_components.dp_attn import DPSyncWaitCarry
 from dataclasses import dataclass
 from typing import Callable, Optional, List
 from sglang.srt.managers.scheduler_components import dp_attn as N

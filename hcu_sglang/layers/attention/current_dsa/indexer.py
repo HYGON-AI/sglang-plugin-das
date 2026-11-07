@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+
+import sglang.srt.layers.attention.dsa.dsa_indexer as native
 from typing import List
 from sglang.srt.layers.attention.dsa.dsa_indexer import (
     Any,
@@ -142,6 +144,9 @@ def _hcu_mqa_logits(
         clean_logit=True,
     )
 
+if TYPE_CHECKING:
+    from sglang.srt.mem_cache.memory_pool import DSATokenToKVPool
+
 class Indexer(DSANPUIndexerMixin, BaseFusedOp):
     _MQA_LOGITS_BYTES_PER_ELEM = MQA_LOGITS_BYTES_PER_ELEM
     _MQA_LOGITS_STATIC_SKIP_ELEMS = MQA_LOGITS_STATIC_SKIP_ELEMS
@@ -191,6 +196,9 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
             "glm5next_text",
             "glm5_next_text",
         )
+        from sglang.srt.configs.model_config import is_glm_moe_dsa
+
+        self.hcu_glm_dsa_bf16_head_gates = _is_hcu and is_glm_moe_dsa(config)
         self.use_dsa_indexer_fusion = (
             not self.glm5_next_fp32_head_gates
             and _is_cuda
@@ -292,6 +300,10 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
             is_neox_style=is_neox_style,
             device=get_device().device,
         )
+        if self.hcu_glm_dsa_bf16_head_gates:
+            from hcu_sglang.layers.rotary import configure_glm_rope_cache
+
+            configure_glm_rope_cache(self.rotary_emb)
         if self.use_aiter_fused_fp8_writer and not (
             hasattr(self.rotary_emb, "cos_cache")
             and hasattr(self.rotary_emb, "sin_cache")
@@ -556,6 +568,10 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
         if self.glm5_next_fp32_head_gates:
             weights, _ = self.weights_proj(x.float())
             return weights.float()
+        if self.hcu_glm_dsa_bf16_head_gates:
+            # The adapter's CUDA facade must preserve native HIP BF16 rounding.
+            weights, _ = self.weights_proj(x)
+            return weights
         if _is_cuda:
             return torch.mm(x, self.weights_proj.weight.t(), out_dtype=torch.float32)
 
@@ -1102,7 +1118,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
             and out_cache_loc is not None
             and can_use_dsa_fused_store(torch.bfloat16, out_cache_loc.dtype, page_size)
         ):
-            fused_k_indexer_norm_rope_store(
+            native.fused_k_indexer_norm_rope_store(
                 key_raw,
                 pool.get_index_k_with_scale_buffer(layer_id=layer_id),
                 out_cache_loc,
@@ -1116,7 +1132,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
             return
 
         # Fallback: separate K kernel + store kernel.
-        key = fused_k_indexer_norm_rope(
+        key = native.fused_k_indexer_norm_rope(
             key_raw,
             self.k_norm.weight,
             self.k_norm.bias,
@@ -1169,7 +1185,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
             q = self.wq_b(q_lora)[0].view(-1, self.n_heads, self.head_dim)
             if num_tokens is not None:
                 q = q[:num_tokens]
-            return fused_q_indexer_rope_first_quant(
+            return native.fused_q_indexer_rope_first_quant(
                 q.contiguous(),
                 weights_raw,
                 q_scale_gate,
@@ -1196,7 +1212,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
 
         current_stream.wait_stream(self.alt_stream)
         self.alt_stream.wait_stream(current_stream)
-        q_fp8, weights = fused_q_indexer_rope_first_quant(
+        q_fp8, weights = native.fused_q_indexer_rope_first_quant(
             q.contiguous(),
             weights_raw,
             q_scale_gate,
@@ -1636,7 +1652,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
         elif self.paged_mqa_logits_backend.is_lightop():
             pass
         elif _is_xpu:
-            logits = sgl_fp8_paged_mqa_logits(
+            logits = native.sgl_fp8_paged_mqa_logits(
                 q_fp8[:q_offset],
                 kv_cache_fp8,
                 weights[:q_offset],
@@ -1931,7 +1947,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
                         clean_logits=False,
                     )
                 elif _is_xpu:
-                    logits = sgl_fp8_mqa_logits(
+                    logits = native.sgl_fp8_mqa_logits(
                         q_fp8[:q_offset],
                         kv_fp8,
                         weights[:q_offset],
@@ -2015,7 +2031,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
                         clean_logits=False,
                     )
                 elif _is_xpu:
-                    logits_chunk = sgl_fp8_mqa_logits(
+                    logits_chunk = native.sgl_fp8_mqa_logits(
                         q_fp8[start:end],
                         kv_fp8,
                         weights[start:end],
@@ -2288,7 +2304,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
                     q_padded, w_padded, _ = self._pad_heads_for_deep_gemm(
                         q_fp8, weights
                     )
-                    logits = deep_gemm.fp8_mqa_logits(
+                    logits = native.deep_gemm.fp8_mqa_logits(
                         q_padded,
                         (k_fp8, k_scale),
                         w_padded,
@@ -2355,7 +2371,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
                         q_padded, w_padded, _ = self._pad_heads_for_deep_gemm(
                             q_fp8, weights
                         )
-                        logits = deep_gemm.fp8_mqa_logits(
+                        logits = native.deep_gemm.fp8_mqa_logits(
                             q_padded,
                             (k_fp8, k_scale),
                             w_padded,
@@ -2467,7 +2483,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
             out_loc = forward_batch.out_cache_loc
             if not out_loc.is_contiguous():
                 out_loc = out_loc.contiguous()
-            indexer_k_quant_and_cache(
+            native.indexer_k_quant_and_cache(
                 key,
                 kv_cache,
                 out_loc,
