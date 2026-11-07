@@ -2406,5 +2406,21 @@ aiter 回退，mock 臂隔离）。
 
 **本地验证**：`python -m unittest tests.test_fla_gdn_hooks_removed
 tests.test_w8a8_runner_dispatch -v` 8/8 通过；全量 L0 + unittest discover 见
-提交记录。容器/GPU 组合 e2e（官方 v0.5.22 + adapter + 本分支 plugin）与基线
-（fix/combo 四崩修复后的 main）对拍为后续 nmz26 验证项。
+提交记录。容器/GPU 组合 e2e 已跑（2026-11-07，nmz26 debug_lzg26，GPU0,1 tp2，
+官方 v0.5.22 baa9bef + adapter-das feat/l15 8692273 + 本分支 afef8ad 隔离 wheel）：
+服务起服（prefill/decode/verify 图全捕获），create_moe_runner 双注册告警归零，
+fla 族 plugin REPLACE 零注册、adapter gdn_aiter 接管日志确认；17×23=391、五言诗正确；
+GSM8K 5-shot 200 题 96.5%（组合基线 96.0%）；8 并发×256tok 吞吐 324.6 tok/s
+（2026-10-30 组合基线 247.2，不同 GPU 对/日期，方向性 +31%）；单流混合均值
+20.3 tok/s、长输出 29.1（基线口径敏感，无回归信号）。
+
+**附带修复（afef8ad）**：组合起服首跑在 prefill graph capture（num_tokens=2048）
+崩溃，定位为 a4213fe 四崩修复#1（cu_seqlens_q 无条件走 varlen 入口）在 #20 重写
+时被改为 layout 门控、#15 默认翻转后官方布局掉回 paged 入口丟 cu_seqlens_q 的
+回归。已恢复无条件 varlen 路由（双布局 page_size 自适应）并补 layout-off 回归
+测试（容器 3/3）。其余三项四崩修复核查：#2 已演进为 lightop 直连、#3 仍在、
+#4 钩子已整体移除。
+
+遗留（Phase 3 B5 域）：w8a8 apply 族 / compressed apply_weights、process_weights、
+eplb、unquantized forward_cuda 仍各有 2 个 AROUND 同目标双挂（24 行告警），按
+量化域裁决时同 create_moe_runner 模式收敛。
