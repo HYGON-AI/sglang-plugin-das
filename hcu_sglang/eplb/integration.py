@@ -232,4 +232,3 @@ def register_hooks():
         HookRegistry.register(target, _around(implementation), HookType.AROUND)
     HookRegistry.register("sglang.srt.eplb.expert_location_dispatch.ExpertLocationDispatchInfo.init_new", around_info_init, HookType.AROUND)
     HookRegistry.register("sglang.srt.server_args.ServerArgs.add_cli_args", after_cli, HookType.AFTER)
-    HookRegistry.register("sglang.srt.arg_groups.parallel_hook.handle_eplb_and_dispatch", around_dispatch_validation, HookType.AROUND)

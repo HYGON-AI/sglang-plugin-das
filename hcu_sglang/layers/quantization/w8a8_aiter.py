@@ -108,30 +108,6 @@ def around_get_compressed_moe_scheme(
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
-    for module, class_name, apply_hook in (
-        (
-            "sglang.srt.layers.quantization.w8a8_int8",
-            "W8A8Int8MoEMethod",
-            around_apply_int8,
-        ),
-        (
-            "sglang.srt.layers.quantization.w8a8_fp8",
-            "W8A8FP8MoEMethod",
-            around_apply_fp8,
-        ),
-    ):
-        HookRegistry.register(
-            f"{module}.{class_name}.apply",
-            apply_hook,
-            HookType.AROUND,
-        )
-    HookRegistry.register(
-        "sglang.srt.layers.quantization.compressed_tensors.schemes."
-        "compressed_tensors_w8a8_fp8_moe."
-        "CompressedTensorsW8A8Fp8MoE.apply_weights",
-        around_apply_compressed_fp8,
-        HookType.AROUND,
-    )
     HookRegistry.register(
         "sglang.srt.layers.quantization.compressed_tensors.compressed_tensors."
         "CompressedTensorsConfig.get_moe_scheme",

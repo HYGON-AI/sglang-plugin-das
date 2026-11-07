@@ -2424,3 +2424,17 @@ GSM8K 5-shot 200 题 96.5%（组合基线 96.0%）；8 并发×256tok 吞吐 324
 遗留（Phase 3 B5 域）：w8a8 apply 族 / compressed apply_weights、process_weights、
 eplb、unquantized forward_cuda 仍各有 2 个 AROUND 同目标双挂（24 行告警），按
 量化域裁决时同 create_moe_runner 模式收敛。
+
+## 2026-11-07（二）遗留双注册收敛：6 组 AROUND 同目标双挂归一
+
+Phase 1 遗留的组合栈 "Multiple AROUND hooks" 告警（6 目标 ×4 进程 = 24 行）全部收敛，模式与 create_moe_runner 相同（互斥臂→单点分发；非互斥臂→显式链式组合保持原栈序）：
+
+- **w8a8 apply 族**（W8A8Int8/W8A8FP8MoEMethod.apply）：`w8a8_runner_dispatch` 增 apply 分发（`_uses_lightop_runner` 判 lightop 臂，否则 aiter 臂）；两臂模块去注册。
+- **compressed apply_weights**（CompressedTensorsW8A8Fp8MoE.apply_weights）：同上分发（lightop `around_compressed_apply` vs aiter `around_apply_compressed_fp8`）。
+- **compressed process_weights_after_loading**：非互斥——deepep 臂（legacy channel-fp8 deepgemm 权重准备）+ lightop 臂（channelwise lightop 重打包）都可能在 original 后生效；dispatcher 显式链 `lightop(deepep(original))` 保持原注册序（lightop 后注册=外层）。注册从 `w8a8_lightop` 与 `layers/moe/deepep_fp8` 移除。
+- **UnquantizedFusedMoEMethod.forward_cuda**：新 `unquantized_moe_dispatch`（marlin `_enabled()` 优先，否则 aiter 臂）；`unquantized_aiter`/`unquantized_marlin` 去 forward_cuda 注册（后者保留 process_weights 单注册）。
+- **handle_eplb_and_dispatch**：新 `eplb/hook_dispatch` 显式链 `placement(integration(original))` 保持原栈序（两臂是不同的独立校验：load_aware 前置条件 + locality_fair 静态派发约束）；integration/placement 去 target 注册，插件入口接线。
+
+**已知未动（PD 配置才激活，本锚点不可验证，盲改违组合验证纪律）**：disagg 族 3 目标静态双注册（`CommonKVManager.get_mha_kv_ptrs_with_pp`、`PrefillBootstrapQueue.__init__`、`setup_state_kv_args`）与 `ServerArgs.add_cli_args` 双 AFTER——待 PD/EPLB 组合窗口按同模式收敛。`add_cli_args` 为 AFTER×2（注册表不告警），语义为两段 CLI 参数追加，合并前需验证 argparse 去重行为。
+
+测试：`test_w8a8_runner_dispatch` 扩至 9 项（apply 分发、compressed apply 分发、compressed process 链序 lightop→deepep→original、臂零共享注册）；新增 `test_unquantized_moe_dispatch` 3 项、`test_eplb_hook_dispatch` 2 项（链序 placement→integration→original + 单注册钉死）。容器 e2e 验证见后补记录。

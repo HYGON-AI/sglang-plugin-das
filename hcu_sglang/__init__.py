@@ -103,6 +103,8 @@ def register() -> None:
     load_aware_integration.register_hooks()
     from hcu_sglang.eplb import placement
     placement.register_hooks()
+    from hcu_sglang.eplb import hook_dispatch
+    hook_dispatch.register_hooks()
     from hcu_sglang.eplb import recording
     recording.register_hooks()
     from hcu_sglang import deepep_graph

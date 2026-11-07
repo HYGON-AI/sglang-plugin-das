@@ -6,7 +6,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -112,6 +112,108 @@ class W8A8RunnerDispatchTests(unittest.TestCase):
             )
         aiter_arm.assert_called_once_with(original, "quant", "layer", "config")
         lightop_arm.assert_not_called()
+
+
+    def test_apply_dispatches_by_runner_backend(self):
+        from hcu_sglang.layers.quantization import (
+            w8a8_aiter,
+            w8a8_lightop,
+            w8a8_runner_dispatch,
+        )
+
+        original = object()
+        for lightop_runner in (True, False):
+            with self.subTest(lightop_runner=lightop_runner):
+                with (
+                    patch.object(
+                        w8a8_lightop,
+                        "_uses_lightop_runner",
+                        return_value=lightop_runner,
+                    ),
+                    patch.object(w8a8_lightop, "around_apply_int8") as lightop_arm,
+                    patch.object(w8a8_aiter, "around_apply_int8") as aiter_arm,
+                ):
+                    w8a8_runner_dispatch.around_apply_int8(
+                        original, "quant", "layer", "dispatch"
+                    )
+                if lightop_runner:
+                    lightop_arm.assert_called_once_with(
+                        original, "quant", "layer", "dispatch"
+                    )
+                    aiter_arm.assert_not_called()
+                else:
+                    aiter_arm.assert_called_once_with(
+                        original, "quant", "layer", "dispatch"
+                    )
+                    lightop_arm.assert_not_called()
+
+    def test_compressed_apply_dispatches_by_runner_backend(self):
+        from hcu_sglang.layers.quantization import (
+            w8a8_aiter,
+            w8a8_lightop,
+            w8a8_runner_dispatch,
+        )
+
+        original = object()
+        with (
+            patch.object(w8a8_lightop, "_uses_lightop_runner", return_value=True),
+            patch.object(w8a8_lightop, "around_compressed_apply") as lightop_arm,
+            patch.object(w8a8_aiter, "around_apply_compressed_fp8") as aiter_arm,
+        ):
+            w8a8_runner_dispatch.around_compressed_apply_weights(
+                original, "quant", "layer", "dispatch"
+            )
+        lightop_arm.assert_called_once_with(original, "quant", "layer", "dispatch")
+        aiter_arm.assert_not_called()
+
+    def test_compressed_process_weights_chains_deepep_then_lightop(self):
+        import sys
+        import types
+        from hcu_sglang.layers.quantization import w8a8_lightop
+        from hcu_sglang.layers.quantization import w8a8_runner_dispatch
+
+        calls = []
+        original = Mock(side_effect=lambda qm, layer: calls.append("original"))
+        deepep_arm = Mock(
+            side_effect=lambda orig, qm, layer: (
+                calls.append("deepep"),
+                orig(qm, layer),
+            )[1]
+        )
+        lightop_arm = Mock(
+            side_effect=lambda orig, qm, layer: (
+                calls.append("lightop"),
+                orig(qm, layer),
+            )[1]
+        )
+        fake_deepep = types.ModuleType("hcu_sglang.layers.moe.deepep_fp8")
+        fake_deepep.around_process_weights = deepep_arm
+        with (
+            patch.dict(sys.modules, {"hcu_sglang.layers.moe.deepep_fp8": fake_deepep}),
+            patch.object(w8a8_lightop, "around_compressed_process_weights", lightop_arm),
+        ):
+            w8a8_runner_dispatch.around_compressed_process_weights(
+                original, "quant", "layer"
+            )
+        # Registration order used to make lightop the outer hook: lightop's
+        # original is the deepep chain, deepep's original is the loader.
+        self.assertEqual(calls, ["lightop", "deepep", "original"])
+        self.assertEqual(lightop_arm.call_args.args[0].__name__, "chained_original")
+
+    def test_arms_no_longer_register_shared_apply_targets(self):
+        for name in ("w8a8_aiter", "w8a8_lightop"):
+            path = ROOT / f"hcu_sglang/layers/quantization/{name}.py"
+            targets = register_target_reprs(path)
+            shared = [
+                t
+                for t in targets
+                if t.endswith((".apply", ".apply_weights"))
+                or (
+                    t.endswith(".process_weights_after_loading")
+                    and "{compressed_target}" in t
+                )
+            ]
+            self.assertEqual(shared, [], f"{name} must not register shared targets")
 
 
 if __name__ == "__main__":

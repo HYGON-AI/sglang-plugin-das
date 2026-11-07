@@ -622,4 +622,3 @@ def register_hooks():
     CompressedTensorsW8A8Fp8MoE._register_runtime_buffer = _register_runtime_buffer
     HookRegistry.register("sglang.srt.layers.moe.ep_moe.layer.DeepEPMoE.__init__", around_ep_init, HookType.AROUND)
     HookRegistry.register("sglang.srt.layers.moe.ep_moe.layer.DeepEPMoE.run_moe_core", around_run_moe_core, HookType.AROUND)
-    HookRegistry.register("sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8_moe.CompressedTensorsW8A8Fp8MoE.process_weights_after_loading", around_process_weights, HookType.AROUND)

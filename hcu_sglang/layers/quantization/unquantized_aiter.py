@@ -128,11 +128,6 @@ def around_forward_cuda(
 
 
 def register_hooks() -> None:
-    from sglang.srt.plugins.hook_registry import HookRegistry, HookType
-
-    HookRegistry.register(
-        "sglang.srt.layers.quantization.unquant."
-        "UnquantizedFusedMoEMethod.forward_cuda",
-        around_forward_cuda,
-        HookType.AROUND,
-    )
+    # forward_cuda registration moved to unquantized_moe_dispatch (the
+    # aiter and marlin arms used to double-register the same target).
+    return None

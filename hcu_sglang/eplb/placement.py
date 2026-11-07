@@ -351,4 +351,3 @@ def register_hooks():
         HookRegistry.register("sglang.srt.eplb.expert_location." + name, _around(globals()[name]), HookType.AROUND)
     HookRegistry.register("sglang.srt.server_args.ServerArgs.add_cli_args", after_cli, HookType.AFTER)
     HookRegistry.register("sglang.srt.server_args.ServerArgs.from_cli_args", before_seed, HookType.BEFORE)
-    HookRegistry.register("sglang.srt.arg_groups.parallel_hook.handle_eplb_and_dispatch", around_validation, HookType.AROUND)

@@ -176,23 +176,16 @@ def register_hooks() -> None:
         (
             "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod",
             around_process_weights_int8,
-            around_apply_int8,
         ),
         (
             "sglang.srt.layers.quantization.w8a8_fp8.W8A8FP8MoEMethod",
             around_process_weights_fp8,
-            around_apply_fp8,
         ),
     )
-    for target, process_hook, apply_hook in hook_specs:
+    for target, process_hook in hook_specs:
         HookRegistry.register(
             f"{target}.process_weights_after_loading",
             process_hook,
-            HookType.AROUND,
-        )
-        HookRegistry.register(
-            f"{target}.apply",
-            apply_hook,
             HookType.AROUND,
         )
 
@@ -203,15 +196,5 @@ def register_hooks() -> None:
     HookRegistry.register(
         f"{compressed_target}.create_moe_runner",
         around_create_moe_runner,
-        HookType.AROUND,
-    )
-    HookRegistry.register(
-        f"{compressed_target}.process_weights_after_loading",
-        around_compressed_process_weights,
-        HookType.AROUND,
-    )
-    HookRegistry.register(
-        f"{compressed_target}.apply_weights",
-        around_compressed_apply,
         HookType.AROUND,
     )
