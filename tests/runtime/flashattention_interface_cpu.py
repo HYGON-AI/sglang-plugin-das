@@ -48,6 +48,35 @@ class FlashAttentionInterfaceTests(unittest.TestCase):
                 fixed.assert_not_called()
                 fallback.assert_not_called()
 
+    def test_flattened_prefill_uses_varlen_with_official_layout(self):
+        q = torch.empty(1138, 12, 256)
+        cu_seqlens_q = torch.tensor([0, 1083, 1138], dtype=torch.int32)
+        k_cache = torch.empty(2, 64, 12, 256)
+        v_cache = torch.empty(2, 64, 12, 256)
+        page_table = torch.zeros(2, 2, dtype=torch.int32)
+        result = object()
+        with (
+            patch.object(F, "_layout_enabled", return_value=False),
+            patch(
+                "flash_attn.vllm_flash_attn_varlen_func",
+                return_value=result,
+            ) as varlen,
+            patch("flash_attn.vllm_flash_attn_with_kvcache") as fixed,
+        ):
+            actual = F.flash_attn_with_kvcache(
+                q=q,
+                k_cache=k_cache,
+                v_cache=v_cache,
+                page_table=page_table,
+                cu_seqlens_q=cu_seqlens_q,
+                cache_seqlens=torch.tensor([1083, 55], dtype=torch.int32),
+                max_seqlen_q=1083,
+            )
+        self.assertIs(actual, result)
+        self.assertIs(varlen.call_args.kwargs["q"], q)
+        self.assertEqual(varlen.call_args.kwargs["max_seqlen_k"], 2 * 64)
+        fixed.assert_not_called()
+
     def test_decode_retains_single_token_reshape(self):
         q = torch.empty(4, 12, 256)
         result = object()

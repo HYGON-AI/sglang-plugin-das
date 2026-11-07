@@ -110,11 +110,21 @@ def flash_attn_with_kvcache(
 
     k_cache, v_cache = _restore_hcu_cache_layout(k_cache, v_cache)
 
-    if _layout_enabled() and max_seqlen_q is not None and max_seqlen_q > 1:
+    # Varlen calls (prefill / MTP verify carry cu_seqlens_q) must go
+    # through the wheel's varlen entry for both KV layouts: the paged
+    # entry has no cu_seqlens parameter, and viewing a packed q to
+    # [B,1,H,D] makes the wrapper classify S > 1 as mtp packing (its PA
+    # kernel then faults). The varlen entry takes the pool plus
+    # block_table directly and handles both page layouts (pa_layout).
+    if cu_seqlens_q is not None:
+        if _layout_enabled():
+            page_size = k_cache.shape[2]  # [NP, H, PS, D]
+        else:
+            page_size = k_cache.shape[1]  # [NP, PS, H, D]
         if max_seqlen_k is None:
             max_seqlen_k = _current_max_seq_len_k or None
         page_capacity = (
-            page_table.shape[1] * k_cache.shape[2]
+            page_table.shape[1] * page_size
             if max_seqlen_k is None and page_table is not None
             else max_seqlen_k
         )
