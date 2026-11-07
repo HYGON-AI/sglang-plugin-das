@@ -1,6 +1,5 @@
 """Formal HCU PD registration; optional wire fields preserve legacy positions."""
 from __future__ import annotations
-import types
 from hcu_sglang.utils.detection import is_hcu
 
 
@@ -49,15 +48,9 @@ def register_hooks():
     from . import transport_common, transport_mooncake
     transport_common.register_hooks()
     transport_mooncake.register_hooks()
-    original = upstream_mooncake.MooncakeKVManager.transfer_worker
-    prototype = worker.transfer_worker
-    if prototype.__code__.co_freevars:
-        raise RuntimeError("Worker adaptation unexpectedly requires a class closure")
-    adapted = types.FunctionType(prototype.__code__, vars(transport_mooncake), prototype.__name__, prototype.__defaults__)
-    adapted.__kwdefaults__ = prototype.__kwdefaults__
-    adapted.__annotations__ = prototype.__annotations__
-    adapted.__module__ = worker.__name__
-    HookRegistry.register(manager+"transfer_worker", adapted, HookType.REPLACE)
+    HookRegistry.register(
+        manager + "transfer_worker", worker.transfer_worker, HookType.REPLACE
+    )
     HookRegistry.register("sglang.srt.disaggregation.utils.setup_state_kv_args",
         state.around_setup_state_kv_args, HookType.AROUND)
 

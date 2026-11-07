@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.model_runner import ModelRunner
+    from sglang.srt.model_executor.runner.base_runner import BaseRunner
+
 from typing import Any, Optional
 from sglang.srt.model_executor.model_runner_components import cuda_graph_setup as N
 from sglang.srt.utils import get_bool_env_var

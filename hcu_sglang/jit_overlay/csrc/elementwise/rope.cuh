@@ -57,6 +57,7 @@ rope_rotate_head(void* input, const void* cos_ptr, const void* sin_ptr, uint32_t
   using namespace device;
   using T2 = packed_t<T>;
   using Storage = AlignedVector<T2, kVecSize>;
+  // HIP vector types contain an anonymous union; access their fields explicitly.
   if constexpr (kIsNeox) {
     using CacheStorage = AlignedVector<fp32x2_t, kVecSize>;
     const auto input_x = input;
@@ -67,14 +68,14 @@ rope_rotate_head(void* input, const void* cos_ptr, const void* sin_ptr, uint32_t
     const auto sin_pair = load_as<CacheStorage>(sin_ptr, lane_id);
 #pragma unroll
     for (int64_t j = 0; j < kVecSize; ++j) {
-      const auto [x0, x1] = cast<fp32x2_t>(input_vec_x[j]);
-      const auto [y0, y1] = cast<fp32x2_t>(input_vec_y[j]);
-      const auto [cos_0, cos_1] = cos_pair[j];
-      const auto [sin_0, sin_1] = sin_pair[j];
-      const auto out_x0 = x0 * cos_0 - y0 * sin_0;
-      const auto out_y0 = x0 * sin_0 + y0 * cos_0;
-      const auto out_x1 = x1 * cos_1 - y1 * sin_1;
-      const auto out_y1 = x1 * sin_1 + y1 * cos_1;
+      const auto x = cast<fp32x2_t>(input_vec_x[j]);
+      const auto y = cast<fp32x2_t>(input_vec_y[j]);
+      const auto cos = cos_pair[j];
+      const auto sin = sin_pair[j];
+      const auto out_x0 = x.x * cos.x - y.x * sin.x;
+      const auto out_y0 = x.x * sin.x + y.x * cos.x;
+      const auto out_x1 = x.y * cos.y - y.y * sin.y;
+      const auto out_y1 = x.y * sin.y + y.y * cos.y;
       input_vec_x[j] = cast<T2, fp32x2_t>({out_x0, out_x1});
       input_vec_y[j] = cast<T2, fp32x2_t>({out_y0, out_y1});
     }
@@ -92,7 +93,9 @@ rope_rotate_head(void* input, const void* cos_ptr, const void* sin_ptr, uint32_t
     const auto sin_vec = load_as<CacheStorage>(sin_ptr, lane_id);
 #pragma unroll
     for (int64_t j = 0; j < kVecSize; ++j) {
-      const auto [x, y] = cast<fp32x2_t>(input_vec[j]);
+      const auto xy = cast<fp32x2_t>(input_vec[j]);
+      const auto x = xy.x;
+      const auto y = xy.y;
       const auto cos = cos_vec[j];
       const auto sin = sin_vec[j];
       const auto out_x = x * cos - y * sin;

@@ -34,6 +34,17 @@ def enable_cp_v2() -> bool:
     return not (is_npu() or is_musa())
 
 
+def _use_native_eh_norm(config, quant_config) -> bool:
+    from sglang.srt.configs.model_config import is_glm_moe_dsa
+
+    return (
+        H.is_hcu()
+        and is_glm_moe_dsa(config)
+        and quant_config is not None
+        and quant_config.get_name() == "compressed_tensors"
+    )
+
+
 def _gather_dsa_topk_indices_for_cp(
     topk_indices: N.torch.Tensor,
     local_num_tokens: int,
@@ -83,6 +94,7 @@ def __init__(
         quant_config = None
 
     self.vocab_size = config.vocab_size
+    self.hcu_glm_ct_native_eh_norm = _use_native_eh_norm(config, quant_config)
 
     self.embed_tokens = N.VocabParallelEmbedding(
         config.vocab_size,
@@ -114,9 +126,15 @@ def __init__(
             self.rot_weight = N.load_file(rot_weight_path)
             self.rot_weight = self.rot_weight["rot.weight"].npu()
 
+    from sglang.srt.configs.model_config import is_glm_moe_dsa
+
     self.alt_stream = (
         N.torch.cuda.Stream()
-        if N._is_cuda or N.envs.SGLANG_NPU_USE_MULTI_STREAM.get() or M.is_sbo_enabled()
+        if (
+            (N._is_cuda and not (H.is_hcu() and is_glm_moe_dsa(config)))
+            or N.envs.SGLANG_NPU_USE_MULTI_STREAM.get()
+            or M.is_sbo_enabled()
+        )
         else None
     )
 
@@ -193,7 +211,7 @@ def forward(
                 previous_hidden_states = N.torch.matmul(
                     previous_hidden_states, self.rot_weight
                 )
-            if N._is_cuda:
+            if N._is_cuda and not self.hcu_glm_ct_native_eh_norm:
                 eh_input = N.fused_eh_norm(
                     hidden_states,
                     previous_hidden_states,

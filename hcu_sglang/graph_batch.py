@@ -14,6 +14,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.model_runner import ModelRunner
+
 from typing import List, Optional, Tuple
 from sglang.srt.dllm.config import DllmConfig
 from sglang.srt.model_executor.runner import base_cuda_graph_runner as N

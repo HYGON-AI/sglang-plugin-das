@@ -1,0 +1,75 @@
+{
+  "scope": "Non-Flash GLM5.3 CT W4A8, layer0 same-input indexer head-gate component counterexample; not a full-model root-cause claim",
+  "baseline": {
+    "adapter": "7ad53f65103f3f5a41bf433be204ef2174efbe90",
+    "plugin": "7972101ad3145a746074f0f51e8d1f7cd53d34e4",
+    "sglang": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e"
+  },
+  "native": {
+    "source": "/usr/local/lib/python3.10/dist-packages/sglang/srt/layers/attention/dsa/dsa_indexer.py",
+    "source_sha256": "873f570a14d02a4ece10e7405cc65b629717fc708c70ef3e762b84753597134c",
+    "versions": {
+      "torch": "2.11.0+dtk2604.2610211125.ga346d2",
+      "lightop": "0.6.0+dtk2604.torch2110.2610211335.ge564f5"
+    },
+    "host_gates": {
+      "_is_cuda": false,
+      "_is_hip": true,
+      "_is_hcu": true
+    }
+  },
+  "candidate": {
+    "source": "/work/ownership-v1/site/hcu_sglang/layers/attention/current_dsa/indexer.py",
+    "source_sha256": "8104e45b93a2661040962b1a5b194dd95df3faad785ac760110b409a35a2c124",
+    "versions": {
+      "torch": "2.11.0+dtk2610.2611031312.g529def",
+      "lightop": "0.6.0+dtk2610.torch2110.2611031134.g6aa6bf"
+    },
+    "host_gates": {
+      "_is_cuda": true,
+      "_is_hip": false,
+      "_is_hcu": true
+    }
+  },
+  "same_inputs": {
+    "case_rank_pairs": 16,
+    "logical_rows": 65,
+    "head_values": 2080,
+    "input_origin": "archived actual layer0 native indexer x, wq_b/wk outputs, positions; original checkpoint weights_proj/k_norm",
+    "comparison_sha256": "ecde889f5c0ba971394f50cc0760799fd74a0edbae8e0d68406871cefba10fa0"
+  },
+  "observations": {
+    "native_raw_and_scaled_dtype": "bfloat16",
+    "candidate_raw_and_scaled_dtype": "float32",
+    "raw_differing_values": 2080,
+    "scaled_differing_values": 2080,
+    "scaled_max_abs": 0.002285301685333252,
+    "underlying_bf16_linear_exact_pairs": 16,
+    "fused_ln_rope_actual_cache_exact_pairs": 16,
+    "baseline_graph_replays_per_image": 6
+  },
+  "fix": "HCU GLM DSA main/NextN uses existing BF16 ReplicatedLinear projection before scaling; retain explicit GLM-next FP32 branch and other architecture branches",
+  "fix_validation": {
+    "plugin_runtime_commit": "a587338d40938d267968c210b69a3ce8fb5b3f95",
+    "plugin_wheel_sha256": "17060bebd4d32fef9b970c14d714fc9a88ad78b6f56c04fc3fcd909b5ee827c3",
+    "installed_indexer_sha256": "5e38ef8958cd1602032febd5bcb0bc49eb558596c29c41dbace66e41c943c70b",
+    "case_rank_pairs": 16,
+    "raw_and_compiled_scaled_head_gates_exact_native": true,
+    "changed_input_graph_replays": 6,
+    "graph_exact_own_eager": true,
+    "actual_constructor_wiring_verified": false,
+    "model_accuracy_verified": false
+  },
+  "remaining": [
+    "constructor wiring and actual service consumer readout",
+    "Hadamard and index-K INT8 scale/cache/logits/Top-K",
+    "decode graph attention visibility and metadata",
+    "remaining operator alignment rows, unchanged-threshold model accuracy after closure"
+  ],
+  "raw_evidence_archive": {
+    "name": "indexer-and-flashmla-v1-20261105.tar",
+    "sha256": "a88b163ee4e9e0209f23578d34e114c0035348120c1bcafb7bcafce6593fa16d",
+    "bytes": 10721280,
+    "files_all_locally_sha256_verified": 33
+  }
+}

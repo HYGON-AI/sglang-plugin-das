@@ -3,6 +3,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sglang.srt.layers.radix_attention import RadixAttention
+    from sglang.srt.model_executor.model_runner import ModelRunner
+    from sglang.srt.speculative.spec_info import SpecInput
+
+import sglang.srt.layers.attention.dsa_backend as native
+
 import inspect
 import os
 from sglang.srt.layers.attention.dsa_backend import (
@@ -2641,7 +2650,7 @@ class DeepseekSparseAttnBackend(
         c_kv_cache = c_kv_cache.view(num_blocks, page_size, 1, v_head_dim)
         if self.dsa_index_kpool > 1:
             page_table = page_table.clamp(min=0)
-        o = flash_attn_with_kvcache(
+        o = native.flash_attn_with_kvcache(
             q=None if only_qv else q_rope,
             k_cache=k_rope_cache,
             v_cache=c_kv_cache,

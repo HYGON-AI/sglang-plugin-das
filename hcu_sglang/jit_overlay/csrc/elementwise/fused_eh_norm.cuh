@@ -25,7 +25,12 @@ struct FusedEHNormParams {
 };
 
 template <int64_t kHidden, bool kUsePDL, typename T>
-__global__ void fused_eh_norm_kernel(const __grid_constant__ FusedEHNormParams params) {
+#ifdef USE_ROCM
+__global__ __launch_bounds__((host::norm::get_cta_threads<T, kHidden>()))
+#else
+__global__
+#endif
+void fused_eh_norm_kernel(const __grid_constant__ FusedEHNormParams params) {
   using namespace device;
   using Storage = norm::StorageType<T, kHidden>;
 
@@ -83,7 +88,11 @@ struct FusedEHNormKernel {
     auto device_ = SymbolicDevice{};
     H.set_value(kHidden);
     H2.set_value(kHidden * 2);
+#ifdef USE_ROCM
+    device_.set_options<kDLROCM>();
+#else
     device_.set_options<kDLCUDA>();
+#endif
 
     TensorMatcher({N, H}).with_strides({SE, 1}).with_dtype<T>().with_device(device_).verify(embeds);
     TensorMatcher({N, H}).with_strides({SP, 1}).with_dtype<T>().with_device(device_).verify(previous_hidden);

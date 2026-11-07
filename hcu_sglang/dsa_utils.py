@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.forward_batch_info import ForwardBatch
+
 from functools import lru_cache
 from sglang.srt.layers.attention.dsa import utils as U
 from hcu_sglang.utils.detection import is_hcu
