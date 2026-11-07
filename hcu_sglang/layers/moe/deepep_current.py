@@ -1030,7 +1030,7 @@ class _DeepEPDispatcherImplNormal(_DeepEPDispatcherImplBase):
 
         _deepep_precompile_tp_barrier()
         npu_quantization_opts = self._get_quantization_kwargs(buffer)
-        needs_256_alignment = _hcu_deepgemm_is_selected() or (
+        needs_256_alignment = self.quant_config.get("normal_expert_alignment") == 256 or _hcu_deepgemm_is_selected() or (
             use_groupgemm
             and (
                 get_model().quantization
@@ -1165,6 +1165,8 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
 
     def set_quant_config(self, quant_config: dict) -> None:
         super().set_quant_config(quant_config)
+        if _is_hcu and quant_config.get("hcu_w4a8_int8_dispatch", False):
+            self.return_recv_hook = True
         if (
             _is_hcu
             and quant_config.get("hcu_w4a8_deepep_ll_producer_event", False)
@@ -1274,6 +1276,7 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
                 not _hcu_deepgemm_is_selected()
                 # DeepEPMoE kept the HCU groupgemm kernels: vendor quant_type.
                 or self.quant_config.get("hcu_legacy_groupgemm", False)
+                or self.quant_config.get("hcu_w4a8_int8_dispatch", False)
             )
         ):
             if _is_hcu and self.quant_config.get("hcu_w4a8_int8_dispatch", False):

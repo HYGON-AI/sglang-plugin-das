@@ -2196,7 +2196,7 @@ hcu_sglang/mem_cache/cpu_cache_methods.py       extracted_files，9 个来源，
 
 **二、真缺口表与 `separate_component` 不再双记**
 
-原 `mem-cache-no-coverage-20261106.json` 的 36 条与 decisions 状态冲突：13 条同时被记为缺口又被关闭为配置范围外，且**所有条目都没有待办字段**。新增 [gap-ledger v2](../artifacts/kv-cpu-20261105/gap-ledger-20261106-v2.json)（schema 2）分两栏，36 = **open 23 + closed 13**：
+原 `mem-cache-no-coverage-20261106.json` 的 36 条与 decisions 状态冲突：13 条同时被记为缺口又被关闭为配置范围外，且**所有条目都没有待办字段**。新增 gap-ledger v2（本地历史产物 `artifacts/kv-cpu-20261105/gap-ledger-20261106-v2.json`，未随仓库提交）（schema 2）分两栏，36 = **open 23 + closed 13**：
 
 ```text
 open_gaps 23  = 22 pending + 1 in_progress；每条带 todo，且 open/closed 交集为 0

@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sglang.srt.layers.moe.token_dispatcher import (
+        DeepEPLLDispatchOutput, DeepEPNormalDispatchOutput,
+    )
+
 from typing import Any, Dict, Optional
 import torch
 from sglang.srt.environ import envs

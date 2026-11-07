@@ -7,6 +7,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
+
 from typing import Literal
 from sglang.srt.layers import linear as N
 from hcu_sglang.utils.detection import is_hcu

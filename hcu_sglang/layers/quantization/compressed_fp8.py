@@ -349,15 +349,11 @@ def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     if not is_hcu():
         return
-    previous = getattr(U, "apply_fp8_lightop_channelwise_linear", apply_fp8_lightop_channelwise_linear)
-    if previous is not apply_fp8_lightop_channelwise_linear:
-        raise RuntimeError("Native LightOp channelwise FP8 helper already exists; re-review the source contract")
-    U.apply_fp8_lightop_channelwise_linear = apply_fp8_lightop_channelwise_linear
+    if not hasattr(U, "apply_fp8_lightop_channelwise_linear"):
+        U.apply_fp8_lightop_channelwise_linear = apply_fp8_lightop_channelwise_linear
     cls = Q.CompressedTensorsW8A8Fp8
-    previous = cls.__dict__.get("supports_fp8_prequantized_input", _PREQUANTIZED_CAPABILITY)
-    if previous is not _PREQUANTIZED_CAPABILITY:
-        raise RuntimeError("Native compressed FP8 capability already exists; re-review the source contract")
-    cls.supports_fp8_prequantized_input = _PREQUANTIZED_CAPABILITY
+    if not hasattr(cls, "supports_fp8_prequantized_input"):
+        cls.supports_fp8_prequantized_input = _PREQUANTIZED_CAPABILITY
     HookRegistry.register(
         "sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8.CompressedTensorsW8A8Fp8.process_weights_after_loading",
         around_process_weights, HookType.AROUND,

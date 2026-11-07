@@ -379,6 +379,7 @@
     "sglang.srt.layers.moe.topk.select_experts",
     "sglang.srt.layers.quantization.auto_round.AutoRoundConfig.get_layer_config",
     "sglang.srt.layers.quantization.compressed_tensors.compressed_tensors.CompressedTensorsConfig.get_moe_scheme",
+    "sglang.srt.layers.quantization.compressed_tensors.compressed_tensors.CompressedTensorsConfig.get_quant_method",
     "sglang.srt.layers.quantization.compressed_tensors.compressed_tensors.CompressedTensorsLinearMethod.apply",
     "sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8.CompressedTensorsW8A8Fp8.apply_weights",
     "sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8.CompressedTensorsW8A8Fp8.process_weights_after_loading",
