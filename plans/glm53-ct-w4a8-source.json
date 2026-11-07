@@ -1,0 +1,28 @@
+{
+  "reference_framework_commit": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+  "official_commit": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+  "source_files": [
+    {
+      "path": "python/sglang/srt/layers/moe/ep_moe/layer.py",
+      "sha256": "19fb85446e7b2ce149b9f12280c77bc5ea75aa6e79809e595ab85f5b931892bb"
+    },
+    {
+      "path": "python/sglang/srt/layers/quantization/compressed_tensors/compressed_tensors.py",
+      "sha256": "d5049f01960c0eea054977dd820f5385f001e0ad01f200a87cd0e93483b59128"
+    }
+  ],
+  "static_comparison": [
+    {
+      "source_method": "forward_deepgemm_w4a8_marlin_contiguous",
+      "plugin_function": "forward_contiguous",
+      "reference_branch_ast_matches_after_import_and_op_name_relocation": true
+    },
+    {
+      "source_method": "forward_groupgemm_w4a8_marlin_masked",
+      "plugin_function": "forward_masked",
+      "reference_branch_ast_matches_after_import_and_op_name_relocation": true
+    }
+  ],
+  "runtime_status": "未验证",
+  "scope": "CT INT4 channel weights / dynamic INT8 token activations / DeepEP. This is a code relocation candidate, not installed-package or numerical evidence."
+}

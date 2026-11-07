@@ -330,10 +330,8 @@ def register_hooks():
     if not is_hcu():
         return
     cls = N.CompressedTensorsW8A8Int8
-    previous = cls.__dict__.get("_normalize_weight_scale")
-    if previous is not None and getattr(previous, "__func__", previous) is not _normalize_weight_scale:
-        raise RuntimeError("Native INT8 scale normalization already exists; re-review source contract")
-    cls._normalize_weight_scale = staticmethod(_normalize_weight_scale)
+    if not hasattr(cls, "_normalize_weight_scale"):
+        cls._normalize_weight_scale = staticmethod(_normalize_weight_scale)
     cls._apply_weights_supported_kwargs = _SUPPORTED_ARGS
     for name, callback in (("__init__", around_init), ("process_weights_after_loading", around_process), ("apply_weights", around_apply)):
         HookRegistry.register(

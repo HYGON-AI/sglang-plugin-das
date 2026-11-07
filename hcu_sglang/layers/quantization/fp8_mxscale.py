@@ -286,11 +286,17 @@ def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     if not is_hcu():
         return
-    for name in (
+    names = (
         "aiter_has_dense_mxscale", "set_dense_mxscale", "_dense_mxscale_shapes",
         "dense_mxscale_wanted", "block_fp8_scale_to_e8m0_128", "is_e8m0_scale",
         "dense_mxscale_ready", "quant_fp8_e8m0_128",
+    )
+    # Keep the native configuration state and its GEMM consumer together.
+    if all(hasattr(N, name) for name in names) and hasattr(
+        P.Fp8LinearMethod, "_maybe_prepare_dense_mxscale"
     ):
+        return
+    for name in names:
         value = globals()[name]
         previous = getattr(N, name, value)
         if previous is not value:
