@@ -2379,3 +2379,70 @@ push 到 origin 仍未执行，等用户明确确认。
 含义：27B 上逐位一致只说明该模型上这层转换无副作用，**不等于插件对所有模型都是 no-op**。
 
 未 commit、未 push。
+
+## 2026-11-07 Phase 1 去重：fla×2 hook 退役 + W8A8 create_moe_runner 双注册收敛
+
+**fla/GDN hook 退役（A1/A2）**：`hcu_sglang/__init__.py` 不再 import/注册
+`layers/attention/fla/linear_attention.py` 与 `layernorm_gated.py`（合计 5 个
+REPLACE 目标：chunk_delta_h.chunk_gated_delta_rule_fwd_h、chunk_o.chunk_fwd_o、
+fused_recurrent...packed_decode、layernorm_gated._layer_norm_fwd、
+gdn_triton.TritonGDNKernel.target_verify）。依据：adapter gdn_aiter 生产级路由已
+承接 fwd_h/packed decode（官方 inplace_update 签名兼容），chunk_o/layernorm 上游
+triton 即正确路径，target_verify 与前四项同族且已在组合栈验证窗口随整模块禁用
+通过（247 tok/s / GSM8K 96%）。`*_source.py` 保留（tests/runtime/
+fix_attention_models_gpu.py 直接对拍引用）；l2norm hook 属 #20 新迁移（vendor fast
+path），不在本次退役范围。契约 `hcu_source_alignment_targets.json` 同步摘除 5
+目标（636→631），新增 `tests/test_fla_gdn_hooks_removed.py` 钉死（入口不引用、
+契约不列出、l2norm 保留三项断言）。
+
+**W8A8 create_moe_runner 双注册修复**：w8a8_aiter 与 w8a8_lightop 原本对
+W8A8Int8/W8A8FP8 两目标各自注册 AROUND（"Multiple AROUND hooks" 告警、隐式链序
+依赖）。新增 `layers/quantization/w8a8_runner_dispatch.py` 单点注册：lightop 请求
+时走 lightop 臂，否则 aiter 臂（两臂原有 guard 不变，均含 original 回退）；
+两个臂模块移除 w8a8 目标的 create_moe_runner 注册，compressed 目标（原本就单
+注册）留在 lightop。新增 `tests/test_w8a8_runner_dispatch.py` 5 项：AST 结构
+（臂模块零注册、dispatcher 恰一次、compressed 留守）+ 行为（lightop 优先 /
+aiter 回退，mock 臂隔离）。
+
+**本地验证**：`python -m unittest tests.test_fla_gdn_hooks_removed
+tests.test_w8a8_runner_dispatch -v` 8/8 通过；全量 L0 + unittest discover 见
+提交记录。容器/GPU 组合 e2e 已跑（2026-11-07，nmz26 debug_lzg26，GPU0,1 tp2，
+官方 v0.5.22 baa9bef + adapter-das feat/l15 8692273 + 本分支 afef8ad 隔离 wheel）：
+服务起服（prefill/decode/verify 图全捕获），create_moe_runner 双注册告警归零，
+fla 族 plugin REPLACE 零注册、adapter gdn_aiter 接管日志确认；17×23=391、五言诗正确；
+GSM8K 5-shot 200 题 96.5%（组合基线 96.0%）；8 并发×256tok 吞吐 324.6 tok/s
+（2026-10-30 组合基线 247.2，不同 GPU 对/日期，方向性 +31%）；单流混合均值
+20.3 tok/s、长输出 29.1（基线口径敏感，无回归信号）。
+
+**附带修复（afef8ad）**：组合起服首跑在 prefill graph capture（num_tokens=2048）
+崩溃，定位为 a4213fe 四崩修复#1（cu_seqlens_q 无条件走 varlen 入口）在 #20 重写
+时被改为 layout 门控、#15 默认翻转后官方布局掉回 paged 入口丟 cu_seqlens_q 的
+回归。已恢复无条件 varlen 路由（双布局 page_size 自适应）并补 layout-off 回归
+测试（容器 3/3）。其余三项四崩修复核查：#2 已演进为 lightop 直连、#3 仍在、
+#4 钩子已整体移除。
+
+遗留（Phase 3 B5 域）：w8a8 apply 族 / compressed apply_weights、process_weights、
+eplb、unquantized forward_cuda 仍各有 2 个 AROUND 同目标双挂（24 行告警），按
+量化域裁决时同 create_moe_runner 模式收敛。
+
+## 2026-11-07（二）遗留双注册收敛：6 组 AROUND 同目标双挂归一
+
+Phase 1 遗留的组合栈 "Multiple AROUND hooks" 告警（6 目标 ×4 进程 = 24 行）全部收敛，模式与 create_moe_runner 相同（互斥臂→单点分发；非互斥臂→显式链式组合保持原栈序）：
+
+- **w8a8 apply 族**（W8A8Int8/W8A8FP8MoEMethod.apply）：`w8a8_runner_dispatch` 增 apply 分发（`_uses_lightop_runner` 判 lightop 臂，否则 aiter 臂）；两臂模块去注册。
+- **compressed apply_weights**（CompressedTensorsW8A8Fp8MoE.apply_weights）：同上分发（lightop `around_compressed_apply` vs aiter `around_apply_compressed_fp8`）。
+- **compressed process_weights_after_loading**：非互斥——deepep 臂（legacy channel-fp8 deepgemm 权重准备）+ lightop 臂（channelwise lightop 重打包）都可能在 original 后生效；dispatcher 显式链 `lightop(deepep(original))` 保持原注册序（lightop 后注册=外层）。注册从 `w8a8_lightop` 与 `layers/moe/deepep_fp8` 移除。
+- **UnquantizedFusedMoEMethod.forward_cuda**：新 `unquantized_moe_dispatch`（marlin `_enabled()` 优先，否则 aiter 臂）；`unquantized_aiter`/`unquantized_marlin` 去 forward_cuda 注册（后者保留 process_weights 单注册）。
+- **handle_eplb_and_dispatch**：新 `eplb/hook_dispatch` 显式链 `placement(integration(original))` 保持原栈序（两臂是不同的独立校验：load_aware 前置条件 + locality_fair 静态派发约束）；integration/placement 去 target 注册，插件入口接线。
+
+**已知未动（PD 配置才激活，本锚点不可验证，盲改违组合验证纪律）**：disagg 族 3 目标静态双注册（`CommonKVManager.get_mha_kv_ptrs_with_pp`、`PrefillBootstrapQueue.__init__`、`setup_state_kv_args`）与 `ServerArgs.add_cli_args` 双 AFTER——待 PD/EPLB 组合窗口按同模式收敛。`add_cli_args` 为 AFTER×2（注册表不告警），语义为两段 CLI 参数追加，合并前需验证 argparse 去重行为。
+
+测试：`test_w8a8_runner_dispatch` 扩至 9 项（apply 分发、compressed apply 分发、compressed process 链序 lightop→deepep→original、臂零共享注册）；新增 `test_unquantized_moe_dispatch` 3 项、`test_eplb_hook_dispatch` 2 项（链序 placement→integration→original + 单注册钉死）。容器 e2e 验证见后补记录。
+
+## 2026-11-07（三）双注册收敛 e2e 验收 + 134 tok/s 异常排查定案
+
+**告警归零**：6d38aae 起服（GPU0,1 tp2，同 v5 MTP 配方）"Multiple AROUND hooks" **0 行**（原 24 行）；17×23=391、五言诗正确；GSM8K 5-shot 200 题 **96.5%**（与 afef8ad 一致）。
+
+**134 tok/s 异常排查（已定案为服务器进程态，非代码非硬件）**：双注册收敛 build 首轮 8 并发仅 134.7/134.2 tok/s（上午 afef8ad 同配置 324.6）。三方同时段对照：A=6d38aae@GPU0,1（重启后）**516.8**、B=afef8ad@GPU2,3 **510.6**、C=6d38aae@GPU4,5 **509.2**——同代码跨卡对、同卡对前后代码全部 ±1.5% 内一致。结论：134 是当日多基准并发混跑后留下的进程态劣化（重启即愈），**代码无回归**；上午 324.6 亦偏低（JIT 缓存冷的首个 boot），第二轮 warm cache 后全栈 ~510-517。教训入库：**同服务器跨窗口 perf 数字不可直比，A/B 必须同窗口双服并跑**（本轮 B/C 对照法）。
+
+**验收汇总（6d38aae）**：起服全图捕获 ✓；AROUND 双挂告警 24→0 ✓；正确性冒烟 ✓；GSM8K 96.5% ✓；8 并发×256tok 516.8 tok/s（同窗口 afef8ad 基线 510.6，+1.2% 噪声内）✓。
