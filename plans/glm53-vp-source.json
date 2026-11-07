@@ -1,0 +1,36 @@
+{
+  "reference_repository": "https://github.com/maxiaobetter/sglang-das",
+  "reference_branch": "glm5.3-w4a8",
+  "reference_commit": "ac17298aeae1b149a17c4ce964619c782832d6a4",
+  "native_container": "glm53_ct_native_20261104",
+  "native_node": 23,
+  "files": [
+    {
+      "path": "python/sglang/srt/speculative/draft_lm_head_vp.py",
+      "installed_sha256": "62ada8099478ec762fa423767a29c4639452c644350ed17c0ba6db3fa01c3d11",
+      "branch_sha256": "62ada8099478ec762fa423767a29c4639452c644350ed17c0ba6db3fa01c3d11",
+      "exact_match": true
+    },
+    {
+      "path": "python/sglang/srt/speculative/eagle_worker_v2.py",
+      "installed_sha256": "c7f9d06bc12d3da4fdfd70bdcd2c5c2826a2a75bb7721fcee404aef677daa994",
+      "branch_sha256": "c7f9d06bc12d3da4fdfd70bdcd2c5c2826a2a75bb7721fcee404aef677daa994",
+      "exact_match": true
+    },
+    {
+      "path": "python/sglang/srt/layers/logits_processor.py",
+      "installed_sha256": "179fc52d2a6e72ae263914770d262d4e3739ad05836a0dd37d0394fd630eb243",
+      "branch_sha256": "179fc52d2a6e72ae263914770d262d4e3739ad05836a0dd37d0394fd630eb243",
+      "exact_match": true
+    },
+    {
+      "path": "python/sglang/srt/arg_groups/speculative_hook.py",
+      "installed_sha256": "65b5192ef513ff959ec19dbb6f4dd8dc8830c1c14230336dcf92160efe1e3d98",
+      "branch_sha256": "65b5192ef513ff959ec19dbb6f4dd8dc8830c1c14230336dcf92160efe1e3d98",
+      "exact_match": true
+    }
+  ],
+  "runtime_validation": "not_performed",
+  "semantics": "Source equality is not operator or graph validation.",
+  "scope": "VP migration source; the global HYGON-versus-official inventory remains a separate historical baseline."
+}

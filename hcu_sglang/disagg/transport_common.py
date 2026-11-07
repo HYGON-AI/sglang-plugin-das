@@ -7,7 +7,18 @@ from sglang.srt.disaggregation.base import conn as B
 from hcu_sglang.disagg.protocol import StateType, PrefillServerInfo
 from hcu_sglang.utils.detection import is_hcu
 
-globals().update({name: value for name, value in vars(N).items() if not name.startswith("__") and name not in ("StateType", "PrefillServerInfo", "is_hcu")})
+from sglang.srt.disaggregation.common.conn import (
+    KVPoll,
+    KVTransferDestination,
+    List,
+    Optional,
+    Tuple,
+    filter_kv_indices_for_cp_rank,
+    get_parallel,
+    logger,
+    np,
+    npt,
+)
 
 def validate_dsa_state_transfer_abi(
     src_format: str,

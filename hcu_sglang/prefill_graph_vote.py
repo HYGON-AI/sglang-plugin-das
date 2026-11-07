@@ -3,6 +3,12 @@
 # Modified by Hygon Information Technology Co., Ltd., 2026.
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sglang.srt.managers.schedule_batch import ScheduleBatch
+    from sglang.srt.speculative.spec_info import SpeculativeAlgorithm
 from typing import Optional
 from sglang.srt.managers.scheduler_components import dp_attn as N
 from hcu_sglang.utils.detection import is_hcu

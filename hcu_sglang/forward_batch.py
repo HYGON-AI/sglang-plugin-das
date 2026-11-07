@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Optional, Union
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.forward_batch_info import ForwardMode
+    from sglang.srt.layers.logits_processor import LogitsProcessorOutput
+    from sglang.srt.managers.schedule_batch import ScheduleBatch
+    from sglang.srt.mem_cache.kv_loc_plan import Cols, KVLocPlan
+    from sglang.srt.model_executor.model_runner import ModelRunner
+
 from sglang.srt.model_executor import forward_batch_info as N
 from sglang.srt.distributed.utils import all_gather_single
 from hcu_sglang.utils.detection import is_hcu

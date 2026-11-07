@@ -13,6 +13,11 @@
 # ==============================================================================
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.model_runner import ModelRunner
+
 from typing import Any, Dict, List, Optional, Union
 from sglang.srt.model_executor.runner import prefill_cuda_graph_runner as N
 from sglang.srt.environ import envs

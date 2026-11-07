@@ -1,0 +1,44 @@
+{
+  "reference_repository": "https://github.com/maxiaobetter/sglang-das",
+  "reference_commit": "ac17298aeae1b149a17c4ce964619c782832d6a4",
+  "container": "glm53_ct_native_20261104",
+  "node": 21,
+  "files": [
+    {
+      "path": "python/sglang/srt/mem_cache/dsa_cache_layer_split.py",
+      "installed_sha256": "a91f4eaae0e2ff67fbb7f386b831872f24dd59ac399897c4b829fd81bdd9ea0e",
+      "branch_sha256": "a91f4eaae0e2ff67fbb7f386b831872f24dd59ac399897c4b829fd81bdd9ea0e",
+      "exact_match": true
+    },
+    {
+      "path": "python/sglang/srt/mem_cache/kv_cache_configurator.py",
+      "installed_sha256": "e098a03630ce0834bad68b33c98bf719dfb5f04beed17f1c4b1b86486f777eed",
+      "branch_sha256": "e098a03630ce0834bad68b33c98bf719dfb5f04beed17f1c4b1b86486f777eed",
+      "exact_match": true
+    },
+    {
+      "path": "python/sglang/srt/model_executor/model_runner.py",
+      "installed_sha256": "167d3be16add3c8b7a794d0b86dd3a7b3b5713b1ced8dcc3d7a7f9084210bd3b",
+      "branch_sha256": "167d3be16add3c8b7a794d0b86dd3a7b3b5713b1ced8dcc3d7a7f9084210bd3b",
+      "exact_match": true
+    },
+    {
+      "path": "python/sglang/srt/layers/cp/utils.py",
+      "installed_sha256": "4d103208eaabf789aee53f4b14de2d6144348ec5fa087b1d1144504f32fc44f9",
+      "branch_sha256": "4d103208eaabf789aee53f4b14de2d6144348ec5fa087b1d1144504f32fc44f9",
+      "exact_match": true
+    }
+  ],
+  "runtime_validation": "not_performed",
+  "candidate_files": [
+    "hcu_sglang/mem_cache/dsa_layer_split_integration.py",
+    "hcu_sglang/mem_cache/dsa_cache_layer_split.py"
+  ],
+  "required_evidence": [
+    "actual configurator and constructor bindings",
+    "target/draft scratch data pointer identity and ownership",
+    "all CP ranks same-input page-plan and payload comparisons",
+    "stream switching and changing-input graph replay where supported",
+    "P/D transfer and recipient layer mapping"
+  ]
+}

@@ -51,6 +51,26 @@ def __init__(
     is_nextn: bool = False,
 ) -> None:
     super(N0.DeepseekV2AttentionMLA, self).__init__()
+    from sglang.srt.configs.model_config import is_glm_moe_dsa
+    from sglang.srt.layers.attention.dsa.utils import is_dsa_enable_prefill_cp
+    from sglang.srt.layers.moe.utils import is_sbo_enabled
+
+    use_native_glm = C._is_hcu and is_glm_moe_dsa(config)
+    if use_native_glm:
+        allow_alt_stream = (
+            N0.envs.SGLANG_NPU_USE_MULTI_STREAM.get() or is_sbo_enabled()
+            if is_nextn
+            else (
+                N0.envs.SGLANG_ROCM_USE_MULTI_STREAM.get()
+                or N0.envs.SGLANG_NPU_USE_MULTI_STREAM.get()
+                or (
+                    is_dsa_enable_prefill_cp()
+                    and N0.get_parallel().attn_cp_size > 1
+                )
+            )
+        )
+        if not allow_alt_stream:
+            alt_stream = None
     self.layer_id = layer_id
     self.hidden_size = hidden_size
     self.qk_nope_head_dim = qk_nope_head_dim
@@ -214,6 +234,11 @@ def __init__(
             is_neox_style=is_neox_style,
             device=N0.get_device().device,
         )
+
+        if use_native_glm:
+            from hcu_sglang.layers.rotary import configure_glm_rope_cache
+
+            configure_glm_rope_cache(self.rotary_emb)
 
         if rope_scaling and rope_scaling.get("apply_yarn_scaling", True):
             self.scaling = N0.compute_mla_mscale_scaling(rope_scaling, self.scaling)
