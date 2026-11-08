@@ -85,7 +85,7 @@ flowchart LR
 | 公共能力判定 | 明确真实硬件、版本和依赖，不重复猜测平台 |
 | 组合接缝 | 声明与 adapter 的目标交互、顺序和 fallback |
 
-未来本仓目录提案见 [架构 §4](architecture.md#4-未来运行时目录规划)。历史 DeepSeek 工具针对 `models/<family>/hooks + methods`，新包结构需要单独适配，不能直接套用。
+当前运行时职责与后续整理边界见 [架构 §4](architecture.md#4-当前运行时职责与整理边界)。历史 DeepSeek 工具针对 `models/<family>/hooks + methods`，新包结构需要单独适配，不能直接套用。
 
 从 entry point 验证完整预期目标集合；函数存在但顶层不可达不算接入。重复注册要明确拒绝或具有设计好的幂等语义；有意多 AROUND 组合时给顺序测试。不要同时开启两套旧 aggregator 来“补覆盖”。
 

@@ -155,24 +155,6 @@ if TYPE_CHECKING:
 CLIP_MAX_NEW_TOKEN = envs.SGLANG_CLIP_MAX_NEW_TOKENS_ESTIMATION.get()
 
 
-def _bootstrap_addr(req: Req) -> str:
-    # FIXME: make a property of a req
-    return NetworkAddress(req.bootstrap_host, req.bootstrap_port).to_host_port_str()
-
-
-def _bind_root_prefix(req: Req, tree_cache: BasePrefixCache) -> None:
-    """Start a decode-radix request that owns its whole KV row at the root."""
-    req.prefix_len = 0
-    req.last_node = tree_cache.root_node_handle(req.extra_key)
-    req.last_host_node = req.last_node
-    req.best_match_node = req.last_node
-    req.lock = None
-    req.kv.cache_protected_len = 0
-    req.kv.cache_inserted_len = 0
-    req.num_matched_prefix_tokens = 0
-    req.host_hit_length = 0
-
-
 def _matches_abort_rid(recv_req, rid: str) -> bool:
     return bool(getattr(recv_req, "abort_all", False) or rid.startswith(recv_req.rid))
 
@@ -3070,22 +3052,6 @@ def alloc_for_decode_prealloc(
                 kv_loc, req_to_token_pool, req, total_prefix_len, fill_len
             )
     return kv_loc
-
-
-def _generate_fake_prefill_handoff_output_id(req: Req) -> int:
-    """Generate a deterministic synthetic handoff token for fake-PD requests.
-
-    Fake-PD skips prefill and KV transfer, so its allocated prompt KV has no
-    request-specific state and its metadata output token remains zero. Reusing
-    token 0 for every request can unrealistically correlate decode workloads.
-    Hash the request ID so every TP rank gets the same request-diverse token.
-    """
-    if req.vocab_size is None or req.vocab_size <= 0:
-        raise ValueError("Fake-PD requests require a positive vocabulary size")
-    digest = hashlib.blake2b(
-        req.rid.encode(), digest_size=8, person=b"fake-pd"
-    ).digest()
-    return int.from_bytes(digest, byteorder="little") % req.vocab_size
 
 
 class DecodeTransferQueue(DecodeHiCacheTransferMixin):

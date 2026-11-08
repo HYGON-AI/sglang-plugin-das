@@ -2736,3 +2736,161 @@ DeepEP 事件所属 dispatcher 和 GLM CT EAGLE 采样沿用已核对的 HCU 路
 25/30，HumanEval pass@1 为 162/164。分数对应合并功能修复及整理变更的
 节点快照。当前 PR 在最新主线上的验证范围是本地检查与接口对照，未在新
 主线组合重跑 GPU 全量 profile 或精度评测。
+
+
+## 2026-11-08 P/D 状态协议 helper 单源整理
+
+用途与范围：以 plugin `82b8609bff361a70a215e1a1b6a6e7db46644139` 为基线，
+在 `refactor/pd-state-layout` 分支整理两个无设备算子依赖的 Python 协议函数。
+
+- 新增 `hcu_sglang/disagg/state_layout.py`，统一 `pack_state_types` 与
+  `resolve_state_component_dst_index`；`protocol.py` 和 `utils.py` 保留原公开导入入口。
+- 函数体及 future annotations 保持原样；类型按出现顺序匹配、空目标类型回退、异常内容均保留。
+  两处 `unpack_state_types` 的枚举来源不同，继续分别维护。
+- 框架 `_NATIVE` 绑定、worker 的 globals、Mooncake 注册和设备调用不在本次提交范围。
+  不引入新测试。此变更影响共用 P/D 协议入口，不将其限定为 GLM5.3 私有代码。
+- 修改前对照部署目录中的 protocol/utils 源文件，两者与基线逐字节一致；
+  这只证明磁盘源文件对应关系，不代表在线进程已加载该版本。
+- 本地静态核对：抽取的函数 AST 与两处原定义一致；除删除定义及新增导入外，
+  原模块 AST 不变；三个 Python 文件语法检查通过。按质量门禁固定的 Ruff 0.12.1
+  执行 `ruff check --isolated --ignore-noqa --select E9,F63,F7,F82`，零诊断。
+- 尚未部署、运行设备/Graph 或执行整模型验证；本记录不构成 GLM5.3 W4A8 完整调用链对齐结论。
+
+本轮排除已有 PR 覆盖的工作：plugin [#25](https://github.com/HYGON-AI/sglang-plugin-das/pull/25)
+承接 FLA/GDN hook 退役及 W8A8、unquantized、EPLB 分发收敛；adapter
+[#61](https://github.com/HYGON-AI/adapter-das/pull/61) 承接 fused-add RMSNorm storage 语义修复。
+截至本次核对两项均为 OPEN；后续基于实际合并结果处理剩余差异，不重复实现，也不将未合并代码记入 main。
+
+补充检查：Python 3.12 下 L0 通过（676 个 Python 文件、8 个 Skill、零错误）；
+导览重建与快照检查、`git diff --check` 通过。导览首页可打开，后续浏览器交互连续超时，
+本轮文档阅读交互与窄屏截图未验收。未提交、未推送。
+
+
+## 2026-11-08 P/D utils 中已被框架绑定覆盖的定义清理
+
+用途：消除同一文件中“先定义一套实现，末尾又换成框架实现”造成的职责歧义。
+承接前一项 `refactor/pd-state-layout`，基线仍为 plugin `82b8609bff361a70a215e1a1b6a6e7db46644139`。
+
+本次删除 `hcu_sglang/disagg/utils.py` 中 30 个被末尾 `_NATIVE` 同名赋值覆盖的旧函数体，
+合计 781 行定义内容。末尾公开别名、导入位置、Hook 注册、`_SOURCE_SETUP_STATE_KV_ARGS`
+捕获与 wrapper 保持原样；调用者继续使用既有框架绑定。
+
+删除的定义按职责分组：
+
+| 职责 | 已被覆盖的旧定义 |
+|---|---|
+| 轮询与同步 | `pp_sync_polls`、`poll_and_all_reduce_pp`、`poll_and_all_reduce_prefill_pp`、`_poll_with_failure_injection`、`_poll_with_failure_injection_pp`、`_is_fake_transfer`、`_apply_metadata_gate`、`_all_reduce_polls`、`poll_and_all_reduce`、`poll_and_all_reduce_attn_cp_tp_group`、`poll_and_all_reduce_with_staging` |
+| 调度与元数据 | `get_dsa_seed_metadata_dim`、`get_qsa_pending_state_indices`、`unified_memory_disagg_move_gate` |
+| CP 与 Mamba 元信息 | `_get_cp_rank_page_bounds`、`filter_kv_indices_for_cp_rank`、`is_mla_backend`、`should_send_replicated_state`、`compute_mamba_state_slice_blocks`、`compute_mamba_state_slice_byte_blocks` |
+| 传输条目与状态布局 | `is_elided_entry`、`build_transfer_entry_pairs`、`resolve_dcp_dst_entry_indices`、`build_staging_slot_metadata`、`slice_dsa_tail_dst_ptrs_for_pp`、`build_dsa_tail_transfer_blocks`、`get_kv_transfer_buf_infos` |
+| 请求终止判定 | `prepare_abort`、`is_unadmitted_reject`、`is_aborted` |
+
+删除前逐项确认：无装饰器，默认值仅为常量，使用 future annotations；
+从旧定义到末尾覆盖赋值之间，没有读取该旧函数的模块执行表达式或类体初始化表达式。
+删除后 AST 对照确认，除此之外模块保持不变；所有保留定义（含同名 overload 与两个
+`setup_state_kv_args`）按定义顺序完整比对通过。
+
+类定义、`get_kv_class` 的 overload 家族、插件自有 hidden/state/metadata 实现继续保留。
+源文件中出现设备操作不代表这些旧函数体是当前执行路径；本次只移除被覆盖的文本，
+没有替换任何现有设备算子、参数布局或通信实现。涉及循环导入、动态反射和实际服务的
+行为未在设备环境复验，静态一致性不作为完整调用链对齐或整模型精度验收。
+
+此项覆盖所有使用该 P/D 入口的模型；没有改其他模型的算法或量化方案。
+#25/#61 覆盖项继续排除；#24 的 P/D serving 文件也未修改。
+本次不新增单测、不运行整模型评测、不变更在线容器；验证按本项目 CI 的 lint 配置执行。
+
+本批实际检查：Ruff 0.12.1（CI 的 E9/F63/F7/F82 规则）零诊断；修改 Python 文件语法、
+L0（676 个 Python 文件、8 个 Skill、零错误）、导览快照和 `git diff --check` 通过。
+浏览器重新建立导览页仍超时，阅读交互与窄屏截图继续标为未验证。未提交、未推送、未部署。
+
+
+## 2026-11-08 P/D 与缓存工具的框架重复副本清理
+
+用途与范围：继续 `refactor/pd-state-layout` 的纯源码冗余清理，保留框架现有绑定与插件注册；
+不改变量化、设备调用、KV 算法或通信顺序。此前删除的 30 个函数之外，本批再删除 22 个
+被末尾 `_NATIVE` 同名赋值覆盖的定义，合计 270 行定义内容；另清理 `get_kv_class` 的
+旧实现与五项 overload 声明，97 行定义内容加 5 行装饰器。
+
+| 文件 | 本批删除 | 继续保留的职责 |
+|---|---|---|
+| `hcu_sglang/disagg/utils.py` | `DisaggregationMode`、`ReqToMetadataIdxAllocator`、`TransferBackend`、`KVClassType` 四个旧类，共 45 行 | 公开框架别名；插件 hidden pool、metadata、状态布局、源码捕获与注册 |
+| `hcu_sglang/disagg/decode.py` | `_bootstrap_addr`、`_bind_root_prefix`、`_generate_fake_prefill_handoff_output_id` 三个旧函数，共 28 行 | DecodeRequest 替换；原类方法捕获；decode 队列和 scheduler 的插件 Hook |
+| `hcu_sglang/mem_cache/common.py` | `RetractionBackup` 旧类和 14 个旧函数，共 197 行 | 框架公共别名；插件 suffix、SWA、prefix match、checkpoint、release 与清理接入 |
+
+缓存文件删除的旧函数为 `kv_to_page_indices`、`kv_to_page_num`、`page_align_floor`、
+`coalesce_ranges`、`free_kv_row_segments`、`touch_waiting_prefix`、`evict_from_tree_cache`、
+`_evict_until_allocatable`、`dsv4_needs_rebootstrap`、`backup_kv_cache`、`restore_kv_cache`、
+`discard_kv_cache_backup`、`_release_overallocated_kv_indices`、`available_and_evictable_str`。
+它们的公开名称和末尾框架别名仍存在；删除的是前面的副本定义。
+
+逐项检查旧定义到覆盖赋值之间的模块与类体执行表达式，没有提前读取；除单独核对的 overload 家族外，函数没有装饰器或
+非字面量默认值，三个模块均使用 future annotations。删除的类仅使用普通类、标准 Enum
+或 NamedTuple 结构，无自定义 metaclass 或注册装饰器。导入、顶层赋值、原别名顺序及
+`register_hooks` 的 AST 均保持一致；其余代码 AST 与本批修改前一致。
+
+全仓扫描还区分了以下必须保留的情况：
+
+- `decode.py` 的五个类在重绑定前将方法存入 `_METHODS`；这些载体类继续保留，不能整类删除。
+- `get_kv_class` 的类型边界已另行核对并清理：公开绑定仍为 `_NATIVE.get_kv_class`；
+  Python 3.12 标准库 `typing.get_overloads` 按传入函数的 `__module__` 和 `__qualname__`
+  查询，不使用被覆盖的插件函数记录。仓内无旧私有重载表消费者；有意停止创建插件
+  旧函数的私有 typing 注册项，框架公开函数与其重载查询保持原绑定。
+- DeepEP 的数据载体、配置与枚举，以及 V4 MHC 的类型组合继续保留；仅有末尾同名绑定不足以证明可删除。
+- adapter 仓库本次扫描没有找到“顶层同名定义随后被外部模块同名属性直接覆盖”的候选；这不是全仓无重复的结论。
+
+本批检查限于静态绑定、语法和项目 lint；没有加载或替换在线模块，也没有把它记为算子
+调用链、循环导入/反射行为或整模型验证通过。#25/#61 覆盖项保持排除；没有新增测试。
+
+本批交付检查：修改的 Python 文件语法、剩余模块 AST 对照、Ruff 0.12.1（CI 规则）和
+L0（676 个 Python 文件、8 个 Skill、零错误）通过；导览已重建并检查快照，
+`git diff --check` 通过。浏览器此前超时的问题尚未恢复，导览交互及窄屏验收仍未完成。
+改动仍在本地隔离分支，未提交、未推送、未部署。
+
+
+## 2026-11-08 P/D MHA 全局层元数据单源
+
+用途：将 `disaggregation.py` 与 `disagg/transport_common.py` 中重复的层类型筛选、
+全局 full-attention 层 ID 推导收敛到 `disagg/state_layout.py`。
+公共函数接收原 manager 与 start_layer；原两个嵌套函数的函数体保持不变，
+仅将闭包 self 显式传入并改名为 manager。两处调用者各自的 PP/MTP 指针选择分支保留。
+
+修改前两份 helper AST 相同；与指定四节点环境中 node23 的文档部署目录对应 helper
+也一致（两端使用 Python 3.12 解析，避免跨 Python AST 字段差异）。这只是磁盘来源绑定，
+不证明在线进程的实际导入，也不外推完整 P/D 运行验证。
+
+`transport_common.py` 在现有 `globals().update` 之后绑定公共模块，避免该新别名被框架
+符号覆盖；没有改其现有动态导入。plugin #24 对该文件的显式导入改动保持由原 PR 承接。
+公共模块仅依赖 builtins 与 future annotations，不引入设备库、缓存或新的 Hook。
+
+静态检查确认：除移除嵌套 helper、增加公共模块导入和显式传入原两个闭包值外，
+调用者 AST 不变；公共函数体与原 helper 的 AST 在参数重命名后相同。
+CI 等价 Ruff 0.12.1 使用 `E9,F63,F7,F82` 与实际 changed-line 过滤，本次变更行零诊断；
+整个 transport 文件仍有 51 项原有动态导入符号诊断，均不在变更行，未新增 noqa 或顺带改写。
+语法检查通过；未新增或运行单测，未部署或进行算子/整模型验收。
+
+本轮导览验收补齐：重置浏览器会话后，实际检查搜索结果、文档阅读、最新章节跳转、
+桌面截图及 390px 窄屏截图；窄屏正文正常换行且无页面横向溢出，临时视口已恢复。
+此前各节的浏览器超时记录保留为当时状态，此项现在已完成。源码清理已提交为
+`c87abfb` 并推送至 fork 的 `refactor/pd-state-layout`；尚未部署，GitHub CI 另行跟进。
+
+
+## 2026-11-10 Plugin #27 变基与 P/D 元数据复核
+
+以已合入 #38 的 plugin `main`（`301e714f`）为基线。变基时合并开发记录并重建导览，
+`transport_common.py` 沿用主线的显式导入。#38 涉及的 19 个运行时文件中，18 个
+逐字节相同，唯一交集中的 Fake KV warmup 和 Hook 注册通过 AST 对照。
+
+在原测试容器的隔离 CPU 进程中，使用官方 SGLang 0.5.22（`baa9befa`）、
+adapter `2536f546` 和原 GLM-5.3 W4A8 配方，对照主线和去重后的运行时代码。
+用归档的 `history4096` 请求和 D 端 rank 8 的实际 KV 位置回放。传输地址使用相同的
+固定占位值，两版实际 Mooncake Hook 向两个 PP stage 产生的注册帧（各 23 帧）和
+请求帧（各 11 帧）逐字节相同，覆盖 64 个 KV 页、78 个主模型层和 21 个 DSA 索引层。
+
+两版解析出的 P/D 参数和 13 项相关 Hook 绑定一致。P 为 PP2/TP8/CP8/EP8，两段层范围
+为 `[0, 39)` 和 `[39, 78)`，16 个 rank 的 LayerSplit 归属及两段 DSA 索引层切片一致。
+PP 请求准入、传输完成与失败的状态同步，以及 Fake KV warmup 均通过回放。
+D 为 TP16/DP16/EP16，保持 EAGLE 与 FP8 KV。
+
+历史 GPU 抓取另行复核，两次运行中 P 端各 16 个 rank 抓取的选定层 KV 字节分别与
+各自 D 端收到的字节相符。本轮验证覆盖参数、Hook 和元数据，GPU forward、Graph
+重放及整模型精度未在变基后的提交上重新执行。
