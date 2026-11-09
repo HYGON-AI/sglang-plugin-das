@@ -109,6 +109,17 @@ def _get_w8a8_quant_info(layer, mode):
     return quant_info
 
 
+def process_weights_after_loading_aiter_w8a8_int8(layer: torch.nn.Module) -> None:
+    """Keep the checkpoint layout. The runner shuffles only if the solution asks."""
+    config = getattr(layer, "moe_runner_config", None)
+    if getattr(layer, "apply_router_weight_on_input", False) or (
+        config is not None and config.apply_router_weight_on_input
+    ):
+        raise RuntimeError(
+            "AITER channel-W8A8 does not support apply_router_weight_on_input=True"
+        )
+
+
 def get_aiter_w8a8_int8_quant_info(layer):
     return _get_w8a8_quant_info(layer, _W8A8_INT8)
 
