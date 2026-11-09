@@ -1930,3 +1930,16 @@ main 整理已同步正在评测的三个 KV 修复，并移除未部署的 raw 
 旧基线上，原始图片请求使用 temperature=1、top_k=20、top_p=0.95、无 seed，5568 prompt tokens 中包含 1476 image tokens。TP4 eager 和 TP2 decode Graph（prefill Graph 关闭、默认 BF16 KV）均完成真实生成；TP2 首图 trace 的每个 rank 包含多模态 embedding、prefill 及 20 个 DRAFT/VERIFY 步，decode Graph kernel 可见，但未逐层证明完整覆盖。重复请求 `cached_tokens=0`，未验证前缀缓存命中。Trace 到达目标步数后自动结束，再次调用 stop 返回 500。TP2 配置的 prefill Graph 在 8192 token 捕获时显存不足；开启 prefill Graph、完整模型精度、其他硬件和其他 MTP 参数未验证。
 
 参考环境为 bw46 `zhuwenbo_sgl_1024` SGLang 0.5.18，TP4 NEXTN 3/1/4 eager；对 LightOp 做了 top-k/top-p 频数测试。0522 使用 `--kv-cache-dtype fp8_e5m2` 时，在随机采样前的 full-attention KV stride 解析处出现 `ValueError: unexpected KV buffer ndim=4`，故服务验证使用默认 KV dtype，不能与参考配置作严格性能 A/B。测试日志和 trace 位于 bw46 的 `/sgl/deploy-bw46-qwen38-20261109/mtp-random-adapt-20261109/` 及 `/sgl/deploy-bw46-qwen38-20261109/decodegraph-vision-20261109-01/`。
+
+
+## 2026-11-09 Qwen3.8 FP8 E5M2 KV 的 HCU FA 路径
+
+用户的 Qwen3.8-27B（`Qwen3_5ForConditionalGeneration`）使用 `fa3`、page 64 和 `fp8_e5m2` 时，官方配置 pass 原先将 backend 改为 Triton，而 PR #22 引入的 HCU pool 仍存储四维 BHSD；真实图片请求因此在 Triton 的三维 KV stride 解析处失败。本次在 plugin 的既有配置 Hook 中补充 Qwen3.5 主模型架构，并在 `dtype=auto` 时读取解析后的模型 dtype。保留物理 HCU、gfx936、BF16、page 64、HCU FA layout、fa3 与 E5M2 的组合限制，其他配置继续调用当前有效 original。
+
+HCU 原生 FA 对该组合使用 BF16 query 与 FP8 KV。新增 `prepare_paged_mha_query` AROUND Hook，避免官方 FA3 分支将 query 额外量化为 FP8；不改 pool 存储、官方源码或 adapter。DTK 26.10 原生 paged attention 的 GPU 对拍证明，decode 与 verify 都忽略传入的非单位 K/V descale。因此本次只支持没有显式 K/V scale 的 KV 路径；发现 scale 时明确报错，不静默丢弃标定值。带标定 scale 的模型不在本次支持范围内。
+
+固定官方 `baa9befa381511cd4d56f83980951e5a45fffc6d`、adapter `0d5d73bfdaafb20d84235a4096d4b64b73bb1238`，plugin 以 release 的 `23ed5ce0047b281ff0659ca26a30a28c658964df` 为基线。公开配置 pass 的修复前反例为 3 个失败、2 个负例通过；修正后的配置与公开 query Hook 回归共 26 项通过，覆盖有效 original 回退与显式 scale 拒绝。真实 HCU pool 的 BF16 query、FP8 KV、GQA=6、head_dim=256、page=64，query 长度 1/4 的无 scale eager 与每组 3 次更新输入 Graph 重放均通过 FP32 参考对拍，最大绝对误差 0.00390625。非单位 scale 的失败样本保留为 vendor 支持边界证据，不能记为通过。
+
+Qwen3.8-27B TP4 NEXTN 3/1/4 使用 FP8 KV 完成真实图片请求：输入 5568 token（含 1476 image token）、输出 128 token，冷请求实际执行 ViT；重复请求复用 image embedding，但 KV cached_tokens 仍为 0。捕获图片/prefill 与 20 个 decode 轮次的逐 rank trace，测试服务随后关闭。完整模型精度、非 gfx936、其他 page/head 组合与显式 KV scale 未验收。性能比较必须统一 TP、输入、缓存、MTP 接受长度及 profiler 状态；本次功能 PR 不声明 TPOT 因果或跨版本精度等价。前述 mRoPE 缓存修复保留在独立 PR #36，本 PR 不包含它。
+
+本次项目 L0（593 个 Python 文件）、导览重建及快照检查、git diff --check 均通过。服务器没有可用浏览器，导览页面的实际渲染和窄屏截图未验收；未以静态检查代替该项。
