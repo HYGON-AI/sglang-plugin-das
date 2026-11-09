@@ -110,6 +110,21 @@ def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     patch_broken_torchaudio_availability()
+    from hcu_sglang.speculative_sampling import (
+        around_can_use_sparse_target_sampling,
+        around_sample_tree_target_tokens,
+    )
+
+    HookRegistry.register(
+        "sglang.srt.speculative.eagle_utils._can_use_sparse_uno_tree_target_sampling",
+        around_can_use_sparse_target_sampling,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.speculative.uno_utils.sample_uno_tree_target_tokens",
+        around_sample_tree_target_tokens,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.srt.arg_groups.speculative_hook._handle_dspark",
         around_handle_dspark,
