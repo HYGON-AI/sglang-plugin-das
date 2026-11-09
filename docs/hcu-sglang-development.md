@@ -1943,3 +1943,12 @@ HCU 原生 FA 对该组合使用 BF16 query 与 FP8 KV。新增 `prepare_paged_m
 Qwen3.8-27B TP4 NEXTN 3/1/4 使用 FP8 KV 完成真实图片请求：输入 5568 token（含 1476 image token）、输出 128 token，冷请求实际执行 ViT；重复请求复用 image embedding，但 KV cached_tokens 仍为 0。捕获图片/prefill 与 20 个 decode 轮次的逐 rank trace，测试服务随后关闭。完整模型精度、非 gfx936、其他 page/head 组合与显式 KV scale 未验收。性能比较必须统一 TP、输入、缓存、MTP 接受长度及 profiler 状态；本次功能 PR 不声明 TPOT 因果或跨版本精度等价。前述 mRoPE 缓存修复保留在独立 PR #36，本 PR 不包含它。
 
 本次项目 L0（593 个 Python 文件）、导览重建及快照检查、git diff --check 均通过。服务器没有可用浏览器，导览页面的实际渲染和窄屏截图未验收；未以静态检查代替该项。
+
+
+## 2026-11-09 FP8 KV 并发变长 prefill 修正
+
+PR #37 的 HumanEval/MATH500 TP2、并发 8 预检触发实际服务退出：BHSD varlen 路径之前先将扁平 query 按 max_seqlen_q reshape 为四维，混合长度批次的 total_q 并非 batch_size × max_seqlen_q，因此 shape 无效。原始失败源码、完整服务日志与请求现场单独保留，该轮不计入模型精度成绩。
+
+本次仅将矩形 query 视图的构造移到 BHSD varlen 分支返回之后；varlen 原生接口继续直接接收扁平 query 和 cu_seqlens_q。单步 decode、固定长度 verify 及关闭 HCU layout 后的既有调用契约保持原路径，不改 adapter/官方源码。
+
+公共接口的 BF16/FP8 变长 prefill 用例在修复前均失败；修复后配置、query 与接口回归共 30 项通过。query_lengths=[3,7]、KV lengths=[67,75]、GQA=6、D=256、page=64 的 BF16/FP8 原生 GPU 输出均匹配 FP32 参考，最大绝对误差 0.00390625。L0、Ruff CI 规则、guide snapshot 与 diff 检查见本次验证记录。当前 prefill Graph 关闭，变长 prefill Graph 未验证；后续 TP2 并发全量精度使用固定新快照重新运行，原先失败尝试不与新结果混用。

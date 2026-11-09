@@ -1,7 +1,8 @@
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: Apache-2.0
 
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -9,6 +10,7 @@ import torch
 
 from hcu_sglang import server_args_hooks as args_hooks
 from hcu_sglang.layers.attention import flashattention_backend as subject
+from hcu_sglang.layers.attention import flashattention_interface as interface
 from sglang.srt.layers.attention.flashattention_backend import FlashAttentionBackend
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -66,3 +68,52 @@ def test_prepare_preserves_effective_fallback(monkeypatch, case):
     assert result is original.return_value
     original.assert_called_once_with(backend, q, rope, None, layer,
         logical_batch_size=1, kv_head_num=2, is_prefill=False)
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float8_e5m2])
+def test_ragged_prefill_reaches_varlen_without_rectangular_query_view(monkeypatch, dtype):
+    q = torch.randn(7, 12, 256, dtype=torch.bfloat16)
+    cu_q = torch.tensor([0, 2, 7], dtype=torch.int32)
+    k = torch.zeros(4, 2, 64, 256, dtype=dtype)
+    v = torch.zeros_like(k)
+    expected = torch.ones_like(q)
+    native = ModuleType("flash_attn")
+    native.flash_attn_varlen_func = mock.Mock(return_value=expected)
+    native.flash_attn_with_kvcache = mock.Mock(side_effect=AssertionError("unexpected fallback"))
+    native.vllm_flash_attn_with_kvcache = mock.Mock(side_effect=AssertionError("unexpected decode"))
+    monkeypatch.setitem(sys.modules, "flash_attn", native)
+    monkeypatch.setattr(interface, "_layout_enabled", lambda: True)
+    out = torch.empty_like(q)
+    result = interface.flash_attn_with_kvcache(q, k.view(4, 64, 2, 256), v.view(4, 64, 2, 256),
+        cache_seqlens=torch.tensor([20, 30], dtype=torch.int32), page_table=torch.tensor([[0], [1]], dtype=torch.int32),
+        cu_seqlens_q=cu_q, max_seqlen_q=5, max_seqlen_k=30, causal=True, out=out)
+    assert result is out
+    torch.testing.assert_close(out, expected)
+    kwargs = native.flash_attn_varlen_func.call_args.kwargs
+    assert kwargs["q"] is q and kwargs["cu_seqlens_q"] is cu_q
+    assert kwargs["k"].shape == kwargs["v"].shape == (4, 2, 64, 256)
+    assert kwargs["layout"] == "bhsd" and kwargs["max_seqlen_q"] == 5
+    native.flash_attn_varlen_func.assert_called_once()
+
+
+@pytest.mark.parametrize("query_len", [1, 4])
+def test_uniform_decode_and_verify_keep_native_query_contract(monkeypatch, query_len):
+    q = torch.randn(2 * query_len, 12, 256, dtype=torch.bfloat16)
+    k = torch.zeros(4, 2, 64, 256, dtype=torch.float8_e5m2)
+    native = ModuleType("flash_attn")
+    native.flash_attn_varlen_func = mock.Mock(return_value=q)
+    native.vllm_flash_attn_with_kvcache = mock.Mock(return_value=q)
+    native.flash_attn_with_kvcache = mock.Mock(side_effect=AssertionError("unexpected fallback"))
+    monkeypatch.setitem(sys.modules, "flash_attn", native)
+    monkeypatch.setattr(interface, "_layout_enabled", lambda: True)
+    interface.flash_attn_with_kvcache(q, k.view(4, 64, 2, 256), k.view(4, 64, 2, 256),
+        cache_seqlens=torch.tensor([20, 30], dtype=torch.int32), page_table=torch.tensor([[0], [1]], dtype=torch.int32),
+        cu_seqlens_q=torch.tensor([0, query_len, 2 * query_len], dtype=torch.int32), max_seqlen_q=query_len, causal=True)
+    if query_len == 1:
+        native.vllm_flash_attn_with_kvcache.assert_called_once()
+        assert native.vllm_flash_attn_with_kvcache.call_args.kwargs["q"].shape == (2, 1, 12, 256)
+        native.flash_attn_varlen_func.assert_not_called()
+    else:
+        native.flash_attn_varlen_func.assert_called_once()
+        assert native.flash_attn_varlen_func.call_args.kwargs["q"] is q
+        native.vllm_flash_attn_with_kvcache.assert_not_called()
