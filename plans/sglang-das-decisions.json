@@ -1292,6 +1292,419 @@
       "git:de390225d615381d3fd02b8d3eed639e5ef529b5:docs/hcu-tp8-deepseekv4-prefill-bcg-dev68-validation-20261101.json"
     ],
     "ordinary_model_scope": "Frozen dd88288/dev68/619 files:8GPU BCG initialization and6 strict requests with cleanup passed, encoder flagFalse. Not encoder cache-hit/AUX transfer/BCG request-hit or dataset score."
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/broadcast.py"
+    ],
+    "rationale": "owned 文件与固定 Source 完整 AST 一致且存在调用方；代码不缺，仍需按适用模型/运行时 lane 验证。",
+    "status": "implemented",
+    "tests": [
+      "tests/test_runtime_triage.py"
+    ],
+    "validation_scope": "Full Source AST and explicit owned callers verified; runtime is not marked verified. Assigned lane: stage2-GPU/HCU."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/deepseek_v4_helpers.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_helpers.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_helpers.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py"
+    ],
+    "rationale": "The complete layout implementation, including C1/C2 and kv_source_layers, is byte-identical after reversing the utils import. V4 sizing and the CP V4 pool call the owned layout builders.",
+    "source_alignment": "plans/hcu-kv-cpu-review-20261105.json",
+    "status": "implemented",
+    "tests": [
+      "tests/test_runtime_owned_sources.py"
+    ],
+    "validation_scope": "Complete-file reversible byte audit and static consumer review only. Runtime/GPU/model/collective/numeric/performance validation pending; prefill/decode remain separately open."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/deepseek_v4_pool.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_pool.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_pool.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/pool_base.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/pool_base.py"
+    ],
+    "rationale": "The complete base implementation, including requires_descriptor_matched_transfer=False, is byte-identical after reversing the utils import. The owned CP V4 pool inherits this exact base class.",
+    "source_alignment": "plans/hcu-kv-cpu-review-20261105.json",
+    "status": "implemented",
+    "tests": [
+      "tests/test_runtime_owned_sources.py"
+    ],
+    "validation_scope": "Complete-file reversible byte audit and static consumer review only. Runtime/GPU/model/collective/numeric/performance validation pending; prefill/decode remain separately open."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/staging.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/staging.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/mem_cache/cp_cache_layer_split/staging.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/transfer.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/transfer.py"
+    ],
+    "rationale": "All four transfer metadata/configuration definitions are byte-identical after reversing the V4 pool class import. Public setup-state adaptation and owned protocol/Mooncake consumers use this module. The separate prefill/decode migration remains incomplete.",
+    "source_alignment": "plans/hcu-kv-cpu-review-20261105.json",
+    "status": "implemented",
+    "tests": [
+      "tests/test_runtime_owned_sources.py"
+    ],
+    "validation_scope": "Complete-file reversible byte audit and static consumer review only. Runtime/GPU/model/collective/numeric/performance validation pending; prefill/decode remain separately open."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/utils.py": {
+    "evidence": [
+      "tests/contracts/runtime_validation_only_sources.json",
+      "plans/hcu-runtime-triage-20261105.csv"
+    ],
+    "implementation": [
+      "hcu_sglang/mem_cache/cp_cache_layer_split/utils.py"
+    ],
+    "rationale": "All five configuration/ownership helpers are byte-identical; existing owned layout and pool_base consumers call the complete utilities. CPU tests exercise actual pool_base ownership, disjoint coverage and balanced partition invariants.",
+    "source_alignment": "plans/hcu-kv-cpu-review-20261105.json",
+    "status": "implemented",
+    "tests": [
+      "tests/test_runtime_triage.py",
+      "tests/runtime/cleanup_cp_utils_cpu.py",
+      "tests/test_runtime_owned_sources.py"
+    ],
+    "validation_scope": "Complete-file byte audit and real owned module CPU tests with explicit request/action and CP parallel-state fixtures. No full plugin registration, real allocator failure, PD communication, GPU/model/numeric/performance validation."
+  },
+  "python/sglang/srt/mem_cache/cp_cache_layer_split/validation.py": {
+    "implementation": [
+      "hcu_sglang/disagg/validation.py",
+      "hcu_sglang/mem_cache/cp_cache_layer_split/validation.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/disagg/validation.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/cpp_utils/hash_binding.cpp": {
+    "implementation": [
+      "hcu_sglang/mem_cache/rust_tree_core",
+      "hcu_sglang/mem_cache/cpp_utils",
+      "hcu_sglang/mem_cache/window_rust.py"
+    ],
+    "rationale": "Complete pinned Source Rust crate and paired Source C++/Python hash are packaged, with all crate files byte-equal and Cargo.lock retained. Native selected factory/public loader and owned namespace pair new raw event ABI with full Source Python decoder. Wide non-negative int64 encoding is paired across Rust and C++, preserving legacy u32 hashes. This is per-file implementation, not full Python adapter/model validation.",
+    "source_alignment": "git:de390225d615381d3fd02b8d3eed639e5ef529b5:docs/hcu-rust-events-source-alignment.json",
+    "status": "implemented",
+    "tests": [
+      "tests/runtime/rust_provider_cpu.py",
+      "tests/runtime/rust_events_native.py"
+    ],
+    "validation_scope": "Owned source data and actual CPU Rust binding/Source C++/hashlib oracle; raw tuple ABI and event parity with Source Python recorder. Cargo suite separately recorded. Rust GPU/L3/model/retention and remaining Python adapter changes pending."
+  },
+  "python/sglang/srt/mem_cache/cpp_utils/native_hash.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/mem_cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/mem_cache/deepseek_v4_memory_pool.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/hcu_v4_integration.py"
+    ],
+    "rationale": "owned 实现已注册 1 个 Hook 目标（sglang.srt.mem_cache.deepseek_v4_memory_pool.select_dsv4_kv_layout），覆盖该来源模块的插件侧接线；逐方法签核与运行验证未完成。",
+    "status": "in_progress",
+    "validation_scope": "Coverage-based disposition: at least one public Hook target resolves into this source module. Method-level signoff, apply verification and runtime lane are still pending."
+  },
+  "python/sglang/srt/mem_cache/device_pool_info.py": {
+    "rationale": "该文件相对官方没有改动定义，只有 2 个新增方法 MHABufferInfo.validate/MLABufferInfo.validate，而这两个类本身是 DAS 新增、官方不存在；官方 DevicePoolInfo.buffer_info 固定为 MambaStateBufferInfo。因此不能把 validate 补到官方类上（会 AttributeError），必须先迁入 MHABufferInfo/MLABufferInfo 类并加宽 DevicePoolInfo、配套 memory_pool.get_device_pool_infos。",
+    "status": "pending",
+    "todo": "核对 10 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "Blocker: class-level addition plus memory_pool API widening required; the earlier method-only patch attempt was reverted after the official module was found to lack both classes."
+  },
+  "python/sglang/srt/mem_cache/dsa_cache_layer_split.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/dsa_cache_layer_split.py"
+    ],
+    "rationale": "owned 实现已注册 2 个 Hook 目标（sglang.srt.mem_cache.dsa_cache_layer_split.LayerSplitDSATokenToKVPool, sglang.srt.mem_cache.dsa_cache_layer_split.LayerSplitIndexKeyCache），覆盖该来源模块的插件侧接线；逐方法签核与运行验证未完成。 GLM-5.3 scope: Official baa9bef already provides the base DSA LayerSplit pool and CP helpers. Preserve that implementation; review only DAS additions (MainKVPagePlan, compact page layout, scratch sharing and transport) for plugin ownership. Existing module presence is not a fork-only integration gap.",
+    "status": "in_progress",
+    "validation_scope": "Coverage-based disposition: at least one public Hook target resolves into this source module. Method-level signoff, apply verification and runtime lane are still pending.",
+    "ownership_review_20261105": {
+      "owner": "plugin",
+      "rationale": "Official baa9bef already provides the base DSA LayerSplit pool and CP helpers. Preserve that implementation; review only DAS additions (MainKVPagePlan, compact page layout, scratch sharing and transport) for plugin ownership. Existing module presence is not a fork-only integration gap.",
+      "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+      "fork_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+      "runtime_alignment": "unverified",
+      "next_gate": "Complete actual prefill/decode/MTP/graph call and same-input numerical alignment before runtime changes.",
+      "migration_source": "plans/glm53-layersplit-source.json",
+      "candidate_implementation": [
+        "hcu_sglang/mem_cache/dsa_layer_split_integration.py",
+        "hcu_sglang/mem_cache/dsa_cache_layer_split.py"
+      ],
+      "candidate_status": "code_prepared_runtime_unverified",
+      "required_runtime_evidence": [
+        "actual configurator and constructor bindings",
+        "target/draft scratch data pointer identity and ownership",
+        "all CP ranks same-input page-plan and payload comparisons",
+        "stream switching and changing-input graph replay where supported",
+        "P/D transfer and recipient layer mapping"
+      ]
+    }
+  },
+  "python/sglang/srt/mem_cache/dsv41_request_window.py": {
+    "disposition": "not_applicable",
+    "rationale": "配置范围外，非等价证明：仅 DeepSeek-V4/V4.1 的 backend 与 deepseek_v4_memory_pool 引用；目标模型为 Qwen3.5，不产生 request window。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "validation_scope": "Reachability judgement from the fixed DAS guards and target-configuration server args; no runtime execution attempted. Re-evaluate if the target configuration enables PD/MTP/unified memory/SWA or a DSA-indexer model."
+  },
+  "python/sglang/srt/mem_cache/events.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/mem_cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/mem_cache/glm5_next.py": {
+    "implementation": [
+      "hcu_sglang/disagg/glm5_next.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/disagg/glm5_next.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/hicache_key_scheme.py": {
+    "disposition": "excluded",
+    "evidence": [
+      "DAS 树对 hicache_key_scheme 的 import 数为 0（全树扫描，仅模块自身命中）。",
+      "DAS server_args 未声明 --hicache-storage-key-scheme 选项，模块文档中提到的开关在上游不存在。",
+      "DAS 内除该模块自身外没有任何消费路径：没有调用方、没有注册表字符串引用。"
+    ],
+    "rationale": "DAS 侧无消费者，插件侧不迁；若上游后续接线需重新评估。依据是上游没有启用该能力，不是插件不想迁，因此保留现有行不删。",
+    "source_alignment": [
+      "plans/hcu-kv-cpu-review-20261105.json"
+    ],
+    "status": "pending",
+    "status_note": "处置为 excluded，但 decisions 工具只接受 pending/in_progress/implemented/validated/upstream/separate_component，无法写入 excluded；为避免伪造状态，此处保持 pending 并用 disposition 字段记录已批准的排除结论，等待工具枚举或处置台账口径确认。",
+    "todo": "核对 10 个未覆盖定义（group=kv-cache，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "静态引用扫描固定 DAS 树（15c7204b）。若上游后续接线或运维启用该开关，本处置失效，需重新评估。"
+  },
+  "python/sglang/srt/mem_cache/hicache_storage.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/mem_cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/mem_cache/hybrid_cache/hybrid_cache_controller.py": {
+    "rationale": "未找到 owned 实现或注册目标；该来源模块的差异尚未迁入。",
+    "status": "pending",
+    "todo": "核对 2 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "No owned implementation or public Hook target was found for this source module in this batch."
+  },
+  "python/sglang/srt/mem_cache/hybrid_cache/hybrid_pool_assembler.py": {
+    "implementation": [],
+    "rationale": "迁移尝试已回滚：13 个定义（9 changed + 4 added）本身可抽取，但其中 build_mamba_host_pool/build_hybrid_mamba_stack/build_hybrid_mamba_swa_stack 调用 buffer_info.validate()，而官方 DevicePoolInfo.buffer_info 是 MambaStateBufferInfo、没有 validate；DAS 为此新增了 MHABufferInfo/MLABufferInfo 与更宽的 DevicePoolInfo。可达入口 attach_hybrid_pool_to_unified_cache → _MambaStrategy.build → build_hybrid_mamba_stack → build_mamba_host_pool 一旦执行，A 侧会 AttributeError。为保证不在无 GPU 的情况下引入启动崩溃，已把抽取与接线整体回滚。",
+    "source_alignment": [
+      "artifacts/kv-cpu-20261105/hybrid-pool-closure.json"
+    ],
+    "status": "pending",
+    "tests": [
+      "tests/test_hybrid_pool_closure.py"
+    ],
+    "todo": "核对 15 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "Blocker: depends on device_pool_info class widening and memory_pool get_device_pool_infos migration. Helper-closure evidence (16/16 AST-equal) remains valid and is kept; no wiring is active."
+  },
+  "python/sglang/srt/mem_cache/hybrid_cache/linker_pool_assembler.py": {
+    "rationale": "Two changed plus four added leaf definitions build the V4.1 and Mamba/SWA direct-linker pool groups and extend the packed-draft mapping. The owned window modules do not provide these builders, so direct-linker hybrid pools remain uncovered.",
+    "source_alignment": [
+      "plans/hcu-kv-cpu-review-20261105.json"
+    ],
+    "status": "pending",
+    "todo": "核对 6 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "Static source review only for this batch. No owned implementation, Hook apply, PD multi-process, GPU, model, numeric or performance evidence."
+  },
+  "python/sglang/srt/mem_cache/index_key_cache.py": {
+    "disposition": "not_applicable",
+    "rationale": "配置范围外，非等价证明：IndexKeyCache 只在 page_interleave_pool、dsa_cache_layer_split 与 memory_pool 的 indexer 池初始化处实例化；目标模型无 DSA indexer，故不构造（memory_pool 顶层 import 只加载类，不创建实例）。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "validation_scope": "Reachability judgement from the fixed DAS guards and target-configuration server args; no runtime execution attempted. Re-evaluate if the target configuration enables PD/MTP/unified memory/SWA or a DSA-indexer model."
+  },
+  "python/sglang/srt/mem_cache/kv_cache_builder.py": {
+    "rationale": "未找到 owned 实现或注册目标；该来源模块的差异尚未迁入。",
+    "status": "pending",
+    "todo": "核对 3 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "No owned implementation or public Hook target was found for this source module in this batch."
+  },
+  "python/sglang/srt/mem_cache/kv_cache_configurator.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/mla.py"
+    ],
+    "rationale": "owned 实现已注册 1 个 Hook 目标（sglang.srt.mem_cache.kv_cache_configurator.calculate_mla_kv_cache_dim），覆盖该来源模块的插件侧接线；逐方法签核与运行验证未完成。",
+    "status": "in_progress",
+    "validation_scope": "Coverage-based disposition: at least one public Hook target resolves into this source module. Method-level signoff, apply verification and runtime lane are still pending."
+  },
+  "python/sglang/srt/mem_cache/kv_cache_dtype.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/kv_cache_dtype.py"
+    ],
+    "rationale": "owned 实现已注册 1 个 Hook 目标（sglang.srt.mem_cache.kv_cache_dtype.configure_kv_cache_dtype），覆盖该来源模块的插件侧接线；逐方法签核与运行验证未完成。",
+    "status": "in_progress",
+    "validation_scope": "Coverage-based disposition: at least one public Hook target resolves into this source module. Method-level signoff, apply verification and runtime lane are still pending."
+  },
+  "python/sglang/srt/mem_cache/kv_index_translator.py": {
+    "rationale": "核心路径，未按配置一刀切：需逐条核对改动定义的实际调用点后决定迁移或归档（base_prefix_cache 的 evict_for_alloc/evict_sliding_windows/swa_*、kv_loc_plan 的 KVLocPlan 构造与 read_table、kv_index_translator 的 plan/pack_read_stream、pool_host/base 的 HostKVCache 构造与固定 hicache 尺寸、components/full 的 build_external_linker_transfer）。",
+    "status": "pending",
+    "todo": "核对 8 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "Call-point review pending; no disposition claimed yet."
+  },
+  "python/sglang/srt/mem_cache/kv_loc_plan.py": {
+    "rationale": "核心路径，未按配置一刀切：需逐条核对改动定义的实际调用点后决定迁移或归档（base_prefix_cache 的 evict_for_alloc/evict_sliding_windows/swa_*、kv_loc_plan 的 KVLocPlan 构造与 read_table、kv_index_translator 的 plan/pack_read_stream、pool_host/base 的 HostKVCache 构造与固定 hicache 尺寸、components/full 的 build_external_linker_transfer）。",
+    "status": "pending",
+    "todo": "核对 5 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "Call-point review pending; no disposition claimed yet."
+  },
+  "python/sglang/srt/mem_cache/l2_transfer.py": {
+    "rationale": "未找到 owned 实现或注册目标；该来源模块的差异尚未迁入。",
+    "status": "pending",
+    "todo": "核对 2 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "No owned implementation or public Hook target was found for this source module in this batch."
+  },
+  "python/sglang/srt/mem_cache/layer_split.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/dsa_cache_layer_split.py"
+    ],
+    "rationale": "Complete source definition set (MainKVPagePlan, _build_unique_physical_pages, build_main_kv_page_plan) restored verbatim in the existing owned module; source declaration retained. Existing HCU registration and DSA/GLM CP consumer paths reviewed. This closes only layer_split.py, not the complete dsa_cache_layer_split pool implementation.",
+    "source_alignment": "plans/hcu-kv-cpu-review-20261105.json",
+    "status": "implemented",
+    "tests": [
+      "tests/test_runtime_triage.py",
+      "tests/test_runtime_owned_sources.py"
+    ],
+    "validation_scope": "All three source definitions are text-identical including decorators/docstrings; public registration and two consumer paths reviewed statically. Fourteen explicit CPU namespace cases pass. Full module runtime import blocked before test loading by hardware-probe/quantization import dependencies; no public Hook/consumer execution, CP/PD/GPU/model/numeric/performance evidence."
+  },
+  "python/sglang/srt/mem_cache/layout/fused_draft.py": {
+    "disposition": "not_applicable",
+    "rationale": "配置范围外，非等价证明：当前目标配置不启用 MTP/draft 与统一内存：服务器参数 speculative_algorithm=None、enable_unified_memory=False；fused draft 的放置逻辑只在 kv_cache_configurator 的 draft placement 分支与 unified_memory_pool 中执行。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "validation_scope": "Reachability judgement from the fixed DAS guards and the recorded target-configuration server args; no runtime execution was attempted. If the target configuration later enables PD, MTP/draft, unified memory or SWA, this file becomes reachable and must be re-evaluated."
+  },
+  "python/sglang/srt/mem_cache/layout/token_major.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cpu_cache_methods.py",
+      "hcu_sglang/mem_cache/cpu_cache.py",
+      "hcu_sglang/mem_cache/allocation.py"
+    ],
+    "rationale": "The only executable definition delta is build_mamba_entry_views: optional shared-entry stride/offset with the unchanged standalone default. Its full body is registered through the public module Hook; the extra Optional import only supplies a deferred annotation.",
+    "source_alignment": "plans/hcu-kv-cpu-review-20261105.json",
+    "status": "implemented",
+    "tests": [
+      "tests/test_cpu_cache_sources.py",
+      "tests/runtime/cpu_cache_cpu.py"
+    ],
+    "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+  },
+  "python/sglang/srt/mem_cache/memory_pool.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/mamba_pool.py",
+      "hcu_sglang/mem_cache/mla.py"
+    ],
+    "rationale": "owned 实现已注册 4 个 Hook 目标（sglang.srt.mem_cache.memory_pool.MLATokenToKVPool._write_mla_kv_buffer, sglang.srt.mem_cache.memory_pool.MambaPool.__init__, sglang.srt.mem_cache.memory_pool.MambaPool._should_fuse_slot_ops …），覆盖该来源模块的插件侧接线；逐方法签核与运行验证未完成。",
+    "status": "in_progress",
+    "validation_scope": "Coverage-based disposition: at least one public Hook target resolves into this source module. Method-level signoff, apply verification and runtime lane are still pending."
+  },
+  "python/sglang/srt/mem_cache/memory_pool_host.py": {
+    "evidence": {
+      "ast_sha256": "845d3301a8b266ec745d80af1f9a2324466d1d298e7c5eb205d2ae8ee2657c7c",
+      "fork_oid": "b4bf29955ef79c87fc0e8c1f03802c4b495b9bae",
+      "official_oid": "34067a730ac02e4513d53e3e6518f28530fc4c76"
+    },
+    "rationale": "Whole committed Python AST matches the pinned official file, including imports, guards, decorators, values, docstrings and type comments. Reuse official code unchanged; dependencies/other paths remain separate review scopes.",
+    "status": "upstream",
+    "validation_scope": "Per-file committed Python code equality only; not runtime, dependency equivalence or whole-DAS completion."
+  },
+  "python/sglang/srt/mem_cache/multimodal_cache.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/cpu_cache_methods.py",
+      "hcu_sglang/mem_cache/cpu_cache.py",
+      "hcu_sglang/mem_cache/allocation.py"
+    ],
+    "rationale": "The sole leaf-method change is MultiModalStaticCache.set: oversized entries return before eviction. The public method Hook preserves the native class/aliases and delegates to original off HCU.",
+    "source_alignment": "plans/hcu-kv-cpu-review-20261105.json",
+    "status": "implemented",
+    "tests": [
+      "tests/test_cpu_cache_sources.py",
+      "tests/runtime/cpu_cache_cpu.py"
+    ],
+    "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+  },
+  "python/sglang/srt/mem_cache/pool_host/base.py": {
+    "rationale": "核心路径，未按配置一刀切：需逐条核对改动定义的实际调用点后决定迁移或归档（base_prefix_cache 的 evict_for_alloc/evict_sliding_windows/swa_*、kv_loc_plan 的 KVLocPlan 构造与 read_table、kv_index_translator 的 plan/pack_read_stream、pool_host/base 的 HostKVCache 构造与固定 hicache 尺寸、components/full 的 build_external_linker_transfer）。",
+    "status": "pending",
+    "todo": "核对 5 个未覆盖定义（group=kv-cache，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "Call-point review pending; no disposition claimed yet."
+  },
+  "python/sglang/srt/mem_cache/pool_host/common.py": {
+    "implementation": [
+      "hcu_sglang/disagg/common.py",
+      "hcu_sglang/mem_cache/common.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/disagg/common.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/pool_host/dsa.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/dsa.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/mem_cache/dsa.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/pool_host/glm5_next.py": {
+    "implementation": [
+      "hcu_sglang/disagg/glm5_next.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/disagg/glm5_next.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/pool_host/mha.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/hcu_host_pool.py"
+    ],
+    "rationale": "owned 实现已注册 1 个 Hook 目标（sglang.srt.mem_cache.pool_host.mha.get_mha_host_pool_cls），覆盖该来源模块的插件侧接线；逐方法签核与运行验证未完成。",
+    "status": "in_progress",
+    "validation_scope": "Coverage-based disposition: at least one public Hook target resolves into this source module. Method-level signoff, apply verification and runtime lane are still pending."
+  },
+  "python/sglang/srt/mem_cache/pool_host/mha_mxfp8.py": {
+    "disposition": "not_applicable",
+    "rationale": "配置范围外，非等价证明：目标配置 kv_cache_dtype=fp8_e4m3，mxfp8 host 池不会被选中。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "validation_scope": "Reachability judgement from the fixed DAS guards and the recorded target-configuration args; no runtime execution attempted. Re-evaluate if the target configuration enables this feature."
+  },
+  "python/sglang/srt/mem_cache/pool_host/mla.py": {
+    "implementation": [
+      "hcu_sglang/mem_cache/mla.py"
+    ],
+    "rationale": "owned 同名模块 hcu_sglang/mem_cache/mla.py 存在，但未注册为该来源模块的 Hook 目标；接线方式待确认。",
+    "status": "in_progress",
+    "validation_scope": "Owned module exists but no public target was registered for this source module; wiring and runtime behavior unverified."
+  },
+  "python/sglang/srt/mem_cache/pool_host/page_unified.py": {
+    "rationale": "fork-only 源文件，插件无同名实现或注册目标。",
+    "status": "pending",
+    "todo": "核对 10 个未覆盖定义（group=kv-cache，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "No owned implementation or public Hook target was found for this source module in this batch."
   },
   "python/sglang/srt/mem_cache/prefill_budget.py": {
     "status": "implemented",
@@ -1543,6 +1956,935 @@
       "tests/runtime/kv_events_cpu.py"
     ],
     "validation_scope": "Public request entry with explicit admission/elastic namespace data fixtures, real registered native namespace seam without elastic backend, exception/nested context and non-HCU fallback. Ordinary8GPU service separately; full Source scheduler/LoRA model/elastic deployment pending."
+    "validation_scope": "Source restoration, Muse text/omni/processor imports and 600/600 strict Hooks pass. Optional Helion and all GPU/numerical/distributed/model-service lanes remain unverified."
+  },
+  "python/sglang/srt/multimodal/processors/qwen_vl.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 0 个未覆盖定义（group=srt/multimodal，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/multimodal/processors/transformers_auto.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/multimodal，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/observability/metrics_collector.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 4 个未覆盖定义（group=srt/observability，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/observability/req_time_stats.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 4 个未覆盖定义（group=srt/observability，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/parser/answer_frame.py": {
+    "implementation": [],
+    "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 4 个未覆盖定义（group=srt/parser，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/parser/conversation.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/parser，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/parser/jinja_template_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/parser，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/parser/reasoning_parser.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/parser，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/parser/template_detection.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/parser，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/parser/template_manager.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/parser，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/profile/prof.py": {
+    "implementation": [],
+    "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/profile，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/runtime_context.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/rust_server/config.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/rust_server，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/rust_server/server.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/rust_server，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/sampling/sampling_batch_info.py": {
+    "evidence": {
+      "ast_sha256": "c972f310aa622b9c3ccf486a9a91eff7fd490e89a382a42eb59a361460928cd0",
+      "fork_oid": "58c433cb1c9501df4196fd5f3bfff48308b0b30e",
+      "official_oid": "fee776bd2b819528c2de6eb18637f62342ad82b0"
+    },
+    "rationale": "Whole committed Python AST matches the pinned official file, including imports, guards, decorators, values, docstrings and type comments. Reuse official code unchanged; dependencies/other paths remain separate review scopes.",
+    "status": "upstream",
+    "validation_scope": "Per-file committed Python code equality only; not runtime, dependency equivalence or whole-DAS completion."
+  },
+  "python/sglang/srt/server_args.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 9 个未覆盖定义（group=srt，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/session/session_controller.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/session，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/session/streaming_session.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/session，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/base_spec_worker.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dflash_info_v2.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dflash_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 5 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dflash_worker_v2.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/draft_lm_head_vp.py": {
+    "implementation": [],
+    "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。 GLM-5.3 scope: VP core, process groups, vocabulary partitioning and top-1 reduction remain fork-owned.",
+    "status": "in_progress",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/speculative，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。",
+    "ownership_review_20261105": {
+      "owner": "plugin",
+      "rationale": "VP core, process groups, vocabulary partitioning and top-1 reduction remain fork-owned.",
+      "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+      "fork_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+      "runtime_alignment": "unverified",
+      "next_gate": "Complete actual prefill/decode/MTP/graph call and same-input numerical alignment before runtime changes.",
+      "migration_source": "plans/glm53-vp-source.json",
+      "source_selection": "Use the native image implementation, matching maxiaobetter/sglang-das glm5.3-w4a8 at ac17298aeae1b149a17c4ce964619c782832d6a4; do not substitute the HYGON inventory implementation.",
+      "candidate_implementation": [
+        "hcu_sglang/speculative_vp/core.py",
+        "hcu_sglang/speculative_vp/config.py",
+        "hcu_sglang/speculative_vp/__init__.py"
+      ],
+      "candidate_status": "code_prepared_runtime_unverified",
+      "required_runtime_evidence": [
+        "actual hook bindings and shared weight identity",
+        "VP group ranks and collective participation including idle ranks",
+        "same-input native/component outputs",
+        "graph replay with changed inputs"
+      ]
+    }
+  },
+  "python/sglang/srt/speculative/draft_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/draft_worker_common.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_block_accept_estimator.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_config.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 5 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_disaggregation.py": {
+    "implementation": [],
+    "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 5 个未覆盖定义（group=srt/speculative，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_draft.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_draft_sampler.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_kv_inject.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_observability.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_planner.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_verify.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/dspark_components/dspark_worker_v2.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/eagle_disaggregation.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/eagle_draft_cuda_graph_runner.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/eagle_draft_extend_cuda_graph_runner.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/eagle_info.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/eagle_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 4 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/eagle_worker_common.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/eagle_worker_v2.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。 GLM-5.3 scope: VP initialization and consumption and LayerSplit draft scratch wiring require plugin ownership.",
+    "status": "in_progress",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。",
+    "ownership_review_20261105": {
+      "owner": "plugin",
+      "rationale": "VP initialization and consumption and LayerSplit draft scratch wiring require plugin ownership.",
+      "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+      "fork_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+      "runtime_alignment": "unverified",
+      "next_gate": "Complete actual prefill/decode/MTP/graph call and same-input numerical alignment before runtime changes.",
+      "migration_source": "plans/glm53-vp-source.json",
+      "source_selection": "Use the native image implementation, matching maxiaobetter/sglang-das glm5.3-w4a8 at ac17298aeae1b149a17c4ce964619c782832d6a4; do not substitute the HYGON inventory implementation.",
+      "candidate_implementation": [
+        "hcu_sglang/speculative_vp/worker.py",
+        "hcu_sglang/speculative_vp/logits.py",
+        "hcu_sglang/speculative_vp/__init__.py"
+      ],
+      "candidate_status": "code_prepared_runtime_unverified",
+      "required_runtime_evidence": [
+        "actual hook bindings and shared weight identity",
+        "VP group ranks and collective participation including idle ranks",
+        "same-input native/component outputs",
+        "graph replay with changed inputs"
+      ]
+    }
+  },
+  "python/sglang/srt/speculative/frozen_kv_mtp_worker_v2.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/multi_layer_eagle_draft_extend_cuda_graph_runner.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/multi_layer_eagle_worker_v2.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/ngram_worker.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/spec_info.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/speculative/spec_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/speculative，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/aiter.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/common.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 29 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/cudacore_pyspy_dump_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 10 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/custom_op.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/device_timer.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/hf_transformers/common.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 0 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/hf_transformers/config.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 4 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/hf_transformers/processor.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/hf_transformers/tokenizer.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/hf_transformers_patches.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 3 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/numa_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 5 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/poll_timer.py": {
+    "implementation": [],
+    "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/utils，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/profile_utils.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/server_args_config_parser.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/tokenizer_escape.py": {
+    "implementation": [],
+    "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 2 个未覆盖定义（group=srt/utils，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/tokenizer_threads.py": {
+    "implementation": [],
+    "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/utils，relation=fork_only）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/triton_load_watch.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/utils/video_decoder.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/utils，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/srt/weight_sync/tensor_bucket.py": {
+    "implementation": [],
+    "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。",
+    "status": "pending",
+    "tests": [],
+    "todo": "核对 1 个未覆盖定义（group=srt/weight_sync，relation=changed）在声明配置下的实际调用可达性：可达则迁移到 owned 实现并补回归与登记，不可达则按配置范围外归档并写明理由；核对前保持 pending",
+    "validation_scope": "未验证。"
+  },
+  "python/sglang/test/boundary_fixtures.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/ci/ci_register.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/dsv41_flash_common.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/few_shot_gsm8k.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/glm53_flash_common.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/hcu_accuracy_report.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/hcu_cookbook_utils.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/hcu_pd_utils.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/hcu_reasoning_code_utils.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/hcu_server_guard.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/hcu_utils.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/dcp.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/deepseek_v4/common.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/deepseek_v4/dsv41_kv_quant_reference.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/deepseek_v4/k_cache_reference.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/dsa_transform_index.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/dspark.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/extend_attention.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/fp8.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/lplb.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/mhc.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/moe_align.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/multigpu.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/per_token_group_quant.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/qknorm.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kernels/utils.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kits/attention_unittest/attention_methods/dsa_attention.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kits/attention_unittest/attention_methods/dsv4_attention.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kits/attention_unittest/attention_methods/lightning_attention.py": {
+    "evidence": {
+      "ast_sha256": "26ebc149c2b1b34e49f753bd3ec4420ebaa54d3908446334c3e7ff698c9bb814",
+      "fork_oid": "ae75f2e9d8bbdb4fb5e8fd28da21a34101fb310b",
+      "official_oid": "d3d8206a476f345ca3d22fc4b237454926c56dee"
+    },
+    "rationale": "Whole committed Python AST matches the pinned official file, including imports, guards, decorators, values, docstrings and type comments. Reuse official code unchanged; dependencies/other paths remain separate review scopes.",
+    "status": "upstream",
+    "validation_scope": "Per-file committed Python code equality only; not runtime, dependency equivalence or whole-DAS completion."
+  },
+  "python/sglang/test/kits/attention_unittest/runner_modes/split_op_runner.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kits/basic_decode_correctness_kit.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kits/dsa_metadata_kit.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kits/linker_load_failure_kit.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/kits/spec_decoding_kit.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/run_eval.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/scripted_runtime/scheduler_hook.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/simple_eval_aime25.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/simple_eval_aime26.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/simple_eval_common.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/simple_eval_mmlu.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件只存在于 DAS、官方无对应实现（fork 新增），且属于当前目标配置不加载的组件，不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/simple_eval_mmmu_vlm.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/test_utils.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
+  },
+  "python/sglang/test/unified_allocator_fixtures.py": {
+    "implementation": [],
+    "rationale": "配置范围外，非等价证明：该文件属于当前目标配置不加载的组件（多模态/扩散/非 HCU 硬件后端/其它模型或测试），不在 Qwen3_5ForConditionalGeneration 运行路径上。 仅入清单划清分母，非等价性证明。",
+    "review_reason": "配置范围外，非等价证明",
+    "status": "separate_component",
+    "tests": [],
+    "validation_scope": "无需验证：不在当前目标配置的运行路径上。"
   },
   "rust/sglang-radix-tree/src/components/mamba.rs": {
     "status": "implemented",
