@@ -210,6 +210,9 @@ _SWA_TAIL_TAKES_REQ: dict[type, bool] = {}
 
 
 def _match_prefix_params(**kwargs: Any) -> MatchPrefixParams:
+    # anchor-baseline(③同名改语义): MatchPrefixParams — fork(0.5.22 基线):
+    #   +return_full_match 字段; official v0.5.22: key/cow_mamba/req only。
+    #   两树同号 0.5.22,版本号不可判别 → 字段集即版本指纹(docs/governance.md §6)。
     # Field-filtering dispatch: fork MatchPrefixParams accepts return_full_match;
     # official 0.5.22 declares key/cow_mamba/req only — drop unsupported kwargs
     # instead of crashing match_kv_cache on the official tree
@@ -219,6 +222,9 @@ def _match_prefix_params(**kwargs: Any) -> MatchPrefixParams:
 
 
 def _swa_reprefill_tail_tokens(tree_cache: BasePrefixCache, req: Req) -> int:
+    # anchor-baseline(③同名改语义): swa_reprefill_tail_tokens — fork(0.5.22
+    #   基线): (self, req=None); official v0.5.22: (self) 无参。两树同号
+    #   0.5.22 → 签名即版本指纹,按类缓存分发(docs/governance.md §6)。
     # Signature dispatch: the fork tree and this repo's prefix_protocol classes
     # declare swa_reprefill_tail_tokens(self, req=None); official 0.5.22 is
     # parameterless (unified_radix_cache.py:3602). The REPLACE hook runs against

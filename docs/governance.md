@@ -73,3 +73,28 @@ AST 候选数、runtime-export 注册数、apply 成功数与验证能力数分�
 - 改规则同步 Skill、操作指南与导航；历史来源快照保留原版本语义，不随文案重写冒充新来源。
 
 交付与评审检查清单见 [协作流程](contributing.md)。
+
+## 6. 上游锚点演进三分类（漂移处置与版本基线备注）
+
+plugin 的 hook/seam 锚定上游内部符号（mem_cache、scheduler、attention/
+quantization 注册面……），fork 树与官方树并存是常态。上游演进时锚点漂移的
+**处置规则单源在 adapter 仓 `docs/governance.md` §5.3**，三分类摘要：
+①改名/移位/自愈 → 默认多候选 + fail-loud，**退役旧候选时须注版本号基线**；
+②纯新增服务 → 单候选，**首次创建时即注创建版本**；③同名改语义 → **必须
+慎重做兼容性处理、按框架版本号选分支**——版本号不可判别（fork 与官方
+同号、day-0 树未发版）时，以结构指纹（`inspect.signature` /
+`dataclasses.fields` / 布局常量）为版本判别的等价物，按类缓存、fail-loud。
+本节只登记 plugin 侧的落地形态与案例：
+
+- **版本基线备注的载体是对应代码文件本身**，紧贴锚点/分支处
+  （`# anchor-baseline(①/②/③): <符号> — <树/版本>: <事实>; …` 一行起），
+  治理文档不代登；
+- 首批范本（PR#17，两处③，均在 `hcu_sglang/mem_cache/common.py`）：
+  `_swa_reprefill_tail_tokens` —— fork（0.5.22 基线）签名 `(self, req=None)`，
+  官方 v0.5.22 无参（`unified_radix_cache.py:3602`）：签名按类缓存分发；
+  `_match_prefix_params` —— fork `MatchPrefixParams` 多 `return_full_match`
+  字段，官方仅 key/cow_mamba/req：`dataclasses.fields` 过滤。两处 fork 与
+  官方**同号 0.5.22**，版本号分支不可判别——结构指纹即版本判别；
+- **release 联动**：①②类修复向下兼容、直接进 main，按需 backport（判据 =
+  该锚点在旧 release 树存在）；③类 PR 合并前必须核对 release 线当期组合
+  验证记录（§3 版本记录）不被破坏，必要时 release 分支同笔补兼容臂。
