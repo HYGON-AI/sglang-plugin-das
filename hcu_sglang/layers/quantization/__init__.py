@@ -11,20 +11,23 @@ def register_hooks() -> None:
         gptq,
         registry,
         unquantized_aiter,
+        unquantized_moe_dispatch,
         unquantized_marlin,
         w8a8_aiter,
         w8a8_fp8,
         w8a8_lightop,
+        w8a8_runner_dispatch,
     )
 
     fp8.register_hooks()
     gptq.register_hooks()
     w8a8_fp8.register_hooks()
     registry.register_hooks()
-    unquantized_aiter.register_hooks()
+    unquantized_moe_dispatch.register_hooks()
     unquantized_marlin.register_hooks()
     w8a8_aiter.register_hooks()
     w8a8_lightop.register_hooks()
+    w8a8_runner_dispatch.register_hooks()
     logger.debug("[hcu_sglang] quantization hooks registered")
 
     from . import compressed_targets

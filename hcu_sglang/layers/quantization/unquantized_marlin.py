@@ -204,8 +204,3 @@ def register_hooks() -> None:
         around_process_weights,
         HookType.AROUND,
     )
-    HookRegistry.register(
-        f"{target}.forward_cuda",
-        around_forward_cuda,
-        HookType.AROUND,
-    )
