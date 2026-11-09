@@ -1,0 +1,93 @@
+{
+  "scope": "GLM MoE DSA NextN, HCU, compressed_tensors only; restore the native EH normalization dispatch.",
+  "before": {
+    "adapter": "7ad53f65103f3f5a41bf433be204ef2174efbe90",
+    "plugin": "a587338d40938d267968c210b69a3ce8fb5b3f95",
+    "framework": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+    "installed_site": "/work/ownership-v1/site-indexer-fix-v1",
+    "model_file_sha256": "d9e95ee21e922e3a79bba9d4a701af4a0a85da7d1c8514ed323c5adec342c549"
+  },
+  "difference": {
+    "file": "g23_r001_p315603.pt",
+    "input_sha256": "17b9384bf0e5b4449a377e09ff083bb039d52fcbebdf6bb6bad5b6d0ce6b8203",
+    "shape": [
+      6,
+      6144
+    ],
+    "dtype": "bfloat16",
+    "different_output_values": 2,
+    "max_abs": 0.000244140625,
+    "cause": "The CUDA facade selects fused EH norm; native HCU uses two LightOp RMSNorm calls and concatenation."
+  },
+  "fix": {
+    "file": "hcu_sglang/models/deepseek/deepseek_nextn/methods/model.py",
+    "sha256": "a987ee74fe577c19b841702411f0f175af63b5e84829f84b5f520522b1928b31",
+    "scope_guard": "Physical HCU, GlmMoeDsa main/NextN architecture, CompressedTensorsConfig.get_name() == compressed_tensors."
+  },
+  "validation": {
+    "owned_forward_numeric_and_projection": {
+      "artifact": "eh-owned-route-v1.json",
+      "sha256": "1e29794f8570dffa34a1162e80fc3190d4936f6fd0a7bcb205a9b784fcc96c3a",
+      "cases": 320,
+      "ranks": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "actual_updated_input_graphs": 160,
+      "eh_and_actual_weight_projection_exact": true,
+      "configuration_guard": {
+        "artifact": "eh-owned-route-v3.json",
+        "sha256": "e4c1e361c08adb1fc31dd23d13f4dffffc8d52d4ccdbab755cac91d125e84006",
+        "actual_active_rank_cases": 20,
+        "updated_input_graphs": 10,
+        "passed": true
+      }
+    },
+    "updated_wheel": {
+      "runtime_commit": "ae3160f514fe257fd5f3a7482b75028c854e2cab",
+      "sha256": "bba953253c12440df66fcb213aed63d260b79fd5210585ea92bf7ab55a74b736",
+      "site": "/work/ownership-v1/site-eh-route-v1",
+      "package_runtime_files": 729,
+      "changed_runtime_files": [
+        "models/deepseek/deepseek_nextn/methods/model.py"
+      ],
+      "installed_public_constructor_and_forward": "20 actual cases and 10 updated-input graph replays passed"
+    },
+    "service_profile": {
+      "artifact": "profile-final-pd-curl-v1/trace-validation.json",
+      "sha256": "1180b021ed53428eaafd13febe201c6abff812549ce41aa76484379ed7483b1f",
+      "ranks": {
+        "prefill": 16,
+        "decode": 16
+      },
+      "data_requests": "curl directly POST to decode: cold DP0, 4095 input / 64 output; warm DP8, 4096 input / 64 output with 4032 cached prefix tokens",
+      "diagnostic_plugins": [],
+      "runtime_files_verified_per_node": 6887,
+      "item2": "Raw traces delivered for user review; FlashMLA visibility cause remains unverified",
+      "profiling_warning": "ROCTracer duplicate flow start warnings retained in raw logs and validation report"
+    },
+    "full_model_accuracy": "Not run, per user instruction",
+    "local_checks": {
+      "ruff": "0.12.1 E9/F63/F7/F82 --isolated --ignore-noqa passed",
+      "l0": "565 Python files passed",
+      "migration_plan_snapshot": "passed",
+      "guide_snapshot": "passed",
+      "diff_check": "passed",
+      "new_unit_tests": "none"
+    }
+  }
+}

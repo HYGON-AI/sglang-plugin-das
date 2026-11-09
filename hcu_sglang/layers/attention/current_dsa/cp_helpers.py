@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from typing import List, Tuple
 import torch
 from sglang.srt.runtime_context import get_parallel

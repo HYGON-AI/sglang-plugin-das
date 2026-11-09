@@ -2390,6 +2390,244 @@ push 到 origin 仍未执行，等用户明确确认。
 
 未验证项：`apply_ep` 的 betas 管线无独立单测（与 `_apply_triton` 对称实现，靠代码路径保障）；kimi-k3.1 端到端服务、TP>1/EP 并行、其他激活/量化模型回归（仅既有 3 测）与性能均未验证。
 
+
+## 2026-11-04 保留 HCU 底座已声明的 ServerArgs 字段
+
+完成模块/行为：`hcu_sglang/server_args.py` 在安装兼容属性前，通过底座的 `field_names` 查询真实声明字段。已声明的 `minimax_opt`、`hy3_sp` 保留底座实现；仅未声明字段沿用现有兼容处理。HYGON-AI/sglang-das 的 `v0.5.22.plugin`（`15c7204b7a3b`）已声明这两个可写构造字段，原先用只读 property 覆盖后，`ServerArgs` 初始化报 `AttributeError: property ... has no setter`，GLM-5.3 CT W4A8 服务无法继续启动。
+
+实际验证：在 DTK26.10 配套镜像中导入指定底座的真实 `ServerArgs`，执行 `ensure_choices` 后，以 `minimax_opt=True`、`hy3_sp=True` 构造成功且值保留。组合服务已越过此错误，随后因缺少 Python `soundfile` 依赖退出；构造检查日志为任务产物中的 `server-args-constructor-check.log`，服务对照日志为 `server-combined-v2.log`、`server-combined-v3.log`。底座跟踪源码未修改，未新增单测。
+
+提交前检查使用本仓 L0、迁移规划及导览快照检查、修改文件 Python AST 与 `git diff --check`。本修复尚不代表完整模型、GPU kernel、Graph 或 P/D 服务通过；这些仍需组合环境实际验收。
+
+## 2026-11-04 复用原生 attention 通信组
+
+完成模块/行为：`distributed_backend.around_initialize_model_parallel` 调用底座初始化后，仅补建缺失的 `_ATTN_DP_TP` 和按需 CP overlap 组。指定 HCU 底座已建立 DP-TP 组，原来的二次初始化断言使八个 rank 全部退出；现保留该组，不改写其 rank 布局或通信器。未提供该组的底座沿用原有补建逻辑。
+
+实际验证：DTK26.10 八卡组合服务 `server-combined-v4.log` 在该断言退出；加入守卫后，`server-combined-v5.log` 已越过并行初始化，开始加载真实 GLM-5.3 CT checkpoint。此时尚未完成权重加载、请求和 kernel 验收；CP/DP 多节点组合与 overlap 模式继续随目标 P/D 配方验证。提交范围为通信初始化守卫、本记录及导览快照，未新增单测。
+
+## 2026-11-04 原生量化能力与 index-K 模式复用
+
+指定 HCU 底座已提供 FP8 block reference、LightOp channel-wise helper、compressed FP8 输入能力和 INT8 scale 归一化。旧注册流程遇到这些符号就抛错，导致后续 KV pool、模型及 MTP 钩子没有执行。现保留已有能力，仅在缺失时安装；完整原生 dense-mxscale 能力存在时，整组保留其配置状态与 GEMM 消费者。两份 FP8 helper 的函数 AST 相同；INT8 归一化仅有模块限定名和 staticmethod 装饰差异。本轮仅调整注册所有权，未修改算子数学。
+
+同时优先复用底座的 `IndexKCacheMode`，避免原生 KV pool 与 plugin indexer 对同名枚举做 `is` 比较却不相等，选错 BF16/INT8/FP8 缓存分支。底座不提供该模块时继续使用插件定义；模块内部缺依赖照常报错。
+
+实际验证：`plugin-bootstrap-v3.log` 注册完整结束、退出 0；原生量化 helper 对象未被替换，后续 DSA pool 和模型钩子已登记，枚举三个模式与原生具有同一对象身份。该检查不加载权重，不代表模型生成通过。此前 v5 八卡 CT 权重已加载完成，warmup 失败的缓存接线问题需在完整注册后重新验证。未新增单测，完整 GPU/Graph/P/D 与其他模型精度仍待验收。
+
+## 2026-11-04 RoPE JIT 的 HIP 向量访问
+
+DTK26.10 的 `float2` 含匿名 union，RoPE overlay 在 GPT-J 和 NeoX 分支对它做结构化解包，hipcc 拒绝编译。改用同一向量的显式 `x/y` 字段，保留计算表达式、数据类型及布局；没有改动底座源码或量化过程。
+
+在节点 21 直接执行实际 JIT API，对 BF16/FP16、GPT-J/NeoX、连续/带 stride 视图的 8 种组合做 FP32 参考计算并按输出类型舍入；全部通过，Q/K 最大绝对误差均为 0。证据为任务产物 `rope-jit-check-v3.log`、`rope-jit-check.json`。组合 v7 已越过 RoPE，随后停在独立的 MLA concat CUDA 头文件缺失问题。本次仅提交 RoPE 兼容修复和记录，未新增单测；完整模型及 P/D 验收继续进行。
+
+## 2026-11-04 MLA concat JIT 的 HIP 拷贝与空批次
+
+MLA concat overlay 的 CUDA 专用头文件和 PTX 访存阻止组合 v7 warmup。沿用 adapter 既有可移植处理：HIP 使用现有公共头、逻辑 32-lane ID 与相同类型的直接加载/存储；保留 CUDA 路径及原版权来源说明。TensorMatcher 在 HIP 校验 ROCm 设备，launch 使用 256 threads，并对零元素输入直接返回，避免零 grid 导致 invalid configuration。拼接始终只拷贝原始 BF16 位模式，没有反量化或修改激活量化。
+
+节点 21 的实际 JIT API 检查完成 11 个输入组合：Q 的 8/64 heads、连续/带 stride、空/非空，以及 K 的广播拷贝和空输入；全部与 Torch 拼接精确一致。8 个非空组合另在 graph 捕获后改写输入、清空输出，再 replay，结果仍精确一致。证据为 `concat-mla-check-v4.log`、`concat-mla-check.json`。检查只注册所需 JIT overlay、使用实际编译核；全模型验证继续进行，未新增单测。
+
+## 2026-11-04 CT W4A8 的 DeepEP 低延迟 INT8 分发
+
+四节点 v3 的 prefill PP2/CP8 已就绪，decode TP16/DP16/EP16 在目标 graph 捕获时由原生 W4A8 消费者拒绝激活类型。指定底座在 `CompressedTensorsConfig.get_quant_method` 中为合格的 CT channel W4A8 + DeepEP + DeepGEMM 选择 `HCUW4A8Int8DeepEPMoEMethod`，保留 CT checkpoint 配置与加载格式，复用其 W4A8 专家实现；该方法已声明 normal/low-latency INT8 和 producer event。独立 CT scheme 的 BF16 normal 配置不是此次 DeepEP 实际入口。
+
+首次修复 b6d8448 给低延迟 setter 补写配置并放开 DeepGEMM 下的 W4A8 vendor 分支，v4 仍由同一消费者校验拒绝。随后 bootstrap 检查确认 native/TBO 均实际引用 plugin dispatcher，但 adapter 的旧 `HCU_DEEPEP_BRIDGE` 已把 vendor `quant_type` API 包成 `use_fp8`，使 plugin 的 ABI 检测为 false。原始失败和 CPU 检查保留于 `candidate-pd/server-v4-node23.log`、`candidate-pd/dispatcher-bootstrap-v1.json`；setter AST 检查仅证明配置赋值，不证明实际路径生效。
+
+现撤去多余的 setter 补写，保留唯一必要的 plugin 行为：已有 `hcu_w4a8_int8_dispatch` 契约可进入 vendor INT8 分支，即使 runner 为 DeepGEMM。关联 adapter 配方设置已有 `HCU_DEEPEP_BRIDGE=0`，保留原生 vendor API，让底座/plugin 处理两种 API。没有修改 checkpoint、重打 SlimQuant 标签、删除 INT8/FP32-scale 校验或关闭目标 graph；实际 P/D 复验继续进行。未新增单测。
+
+## 2026-11-04 MTP 融合 EH norm 的 HIP launch bound
+
+decode v5 已越过原 INT8 错误，但 MTP graph 的实际日志提示 hidden6144 的 EH norm 按 768 threads 启动，而设备代码缺省 launch bound 为 256；不能将后续 graph 捕获完成视为该算子数值有效。overlay 在 HIP 下以现有 `host::norm::get_cta_threads` 声明准确 launch bound，保留线程数、归约、权重乘法与输出拼接；CUDA 路径保留原声明。TensorMatcher 在 HIP 使用真实 ROCm 设备类型。
+
+节点 23 通过实际 JIT API 完成 20 个组合：BF16/FP16、hidden6144 的 0/1/6/128 tokens、连续/行 stride，以及 hidden7168/8192。按底座既有 FP32 参考和 `rtol=atol=1e-2` 检查全部通过，16 个非空组合各做两次变输入/权重且清空输出后的 graph replay，共 32 次；未改变误差门限。原始 launch-bound 日志、编译日志和结果保留在任务产物 `candidate-pd/server-v5-node23.log`、`candidate-pd/fused-eh-norm-check-v1.log`、`candidate-pd/fused-eh-norm-check-v1.json`。此组件检查不代表完整 MTP、生成或 P/D 通过，未新增单测。
+
+## 2026-11-05 MTP 校验结果的 attention DP 同步范围
+
+组合 decode v7 完成 EAGLE 5/1/6、target verify/draft decode/draft extend graph 捕获和 16 个 DP warmup。首条固定 33-token 随机采样请求中 prefill 已返回，decode 的 16 个 scheduler 停在结果事件同步；已保留各 rank 的 py-spy 栈、原始请求与日志。底座 `eagle_sample` 对 idle batch 在同步之前返回，而 `_sync_eagle_verify_outputs` 按 `parallel.dp_size == 1` 选择整个 TP 组。当前底座将 replica DP 与 attention DP 分开，实际配置是 replica DP1、attention DP16；只有接收该请求的 attention DP rank 进入校验广播，其余 rank 不参加该 collective。
+
+在现有 distributed backend 通过正式 AROUND Hook 为 HCU attention DP>1 选择底座已有的 attention TP/CP 组及同样的广播顺序、src0。独立 attention DP 的请求不共享校验状态；TP/CP 组内仍同步完整 packed verifier state。非 HCU、未启用 DP attention、attention DP1 保留当前有效原实现。没有改变采样、接受判定、随机数、量化或组的构造；SGLang 跟踪源码未改。新增 Hook 同步到当前目标合同；上游按 attention DP 正确区分同步范围后可删除本补丁。
+
+实际底座 helper 经插件发现和 HookRegistry 应用完成 6 个 CPU 组选择检查：覆盖当前 replica DP1/attention DP16、TP4/CP2、replica DP2、attention DP1、关闭 DP attention 和非 HCU。当前配置的原 helper 选择 full-TP 广播，修复后不跨独立请求广播；TP/CP>1 保留同一 packed state、src0 和顺序。已缓存别名随 Hook 更新，公开 `eagle_sample` 对象未变。该检查只用 CPU recorder 替换 group handle，不能证明 GPU collective 或模型精度；结果为 `candidate-pd/eagle-sync-check-v2.json`。首版探针未调用插件发现，其断言失败已保留，未作为运行时反例。项目 L0、导览/迁移快照、Python 语法和 diff 检查通过；完整 GPU 请求和候选 32-rank profile 尚待复验。本次未新增单测，也未执行完整本地测试套件。原始 v7 阻塞证据位于任务产物 `candidate-pd/hang-v7/`。
+
+## 2026-11-05 GLM CT W4A8 的 BF16 RoPE 选择
+
+当前固定 HYGON v0.5.22.plugin 底座在 adapter 的 CUDA 兼容语义下构造 `use_fallback_kernel=False` 的 `RotaryEmbedding`，原有仅包装 fallback 的 Hook 没有覆盖此分支。真实首层 Q/K/位置输入相同，但原生与候选 RoPE 输出不同；两组八 rank 的原生输出可由 BF16 cache 与 BF16 逐步舍入精确重建。
+
+新增默认关闭的 `SGLANG_HCU_USE_LIGHTOP_ROPE`，在 HCU BF16 构造后准备已安装 LightOp 公共接口，复用 typed cache memo，并通过正式 `forward_cuda` AROUND Hook 消费；原始 FP32 cache 保留给框架和 indexer。由 GLM CT W4A8 配方显式启用，不改变其他配方默认值。融合 KV-store 调用保留当前有效原实现。源码不写回框架或 vendor 包，不新增算子实现，不修改量化方案。
+
+第一版复用旧 head 分块的插件探针失败，未进入模型服务。进一步同输入对照确认：两组八 rank 的公共 LightOp 完整 64-head 调用均精确匹配原生，拆成 8-head 调用则有 23861 个输出元素不同。因此正式路径保留 LightOp 自有分发，不沿用为旧 sgl_kernel host 编译边界设置的 head 分块；记录为 `rope-lightop-component-v2.json`。
+
+DTK26.10/Python3.12 镜像中的真实插件发现、构造和 AROUND 分发已通过：两组八 rank 的 Q/K 共 32 项逐元素匹配原生；同一 Graph 更换输入后重放两组 Q/K，也均逐元素匹配。FP32 canonical cache 对象未变，typed memo 为 BF16，关闭开关后的构造保持原分支。记录为任务产物 `rope-runtime-v4.json`；固定参考和捕获哈希见 adapter-das `docs/glm5.3-w4a8-attention-alignment.json`。offsets 与融合 KV-store 保留原语义，但本轮组件不声称覆盖这些调用。移除观测后的 P18/D10 六组模型请求完成，但全部六组 P 与六组 D 数值仍失败；组件通过不等于模型精度通过。
+
+## 2026-11-05 GLM CT W4A8 的 W8A8 GEMM 分发
+
+继续以首层 Q-b 实际相同的 BF16 输入、INT8 权重和 FP32 scale，在两套镜像重放 M8/N16384/K2048 的两组八 rank。公共 LightOp 输出均逐元素匹配原生捕获值；当前插件自行选择的 smooth ASM 路径则逐元素匹配候选捕获值，并有四个元素与原生不同，最大 rank NRMSE 约 8.2e-6。此前 dense MLP 的对照通过不能外推到此形状。记录为任务产物 `attention-probe-v1/qb-w8a8-v1/`。
+
+新增默认关闭的 `SGLANG_HCU_W8A8_USE_LIGHTOP`，由 GLM 配方显式启用，仅跳过既有接口中的 ASM 快路径，复用公共 LightOp 实现。没有改变量化整数、scale、权重布局、输出 dtype 或其他配方默认值。两镜像共 48 份共同量化整数、token scale 和公共 GEMM 输出逐元素一致；真实插件分发的 16 组输出及两次更换输入的 Graph 也逐元素匹配原生，关闭开关后 16 组输出均保持原候选路径。记录为 `qb-w8a8-v1/cross-image.json` 与 `candidate-runtime-v2.json`；后续六组模型数值仍待复测。
+
+## 2026-11-05 GLM CT 的 BF16 gate 与 LightOp 专家路由
+
+P23 两组短前缀各自八 CP rank 的 248 项早期 norm 张量对照均逐元素匹配原生，首个差异出现在第 3 层 MoE 输出；该层输入及下一层的 residual 一致。实际 gate 权重与输入为 BF16，当前 tiny GEMM 返回 FP32；固定原生 HIP CP 分支使用 BF16 `F.linear`。用同一输入和 checkpoint 参数在两镜像重放投影及公共 LightOp 路由，80 份输出张量逐元素一致；BF16 投影等于当前 FP32 logits 的 BF16 舍入，但会改变 65 个有效 token 中 25 个的专家集合。此处是来源分支的受控重放，未单独捕获原生 gate 中间值，不能据此声称 MoE 或全模型精度通过。
+
+新增 `SGLANG_HCU_GLM_CT_BF16_ROUTER`（布尔，默认关闭），在 HCU GLM DSA compressed-tensors gate 构造时生效，为 BF16 权重选择公共 BF16 `F.linear`。FP32 权重沿原有优先分支；无量化、其他模型、Hash-MoE 与 DSV4 不启用该策略。开关关闭后保留当前 gate 实现。已有 `SGLANG_LIGHTOP_TOPK`（默认关闭）接入已有静态 bias、归一化分组路由的公共 LightOp 入口，保留其原有分派优先级；helper 懒加载依赖，动态 bias 或不归一化的调用保留已有路径。GLM 配方显式开启两项；没有修改 checkpoint 标签、专家 W4 与动态 INT8 激活的量化语义。
+
+先前只更换 BF16 gate 的正式探针保留失败结果：专家 ID 相同，但首组 Triton 路由权重有 15 个元素不同，最大绝对差约 6e-8。因此继续复用公共 LightOp 路由，正式分发与 Graph 的结果见下，六组模型验收仍待复测。类型注解改为已导入模块的限定名称，消除原文件两个 F821；未删除动态引用或新增单测。
+
+正式入口复验还发现底座已注册同名 custom op，重复注册会被跳过并落回未导入 LightOp 的底座 helper。插件桥接改用独立的 `sglang::hcu_moe_fused_gate` 名称及既有 fake shape 契约，公共 LightOp 计算与参数保持不变。两个开关在启动脚本中设置，Graph 保留捕获时的 provider，不提供运行中的热切换。
+
+三个固定开关的独立进程完成对照：旧版关闭与新版关闭的 48 份真实输入输出逐元素一致；独立上下文与先前服务捕获之间的少量 FP32 权重 ULP 差异同时存在于旧版，不能归为新回归。最终启用探针 v7 的 16 组 logits、路由权重和专家 ID 共 48 份输出逐元素匹配来源分支及公共 LightOp 参考，两次更改真实输入与有效 token 数的 Graph 重放也精确匹配。无量化、Hash-MoE、DSV4、其他 architecture 的四项构造门控及 FP32 权重优先分支通过；范围检查曾错误保留 GLM architecture 的夹具和先前失败均留档。722 份运行时资产在执行后再次校验一致。组件记录为任务产物 `moe-gate-v1/qualification-v7.json`、`routing-v6-cross-baseline.json` 与 `routing-v7-new-on.json`；全模型精度、有限验证矩阵和最终 profile 仍未验收。
+
+## 2026-11-05 VP 与 LayerSplit 功能归属复核
+
+社区基线为 `baa9befa381511cd4d56f83980951e5a45fffc6d`，DAS 来源为 `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`，plugin 整理起点为 `9faa706d8b8c1ebcec680395634fe21ed2fd0f15`。新增机制归 plugin，社区已有行为的 HCU 兼容归 adapter；社区源码保持原样。
+
+VP 主体和 EAGLE 初始化、消费仍在 fork，plugin 输出字段不构成完整迁移。固定 Git 对象核对确认：社区基线已包含基础 DSA LayerSplit 池及 CP helper，不能把整个模块视为 fork 专有。只审查 DAS 新增的 MainKVPagePlan、紧凑布局、scratch 和传输差异；工厂、模型消费者及生命周期仍须逐项核对。对应路径在 plans/sglang-das-decisions.json 标为 in_progress，运行对齐为未验证。
+
+本轮独立工作区仅整理归属台账，未修改运行时代码或部署。先补齐实际调用、数学语义和 graph 变输入重放证据，再做最小迁移；既有局部检查不能关闭完整功能链缺口。
+
+### 全量盘点工具与范围修正
+
+整理范围覆盖两仓全部代码及固定 fork 与社区的完整差异，VP/LayerSplit 仅为首批审阅条目。build_migration_plan 原来只扫描旧包名 sglang_hcu_plugin 和已移除的 targets_v0_5_22.json，现兼容当前 hcu_sglang 与 expected_hook_targets 合同，并保留历史包名和列表格式。这是盘点工具修复，未改变推理行为。
+
+重新采集得到 2028 个修改路径、903 个 fork 独有路径、79 个社区独有路径；运行时待审阅路径 1614 个，合同目标 599 个，源码映射线索 473 个。目标匹配到来源文件不等于 Hook 已应用或功能验收，均不可据此计算迁移完成率。完整 Python AST 对照覆盖记录中有 1494 项差异、26 项等价和 14 项文件模式或种类差异。
+
+固定 Git 树对照已完成；本地浅历史无法提供 merge-base，历史归因清单仍不完整，不伪造共同祖先。四仓审计、当前树差异和新版全量盘点为独立产物。运行时改动须先满足实际调用与数学语义对齐要求。全量整理完成后，将通用流程写入适用 AGENTS.md，固定提交交主对话验证，通过后再提 PR。现有两个草稿 PR 保留待逐项处置。
+
+本次实际检查：全量盘点 CLI 成功；固定 Ruff 0.12.1 的 CI 策略检查、Python AST 语法检查、迁移执行台账快照、离线导览快照、L0 和 git diff --check。未新增单测；没有用工具检查结果替代运行验证。
+
+## 2026-11-05 VP 原生来源固定
+
+按用户指定，VP 迁移以原生镜像实际实现为准，源码参照为 [maxiaobetter/sglang-das 的 glm5.3-w4a8 分支](https://github.com/maxiaobetter/sglang-das/tree/ac17298aeae1b149a17c4ce964619c782832d6a4)。固定提交与逐文件 SHA256 保存在 [VP 来源记录](../plans/glm53-vp-source.json)。从节点 23 原生容器只读提取的 VP 核心、EAGLE worker、logits processor、speculative 参数校验四个文件均与该提交逐字节一致。
+
+镜像的 worker 显式传入 TP / 节点数作为 local_world_size，并持有 draft_lm_head_vp 状态；不能用之前 HYGON 盘点基线的另一份实现替换。全量 HYGON / 社区差异清单保留其原始基线，VP 的实际迁移来源单独固定，不能将两个来源混作同一版本。
+
+此次完成来源核验，未修改推理代码，未验证迁移后的分发、数值或 graph。后续须以这份镜像实现核对参数入口、状态、collective、logits 消费及 graph 重放，再形成 plugin 运行时提交。
+
+## 2026-11-05 VP 插件迁移候选
+
+新增 `hcu_sglang/speculative_vp/`，归属 plugin，未改社区 SGLang 或 adapter 运行时。核心 `core.py` 与上述镜像文件逐字节相同，保留节点内分组、权重分片连续转置、固定 gather 缓冲区、RCCL 捕获前预热、scale/softcap 顺序与确定性 top-1 合并。
+
+接入链为 CLI → plugin 进程配置 → 配置解析后约束检查 → EagleDraftWorker.init_lm_head → plugin 核心 → LogitsProcessor.forward → EagleDraftWorker.draft_forward。命令行沿用 `--speculative-draft-lm-head-vp-size`，由 `HCU_PLUGIN_DRAFT_LM_HEAD_VP_SIZE` 传给子进程，默认 1；没有修改社区冻结配置字段。社区 attention DP 字段为 attn_dp_size，因此将镜像的旧 dp_size/enable_dp_attention 检查映射到该字段，未放宽 TP=attention DP、CP1、PP1、节点内整组等约束。
+
+初始化在当前有效 init_lm_head 完成共享后读取 draft 模型的 lm_head.weight，worker 与 logits processor 持有同一 VP 实例。LogitsMetadata 的 AFTER 钩子携带原生 spec_input_type 门控；只有 EAGLE_DRAFT 的 decode/idle 使用 VP，prefill、draft extend、普通 LM-head 与关闭状态回到当前有效 original。保留社区 LayerNorm SP 的 gather。输出复用既有 plugin LogitsProcessorOutput，top-1 的紧凑分数不作为完整词表概率使用。
+
+消费者基于固定社区 draft_forward 保留当前接口，只补入镜像的 VP 三处行为：关闭 CUDA topk1 链直接写入、消费 VP token/probability 并递增位置、按真实词表大小检查 token 范围。拒绝采样、动态步数、多层 EAGLE、LoRA、FP32 LM-head、token map 等不支持组合仍拒绝。Graph 继续经 worker 的 draft_forward 调用；未添加另一份 graph runner。
+
+验证状态：源码一致性及静态接口核对已执行；本地 CI 等价 lint、语法与结构门禁记录见本次提交。真实 collective、所有参与 rank 的 idle/non-idle、同输入输出对拍、更换输入 graph replay、初始化共享权重的实际身份及元数据旧引用仍未验证。此候选不得直接替换正在进行精度排查的主对话环境；先补齐上述组件证据，再做整模型验证。全量归属整理仍在进行，VP 候选不代表 LayerSplit 或其他功能已经完成。
+
+## 2026-11-05 LayerSplit 接线与镜像增量候选
+
+核对节点 21 原生容器的 DSA LayerSplit 池、KVCacheConfigurator、ModelRunner 和 CP helper，四个文件与用户指定 ac17298 分支逐字节一致，见 [LayerSplit 来源](../plans/glm53-layersplit-source.json)。既有 plugin 池方法与镜像逐项 AST 对照，除两项环境变量能力缺失及三项社区接口兼容外，方法 AST 相同；该检查不是执行验证。
+
+新增 `mem_cache/dsa_layer_split_integration.py`，把 EAGLE alloc_memory_pool 前的 scratch-source 生产落到 plugin，保留镜像的 prefill、PP1、单层 EAGLE/NextN、非 EAGLE3、目标池类型限制。ModelRunner.init_kv_cache_configurator 通过作用域 ContextVar 将源池传给 plugin 的 configurator 子类，构造结束无论成功失败都 reset；子类用独立字段持续持有源池，不在 slotted 社区实例上动态添字段。替换 configurator 定义和 ModelRunner 已导入别名，避免调用者仍实例化旧类。
+
+共享源存在时，draft 工厂沿当前社区参数接口构造 plugin LayerSplit 池，传入源池与 CP size - 1 的 owner offset；这与镜像的最后一个 CP rank 持有单层 draft 一致。无共享源时调用当前有效父类工厂。已有 CP 预算 helper、scratch geometry 校验、stream 等待、前一使用者缓存失效和独立 Index-K 缓冲区继续复用。没有移动社区基础 LayerSplit，也没有改动社区源码。
+
+池中另补齐镜像原方法的两个缺失分支：`SGLANG_HCU_COMPACT_INDEX_BROADCAST=1` 的历史 Index-K page gather/broadcast/scatter（含 payload record_stream），以及 `SGLANG_HCU_LAYER_SPLIT_SYNC_PREFETCH=1` 的当前流预取。初次迁入时两个变量沿用镜像默认 0；随后按用户要求调整，当前默认见下一节。set_mla_kv_buffer 的 WriteLoc 解包、CPU copy 的 req_pool_index 参数保留社区兼容。
+
+本轮只执行本地 CI 等价 lint、语法、快照和结构检查，不创建单测、不启动服务。真实类绑定、所有 CP rank 的 collective、共享 data_ptr、流切换失效、P/D 层映射及适用 graph 尚未验证，必须先完成组件对齐再交接整模型复测。VP 和 LayerSplit 均是候选；全量归属整理与最终 AGENTS.md 规则落盘仍未完成。
+
+## 2026-11-05 LayerSplit 开关默认开启
+
+按用户要求，plugin 中 `SGLANG_HCU_COMPACT_INDEX_BROADCAST` 与 `SGLANG_HCU_LAYER_SPLIT_SYNC_PREFETCH` 在未设置时均按 1 处理；显式设置为 0 仍可关闭各自分支。不修改运行中节点的环境。紧凑广播仍要求 Index-K remote buffer 和有效 page plan；共享 scratch 的 draft 沿用原有当前流约束，即使同步预取变量为 0 也不取消该约束。
+
+这是相对镜像默认值的明确差异；原生源码 SHA 记录保留，不再宣称这两个方法与镜像 AST 完全相同。本次执行 CI 等价 lint、Python 语法、结构和快照检查、git diff --check；未运行 GPU/graph 或整模型测试。
+
+## 2026-11-05 CT W4A8 分发与计算归属候选
+
+全量导入检查发现，已有 plugin 的 CT 权重方法仍由 fork 的 CompressedTensorsConfig 选择，DeepEP 计算也留在 fork。仅有权重类不能证明社区 SGLang 的路径完整。本次在隔离工作区将该方法移动到 `layers/quantization/compressed_w4a8.py`，旧 SlimQuant 模块只保留导入别名；新入口只匹配 HCU、DeepEP、DeepGEMM、pack-quantized、对称 channel INT4 权重和动态 token INT8 激活。其他配置、无法匹配的投影名称回到当前有效 original，不借用 DSV4 的 checkpoint 别名推断 GLM 语义。
+
+`layers/moe/ct_w4a8.py` 承载 reference normal HIPC、normal Marlin 和 masked 计算，DeepEP core Hook 按权重方法标记接入。保留 CT nibble 顺序转换、offset-8、scale/16、INT8 dispatcher 输出及 FP32 token scale、256 expert alignment、两次 GEMM、激活量化位置、masked producer event；不引入 W4A16 回退。Masked custom op 使用 plugin 专有名称，避免覆盖框架同名注册；vendor API、参数和 fake 输出语义保持来源实现。
+
+代码来源固定为 HYGON `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`，与 VP/LayerSplit 的镜像来源分开记录，见 [CT 来源记录](https://github.com/maxiaobetter/sglang-plugin-das-fork/blob/feat/glm53-ct-w4a8-moe-20261107/plans/glm53-ct-w4a8-source.json)。normal HIPC 与 masked reference 分支在排除导入路径和 custom-op 重命名后 AST 相同；权重类除导入位置、注册入口外计算未变。该结论不表示容器安装库相同或数值已对齐。对生产者量化中间量、两个 GEMM、combine、空 token、多 rank、MTP、graph 变输入重放仍标记未验证。
+
+同时将 P/D transfer 的两处导入指向已有 plugin 模块，Bailing 的 parallel-state 导入改为社区现有位置；DeepEP FP8 模块去掉整体复制 fork globals，改用明确依赖。没有改动社区源码、主工作树或节点环境，没有通知主对话切换代码，没有提交 PR。
+
+全量整理尚未完成：静态检查还发现 V4 row transport、row-bucket graph、V4 Mega backend 和 GLM5-next 的 fork-only 依赖。不能将它们改个导入名称就记作迁移完成，也不能把这些其他模型路径误记为当前 GLM5.3 的实际算子。继续按来源、消费者与功能门控逐项核查。
+
+本次实际本地检查：Ruff 0.12.1 CI 规则 E9/F63/F7/F82 对本轮累计 20 个 Python 文件通过，AST 语法通过，L0（565 个 Python 文件）通过，migration plan/execution 快照与导览检查通过，git diff --check 通过；未新增单测、未运行 GPU。全量导入复查剩余 10 处 fork-only 模块引用，其中包含有保护的历史兼容分支；该扫描只验证模块存在性，不验证属性或实际执行链。
+
+通用整理和交接约束已先写入两仓隔离工作区的 AGENTS.md，防止后续整理继续扩大职责混杂。规则落盘不代表全量工作完成。当前仍不满足交接主对话切换和整模型测试的条件。
+
+## 2026-11-05 GLM5.3 范围收敛与依赖整理
+
+用户明确“不管其他模型”。本次收尾覆盖非 Flash GLM5.3 CT W4A8 的全部适配链路；其他模型的 fork-only 依赖不再作为本任务阻塞，撤回本轮 Bailing 导入调整，保留其原始基线。完整归属和验证顺序见 [GLM5.3 整理交接](glm53-w4a8-ownership.md)。历史全仓盘点及其 pending 状态不改写。
+
+P/D transport_common、transport_mooncake 和 DP attention 去掉整模块 globals 注入，明确声明所用依赖；保留 plugin 自有协议类及传输 helper 优先级。P/D worker 显式导入自身依赖，直接注册原函数；scheduler 经当前有效 native 命名空间访问其宿主依赖，直接调用 plugin 元数据解析，不再给宿主注入解析函数或重建 FunctionType。两者经命名空间规范化后函数 AST 与本轮起点一致，传输等待、完成通知、异常处理与调度顺序未改。
+
+DSA 条件算子使用宿主模块的明确限定引用，保留原有平台门控；CP、forward batch、VP 邻接 graph 和 DeepEP 模块补齐类型依赖，类型导入置于 TYPE_CHECKING，不增加模型导入环。没有更换量化、内核或数学策略。
+
+本次最终本地检查：累计 39 个改动 Python 文件通过 Ruff 0.12.1 的 E9/F63/F7/F82（ignore-noqa）与 AST 语法检查；plugin L0（565 个 Python 文件）、migration plan/execution 快照、导览快照和 git diff --check 通过。adapter 本轮仅新增 AGENTS.md，L0 通过并保留 31 条原有 soft warning。未新增单测、未运行 GPU/模型测试，未推送或创建 PR。GLM 范围的代码整理交付与实际组件对齐分开验收；下一步交固定提交给主对话按交接清单测试。
+
+## 2026-11-05 GLM DSA Indexer head-gate 同输入分歧
+
+固定 adapter `7ad53f65`、plugin `7972101a`、HYGON SGLang `15c7204b` 的独立 wheel，使用两个归档请求、8 个 CP rank 的真实 layer-0 Indexer 输入和原 checkpoint 参数，对拍原生镜像。16 组有效输入的 2080 个 head-gate 值均有差异：原生投影及编译后的缩放结果为 BF16，候选由于 adapter 的 CUDA facade 进入 FP32 投影分支。两镜像中同一个 BF16 ReplicatedLinear 投影完全一致，分歧定位在 Indexer 的平台分发与舍入位置。详见[组件证据](glm53-indexer-head-gate-alignment.json)。
+
+本次最小修正限定 HCU 的 GLM DSA main/NextN 架构，先调用原有 BF16 weights_proj，再执行原有缩放；保留显式 GLM-next FP32 分支及其他架构路径。没有改公共平台判断、量化方案或 vendor wheel。相同 16 组 fused LayerNorm/RoPE 输入在两镜像与各自实测 cache 下完全一致，未据 cache dtype 差异改动该算子。
+
+修正前两镜像各完成 6 次变输入 graph replay，与各自 eager 一致；这不能证明跨镜像数学对齐。修正 wheel 的同输入及 graph 复验待执行，构造接线、完整 Indexer 和 decode attention graph 仍未关闭；不宣称整模型精度问题已解决。新分支 `fix/glm53-indexer-head-gates` 从固定 plugin 提交隔离建立，原交接分支与两份已安装 wheel 均保留。未新增单测，整模型复测仍等待算子清单关闭。
+
+修正后组件复验：runtime 提交 `a587338d` 的独立 plugin wheel（SHA256 `17060beb…ee827c3`）在相同 16 组真实输入上，投影原始值及编译后的缩放值均与原生逐值一致；6 次变输入 graph replay 与对应 eager 一致。实际构造器字段接线和服务消费者仍未验证，不能外推为完整 Indexer 或整模型验收。33 个原始输入、输出、源码与报告文件已归档并在本地逐份核对哈希，归档标识见组件证据 JSON。修正代码通过 Python 3.12 的项目 L0、migration/guide 快照、Ruff 0.12.1 CI 选项、AST 与 diff 检查；没有运行新增单测或完整本地测试套件。
+
+## 2026-11-06 GLM NextN EH 原生 HCU 分发修正
+
+同一份服务实际输入表明，NextN 的 6 行 draft-extend EH 输入在原生 HCU 的两次 LightOp RMSNorm 加拼接，与 CUDA facade 下融合 EH 分支之间有 2 个 BF16 输出值不同，最大差值为 0.000244140625。此前单行样本通过不能覆盖这条路径。原始输入、失败对拍和已安装文件哈希均保留，见 [EH 分发证据](glm53-mtp-eh-route-alignment.json)。
+
+本次仅在 plugin 自有 NextN 构造器记录物理 HCU、GLM MoE DSA 架构和 compressed_tensors 配置判定，forward 据此恢复原生 enorm、hnorm 和拼接路径。其他配置沿原有分发；不更改公共平台标记、量化方案、RMSNorm 实现或权重。
+
+直接执行自有 forward 到实际 EH projection 边界，使用原服务采集的输入、权重和布局：16 个 rank 共 320 例、160 次实际更新输入 graph 重放，EH 输出及 BF16 projection 均与原生 LightOp 路径逐值一致。最终构造门控版本另通过两个实际活跃 rank 的 20 组输入和 10 次更新输入 graph；GLM 配置命中、非 GLM 与无量化配置不命中。Ruff 0.12.1 CI 选项、Python AST、项目 L0、migration/guide 快照及 diff 检查通过。固定运行时提交 `ae3160f` 的 wheel（SHA256 `bba95325…a74b736`）安装后，经公开构造器与公开 forward 再验 20 组实际输入、10 次更新输入 graph，通过；729 个插件运行时文件中仅本次模型方法文件不同。四节点按原 P(PP2/CP8) → D(TP16/DP16/EP16/VP8，EAGLE5/1/6) 重启，每节点启动前核对 6887 个运行时文件，仅启用 hcu。最终以 curl 直接向 decode 发出冷请求（DP0，4095 输入/64 输出）和热请求（DP8，4096 输入/64 输出，P 命中 4032 token 缓存），两次执行真实 MTP；16 份 prefill 和 16 份 decode 原始 trace 均通过 gzip、JSON、rank 覆盖和本地哈希校验，诊断 hook 事件为 0。原始 ROCTracer duplicate-flow 警告保留，不据此判定 FlashMLA 事件缺失原因；第 2 项按用户分工交由用户查看 trace。未创建单测，未开展整模型精度复测。
+
+
+## 2026-11-06 GLM5.3 原生 profile 调用接入
+
+对照实际安装的原生 `e37bbf` SGLang 及 16-rank decode profile，修正 CT W4A8 DeepEP recv-hook 模式、masked SiLU 量化 expect_m 参数；将 GLM 主注意力/Indexer 的 RoPE 与缓存 dtype、DSA MLA 拼接接至镜像既有算子。来源、调用链、形状限制、加载归属与逐项状态见 [原生算子分发接入](glm53-native-operator-dispatch.md)。保留 W4A8 权重和 INT8/FP32 scale 契约及 producer-event 依赖，不改环境变量或在线服务。
+
+按用户本轮明确要求跳过同输入对拍、GPU/graph、整模型和性能复验；本轮只做项目 lint、语法和 diff 检查。代码接入与运行对齐分别记录，不宣称 kernel fault 或异常耗时已经修复。
+
+
+## 2026-11-06 GLM profile 异常耗时与多流门控
+
+对全部 32 份 trace 按 graph 和 stream 分析，adapter 多组相邻算子的长短耗时呈稳定错位，不能据原始名称断言 RMSNorm/SiLU 本体退化。真实额外延迟主要落在 MoE dispatch 到 combine 区间；并观察到一个 rank 约 35ms 停顿与其余 15 rank 的 dispatch 长等待对应。负载分别是 33 与 1 个逻辑请求，保留负载差异和计时关联的解释边界。
+
+实际源码确认 CUDA 兼容标记使 GLM 在 ROCm 多流开关为 0 时仍继承备用流。主 attention/Indexer、MoE、NextN 构造器现在按物理 HCU 与 GLM 架构恢复原生流使用门控，保留主 attention prefill CP 和显式多流分支。分析方法、数据与限制见 [kernel 耗时追查](glm53-kernel-timing-investigation.md)。本次遵循用户要求，不做 GPU/graph/整模型测试，不改环境、不切换服务，仅执行 CI lint、语法与 diff 检查。
+
+
+## 2026-11-07 GLM INT8 index-K 容量计费
+
+DTK 26.10 的 GLM-5.3 W4A8、TP16/DP16/EP16、EAGLE 5/1/6 服务在全部 Decode rank 实际分配 `int8_scaled` index-K：每层每 token 持久化 132 字节，每个池另有一份 BF16 解量化工作区和 page-claim 数组。旧 `around_compute_dsa_indexer_cell_size` 仅根据 gfx936 缺少原生 FP8 能力，错误进入 BF16 计费分支。主模型 21 个完整 indexer 层按 5376 字节计费，原生为 3029；MTP 按 256 字节计费，原生含工作区为 389。主模型与 MTP 总预算从每 token 55242 字节被放大至 57456 字节。
+
+修正先按池分配使用的 index-K mode resolver 确认模式；INT8 模式委托当前有效框架计费函数，保留工作区、page claim、层共享和 MTP 处理。既有 BF16 兼容分支保留，不修改存储格式、量化计算或服务环境变量。
+
+固定实际安装源码及模型配置的主机侧方法重放复现旧差异；修正后 INT8 主模型/MTP 计费与原生一致，BF16、FP8 和非 HCU 分支结果保持不变，诊断进程没有初始化 GPU。该证据使用显式运行上下文替身，不代替公开 Hook 接线和服务重启验证。在当前 98560 token 容量对应的相同预算区间内，修正后的预计容量为 102464–102528 tokens/rank；实际值待重启测量。在线 GPQA 评测保持原部署，本修正尚未部署，整模型精度与性能不能归为本修正验证。额外 scale 存储和其余显存差异另行追踪。
+
+
+## 2026-11-07 GLM main 整合的运行态差异复核
+
+在独立 main 整合工作区保留上游新增能力，并核对在线 DTK 26.10 site 的实际源码。CT W4A8 SiLU 量化显式保留在线已验证的 `expect_m=-1`；两次 GEMM 的 expected_m 不变。KV 计费修复已通过源码方法重放与项目 lint，但尚未部署。RoPE BF16 canonical cache 和原生 kernel 分发虽已在候选代码中，当前在线 site 尚不包含；在线精度/性能结果不能直接作为最终 main 组合的验证。
+
+在线 16 rank 的 MEM-only allocator 快照均存在各 76 个 2.25/2.375 MiB scale 分配，与 304 MiB 尾部保护一致；也存在各一个与 FP32/BF16 RoPE cache 大小吻合的分配。分配尺寸吻合尚不能代替张量地址绑定，启动阶段原生/候选对照仍待完成。MEM-only 导出造成约 36–40 秒请求处理停顿，该区间不能用于性能验收。
+
+
+## GLM W4A8 KV 存储修复（2026-11-07）
+
+本次使用 hcu-plugin-dev 流程，在已部署的 0.5.22.plugin 组合上处理三项明确差异。
+INT8 index-K 预算与实际缓存模式使用同一个 resolver，保留 BF16 回退与 INT8 workspace 预算。
+GLM 主注意力和 indexer 共享 BF16 canonical RoPE cache，保留已部署的 RoPE 算子分发，避免长期保留 FP32 cache 和 BF16 副本。
+CT MoE 的紧凑 scale 仅限 GLM DSA、16 个本地 expert、4096/6144 输出通道及 HIPC/Marlin masked 布局；保留 scale/16、FP32 scale 和 W4A8 权重布局，其他组合继续保留尾部空间。
+
+本次用户明确要求跳过组件对拍，直接进行整模型精度评测。因此，新增 scale 存储和 RoPE 组合的同输入数值、变输入 Graph 对拍标记为未执行，不能引用旧环境的组件结果作为本次通过依据。隔离部署保留原运行版本用于回退；启动、KV 容量及 GPQA 结果待实测记录。
+
+启动检查发现旧候选直接引用的 torch.ops RoPE 符号未在 DTK26.10 组合中注册；本次存储修复因此不引入该分发修改，只统一 canonical cache dtype。
+
+
+DTK26.10 隔离服务启动记录：D 端 16 rank 的实际预算 cell_size 为 55242 bytes/token，分配容量为 109440 tokens/rank（旧部署 98560，历史 DTK26.041 原生 113792）。模型对象清单确认主模型 150 个 MoE scale 的 storage bytes 等于 logical bytes，RoPE canonical cache 为 BF16、1048960×64，未保留 FP32 canonical cache。P 端实际服务容量为 4184256 tokens。紧凑 scale 的 16-expert 门控只覆盖本轮 D 布局；P 端 32-expert 布局仍保留原保护空间。
+
+旧部署评测在切换时保留 192 个完整评分记录：177 正确、15 错误，准确率 92.1875%；剩余题目中止，不能作为完整 198 题成绩。修复版使用相同 198 题、temperature=1、top_p=0.95、seed=42、max_tokens=65536、并发32，完整精度仍待新结果。
+
+
+### 后续基准与 main 整理
+
+当前完整 GPQA 正在运行；固定版本的 GSM8K（1319 题、4-shot）、HumanEval（164 题、0-shot、pass@1）和 HMMT Nov 2025（30 题、0-shot）已准备，等待 GPQA 完整结束后依次执行。沿用 thinking、T=1、top_p=0.95、seed=42、65536 输出上限、并发32，每题一次生成。HumanEval 保持 EvalScope 的代码拼接、抽取和官方测试，执行端改为无网络、无宿主挂载、无 GPU 的独立 CPU 容器。数据来源与版本、运行状态保存在本次验收产物；不能将排队状态写成精度通过。
+
+main 整理已同步正在评测的三个 KV 修复，并移除未部署的 raw torch.ops RoPE/MLA 拼接替换；已上线 JIT 拼接与 LightOp RoPE 保持原路径。main 现有其他变化仍须与固定 0.5.22.plugin 部署区分，当前整模型结果不自动代表 main 组合已验收。
 ## 2026-11-07 Phase 1 去重：fla×2 hook 退役 + W8A8 create_moe_runner 双注册收敛
 
 **fla/GDN hook 退役（A1/A2）**：`hcu_sglang/__init__.py` 不再 import/注册

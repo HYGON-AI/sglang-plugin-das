@@ -22,8 +22,8 @@
   },
   "semantics": "File dispositions are review records, not a runtime equivalence or completion percentage. Unlisted decisions remain pending. Historical mapping clues never imply validation.",
   "summary": {
-    "pending": 2651,
-    "in_progress": 62,
+    "pending": 2648,
+    "in_progress": 65,
     "implemented": 153,
     "upstream": 30,
     "separate_component": 114
@@ -15440,7 +15440,29 @@
       "relation": "changed",
       "fork_oid": "902633ee20ac87e8c2e403ad577f80458ada30c0",
       "official_oid": "9b7760df0aa840f6248a27877ad4d07f92319fd8",
-      "status": "pending"
+      "status": "in_progress",
+      "ownership_review_20261105": {
+        "owner": "plugin",
+        "rationale": "Official baa9bef already provides the base DSA LayerSplit pool and CP helpers. Preserve that implementation; review only DAS additions (MainKVPagePlan, compact page layout, scratch sharing and transport) for plugin ownership. Existing module presence is not a fork-only integration gap.",
+        "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+        "fork_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+        "runtime_alignment": "unverified",
+        "next_gate": "Complete actual prefill/decode/MTP/graph call and same-input numerical alignment before runtime changes.",
+        "migration_source": "plans/glm53-layersplit-source.json",
+        "candidate_implementation": [
+          "hcu_sglang/mem_cache/dsa_layer_split_integration.py",
+          "hcu_sglang/mem_cache/dsa_cache_layer_split.py"
+        ],
+        "candidate_status": "code_prepared_runtime_unverified",
+        "required_runtime_evidence": [
+          "actual configurator and constructor bindings",
+          "target/draft scratch data pointer identity and ownership",
+          "all CP ranks same-input page-plan and payload comparisons",
+          "stream switching and changing-input graph replay where supported",
+          "P/D transfer and recipient layer mapping"
+        ]
+      },
+      "rationale": "owned 实现已注册 2 个 Hook 目标（sglang.srt.mem_cache.dsa_cache_layer_split.LayerSplitDSATokenToKVPool, sglang.srt.mem_cache.dsa_cache_layer_split.LayerSplitIndexKeyCache），覆盖该来源模块的插件侧接线；逐方法签核与运行验证未完成。 GLM-5.3 scope: Official baa9bef already provides the base DSA LayerSplit pool and CP helpers. Preserve that implementation; review only DAS additions (MainKVPagePlan, compact page layout, scratch sharing and transport) for plugin ownership. Existing module presence is not a fork-only integration gap."
     },
     {
       "path": "python/sglang/srt/mem_cache/dsv41_request_window.py",
@@ -18897,7 +18919,30 @@
       "relation": "fork_only",
       "fork_oid": "d7bd48ac27381a801baaa2a277947b6ab9af08aa",
       "official_oid": null,
-      "status": "pending"
+      "status": "in_progress",
+      "ownership_review_20261105": {
+        "owner": "plugin",
+        "rationale": "VP core, process groups, vocabulary partitioning and top-1 reduction remain fork-owned.",
+        "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+        "fork_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+        "runtime_alignment": "unverified",
+        "next_gate": "Complete actual prefill/decode/MTP/graph call and same-input numerical alignment before runtime changes.",
+        "migration_source": "plans/glm53-vp-source.json",
+        "source_selection": "Use the native image implementation, matching maxiaobetter/sglang-das glm5.3-w4a8 at ac17298aeae1b149a17c4ce964619c782832d6a4; do not substitute the HYGON inventory implementation.",
+        "candidate_implementation": [
+          "hcu_sglang/speculative_vp/core.py",
+          "hcu_sglang/speculative_vp/config.py",
+          "hcu_sglang/speculative_vp/__init__.py"
+        ],
+        "candidate_status": "code_prepared_runtime_unverified",
+        "required_runtime_evidence": [
+          "actual hook bindings and shared weight identity",
+          "VP group ranks and collective participation including idle ranks",
+          "same-input native/component outputs",
+          "graph replay with changed inputs"
+        ]
+      },
+      "rationale": "DAS 独有新增文件，原清单未收录；本轮并入分母，处置待核。 GLM-5.3 scope: VP core, process groups, vocabulary partitioning and top-1 reduction remain fork-owned."
     },
     {
       "path": "python/sglang/srt/speculative/draft_utils.py",
@@ -19049,7 +19094,30 @@
       "relation": "changed",
       "fork_oid": "40d0cb7e1290e9b98eb908a50b051413d3fbb89d",
       "official_oid": "2ddca4bc97c1d09a38a85c14bd4c0924c1e6c137",
-      "status": "pending"
+      "status": "in_progress",
+      "ownership_review_20261105": {
+        "owner": "plugin",
+        "rationale": "VP initialization and consumption and LayerSplit draft scratch wiring require plugin ownership.",
+        "official_sha": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+        "fork_sha": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+        "runtime_alignment": "unverified",
+        "next_gate": "Complete actual prefill/decode/MTP/graph call and same-input numerical alignment before runtime changes.",
+        "migration_source": "plans/glm53-vp-source.json",
+        "source_selection": "Use the native image implementation, matching maxiaobetter/sglang-das glm5.3-w4a8 at ac17298aeae1b149a17c4ce964619c782832d6a4; do not substitute the HYGON inventory implementation.",
+        "candidate_implementation": [
+          "hcu_sglang/speculative_vp/worker.py",
+          "hcu_sglang/speculative_vp/logits.py",
+          "hcu_sglang/speculative_vp/__init__.py"
+        ],
+        "candidate_status": "code_prepared_runtime_unverified",
+        "required_runtime_evidence": [
+          "actual hook bindings and shared weight identity",
+          "VP group ranks and collective participation including idle ranks",
+          "same-input native/component outputs",
+          "graph replay with changed inputs"
+        ]
+      },
+      "rationale": "原 triage 未收录，本轮并入分母；处置状态待核。 GLM-5.3 scope: VP initialization and consumption and LayerSplit draft scratch wiring require plugin ownership."
     },
     {
       "path": "python/sglang/srt/speculative/frozen_kv_mtp_worker_v2.py",

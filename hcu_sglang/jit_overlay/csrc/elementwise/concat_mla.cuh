@@ -7,14 +7,31 @@
 #include <tvm/ffi/container/tensor.h>
 
 #include <algorithm>
+#ifndef USE_ROCM
 #include <cuda_bf16.h>
 #include <cuda_runtime.h>
+#endif
 
 namespace sglang {
+
+#ifdef USE_ROCM
+constexpr auto kConcatDeviceType = kDLROCM;
+#else
+constexpr auto kConcatDeviceType = kDLCUDA;
+#endif
 
 // ======================= Memory Utilities =======================
 // Adapted from DeepEP: https://github.com/deepseek-ai/DeepEP/blob/main/csrc/kernels/utils.cuh
 
+#ifdef USE_ROCM
+// These streaming accesses only copy bits; PTX cache hints are optional.
+SGL_DEVICE int get_lane_id() { return device::get_lane_id(); }
+SGL_DEVICE void st_na_global_v1(const int* ptr, int v) { *const_cast<int*>(ptr) = v; }
+SGL_DEVICE void st_na_global_v2(const int2* ptr, const int2& v) { *const_cast<int2*>(ptr) = v; }
+SGL_DEVICE int ld_na_global_v1(const int* ptr) { return *ptr; }
+SGL_DEVICE int2 ld_na_global_v2(const int2* ptr) { return *ptr; }
+SGL_DEVICE void prefetch_L2(const void*) {}
+#else
 SGL_DEVICE int get_lane_id() {
   int lane_id;
   asm("mov.s32 %0, %laneid;" : "=r"(lane_id));
@@ -46,6 +63,7 @@ SGL_DEVICE void prefetch_L2(const void* p) {
   asm volatile("prefetch.global.L2 [%0];" ::"l"(p));
 #endif
 }
+#endif
 
 // ======================= concat_mla_k Kernel =======================
 
@@ -149,7 +167,7 @@ struct ConcatMlaKKernel {
     TensorMatcher({N, H, D})
         .with_strides({S0_k, S1_k, 1})
         .with_dtype<bf16_t>()
-        .with_device<kDLCUDA>(device)
+        .with_device<kConcatDeviceType>(device)
         .ensure_alignment(kAlignNope)
         .verify(k);
 
@@ -157,7 +175,7 @@ struct ConcatMlaKKernel {
     TensorMatcher({N, H, D_nope})
         .with_strides({S0_k_nope, S1_k_nope, 1})
         .with_dtype<bf16_t>()
-        .with_device<kDLCUDA>(device)
+        .with_device<kConcatDeviceType>(device)
         .ensure_alignment(kAlignNope)
         .verify(k_nope);
 
@@ -165,13 +183,18 @@ struct ConcatMlaKKernel {
     TensorMatcher({N, 1, D_rope})
         .with_strides({S0_k_rope, -1, 1})
         .with_dtype<bf16_t>()
-        .with_device<kDLCUDA>(device)
+        .with_device<kConcatDeviceType>(device)
         .ensure_alignment(kAlignRope)
         .verify(k_rope);
 
     const int num_tokens = static_cast<int>(N.unwrap());
+    if (num_tokens == 0) return;
 
+#ifdef USE_ROCM
+    constexpr int num_warps_per_block = 8;
+#else
     constexpr int num_warps_per_block = 32;
+#endif
     const int grid_size = div_ceil(num_tokens * NUM_HEAD_CHUNKS, num_warps_per_block);
     const int block_size = num_warps_per_block * 32;
 
@@ -271,7 +294,7 @@ struct ConcatMlaAbsorbQKernel {
     TensorMatcher({N0_a, N1_a, D_a})
         .with_strides({S0_a, S1_a, 1})
         .with_dtype<bf16_t>()
-        .with_device<kDLCUDA>(device)
+        .with_device<kConcatDeviceType>(device)
         .ensure_alignment(kAlignA)
         .verify(a);
 
@@ -279,7 +302,7 @@ struct ConcatMlaAbsorbQKernel {
     TensorMatcher({N0_b, N1_b, D_b})
         .with_strides({S0_b, S1_b, 1})
         .with_dtype<bf16_t>()
-        .with_device<kDLCUDA>(device)
+        .with_device<kConcatDeviceType>(device)
         .ensure_alignment(kAlignB)
         .verify(b);
 
@@ -287,7 +310,7 @@ struct ConcatMlaAbsorbQKernel {
     TensorMatcher({N0_out, N1_out, D_out})
         .with_strides({S0_out, S1_out, 1})
         .with_dtype<bf16_t>()
-        .with_device<kDLCUDA>(device)
+        .with_device<kConcatDeviceType>(device)
         .ensure_alignment(kAlignOut)
         .verify(out);
 
@@ -298,9 +321,14 @@ struct ConcatMlaAbsorbQKernel {
     RuntimeCheck(N1_a.unwrap() == N1_b.unwrap(), "Dimension mismatch: a.size(1) must equal b.size(1)");
 
     const int num_items = static_cast<int>(N0_a.unwrap() * N1_a.unwrap());
+    if (num_items == 0) return;
     const int dim_1 = static_cast<int>(N1_a.unwrap());
 
+#ifdef USE_ROCM
+    constexpr int num_warps_per_block = 8;
+#else
     constexpr int num_warps_per_block = 32;
+#endif
     const int grid_size = div_ceil(num_items, num_warps_per_block);
     const int block_size = num_warps_per_block * 32;
 
