@@ -1,8 +1,13 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 import collections
 from contextlib import ExitStack
 from pathlib import Path
 import gc
+import io
 import pickle
+import pickletools
 import types
 import unittest
 import weakref
@@ -104,12 +109,27 @@ class MropeDeltaTests(unittest.TestCase):
     def test_cache_is_not_added_to_inputs_or_serialized(self):
         mm = self.mm()
         fields = set(vars(mm))
-        subject._mrope_delta_device(mm, "cpu")
+        cached = subject._mrope_delta_device(mm, "cpu")
         self.assertEqual(set(vars(mm)), fields)
-        clone = pickle.loads(pickle.dumps(mm))
-        self.assertEqual(set(vars(clone)), fields)
-        self.assertNotIn(id(clone), subject._delta_cache)
-        torch.testing.assert_close(clone.mrope_position_delta, mm.mrope_position_delta)
+        self.assertIsNot(cached, mm.mrope_position_delta)
+
+        class RejectDeviceCachePickler(pickle.Pickler):
+            def reducer_override(self, obj):
+                if obj is cached:
+                    raise AssertionError("device cache entered serialization")
+                return NotImplemented
+
+        for protocol in {pickle.DEFAULT_PROTOCOL, pickle.HIGHEST_PROTOCOL}:
+            with self.subTest(protocol=protocol):
+                payload = io.BytesIO()
+                RejectDeviceCachePickler(payload, protocol=protocol).dump(mm)
+                strings = {
+                    arg for opcode, arg, _ in pickletools.genops(payload.getvalue())
+                    if opcode.name in {"UNICODE", "BINUNICODE", "SHORT_BINUNICODE", "BINUNICODE8"}
+                }
+                self.assertTrue(fields.issubset(strings))
+                with self.assertRaisesRegex(AssertionError, "device cache entered serialization"):
+                    RejectDeviceCachePickler(io.BytesIO(), protocol=protocol).dump(cached)
 
     def test_request_collection_releases_cache(self):
         mm = self.mm()
