@@ -2196,7 +2196,7 @@ hcu_sglang/mem_cache/cpu_cache_methods.py       extracted_files，9 个来源，
 
 **二、真缺口表与 `separate_component` 不再双记**
 
-原 `mem-cache-no-coverage-20261106.json` 的 36 条与 decisions 状态冲突：13 条同时被记为缺口又被关闭为配置范围外，且**所有条目都没有待办字段**。新增 [gap-ledger v2](../artifacts/kv-cpu-20261105/gap-ledger-20261106-v2.json)（schema 2）分两栏，36 = **open 23 + closed 13**：
+原 `mem-cache-no-coverage-20261106.json` 的 36 条与 decisions 状态冲突：13 条同时被记为缺口又被关闭为配置范围外，且**所有条目都没有待办字段**。新增 gap-ledger v2（本地历史产物 `artifacts/kv-cpu-20261105/gap-ledger-20261106-v2.json`，未随仓库提交）（schema 2）分两栏，36 = **open 23 + closed 13**：
 
 ```text
 open_gaps 23  = 22 pending + 1 in_progress；每条带 todo，且 open/closed 交集为 0
@@ -2379,6 +2379,16 @@ push 到 origin 仍未执行，等用户明确确认。
 含义：27B 上逐位一致只说明该模型上这层转换无副作用，**不等于插件对所有模型都是 no-op**。
 
 未 commit、未 push。
+
+## 2026-11-06 Kimi K3.1 SituGLU W4A8 Triton MoE 支持补登（11-05 实测）
+
+完成模块/行为：kimi-k3.1 channel-wise W4A8（`SlimQuantW4A8Int8TritonMoEMethod`）支持 SituGLU 激活。`fused_experts_impl_w4a8_triton` 新增 `activation="situ"` 分支，数学对齐上游 `SituAndMul.forward_native`（`gate = beta*tanh(gate/beta)*sigmoid(gate)`，`up` 在 linear_beta 置位时软限幅为 `linear_beta*tanh(up/linear_beta)`，fp32 计算后回投原 dtype）；`_apply_triton`/`apply_ep` 从 `moe_runner_config.gemm1_alpha`/`gemm1_clamp_limit`（上游 `kimi_k3.py` 以 `activation_situ_beta`/`activation_situ_linear_beta` 填入）管线化双 betas，缺省 beta=1.0、linear_beta=None。新参数 keyword-only 带默认值，silu/gelu 分支与既有调用点不变；非 situ 模型即使配置了 gemm1_* 也不受影响（betas 仅在 situ 分支消费）。
+
+新增 `tests/runtime/w4a8_triton_current.py::W4A8KimiSituTests` 两项：CPU 契约测（`_apply_triton` 将 situ+双 betas 原样转交 impl；无 `gemm1_*` 的 silu 形 config 走缺省不崩）与 GPU 数值测（kimi-k31 形状 latent MoE，EXPERTS=8/LATENT=64/moe_intermediate=128，beta=1.25/linear_beta=8.0，对拍 fp32 参考实现，rtol/atol=0.03，无 CUDA 自动 skip）。
+
+实际验证（2026-11-05，nmz26 `lizhg_k31` 容器，gfx936 单卡）：`tests/runtime/w4a8_triton_current.py` 5 项（既有 3 + 新增 2）全部通过（12.91s）。
+
+未验证项：`apply_ep` 的 betas 管线无独立单测（与 `_apply_triton` 对称实现，靠代码路径保障）；kimi-k3.1 端到端服务、TP>1/EP 并行、其他激活/量化模型回归（仅既有 3 测）与性能均未验证。
 
 ## 2026-11-07 Phase 1 去重：fla×2 hook 退役 + W8A8 create_moe_runner 双注册收敛
 

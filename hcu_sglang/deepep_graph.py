@@ -18,6 +18,8 @@ consistent expert routing across the captured graph.
 
 from __future__ import annotations
 
+from typing import Callable, Optional
+
 from sglang.srt.layers.moe.token_dispatcher.deepep import DeepEPBuffer
 from sglang.srt.model_executor.runner_utils import deepep_adapter as A
 from sglang.srt.model_executor.runner import decode_cuda_graph_runner as N
