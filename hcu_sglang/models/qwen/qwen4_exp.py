@@ -191,6 +191,9 @@ def around_load_weights(original, model, weights, *, mtp=False):
             emb = modules[match[1]].ngram_embedding
             field = match[3]
             destination = getattr(emb, field)
+            # Same placement as sglang-das: shard i fills slice i. A wide
+            # tensor spills into the next slices; those slices are then
+            # overwritten by the following shards' first blocks.
             shard_size = (emb.org_vocab_size + shards - 1) // shards
             start = int(match[2]) * shard_size
             lo = max(start, emb.shard_indices.org_vocab_start_index)

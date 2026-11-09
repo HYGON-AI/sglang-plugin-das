@@ -846,18 +846,22 @@ class NGramMethods:
         ple_int8 = False
         ple_fp8_channelwise = False
         ple_not_ignored = False
+        # Constructor prefix is the PLE module ("...ple.ple_embedding").
+        # Quant ignore/target regexes are written against the ngram table.
+        ngram_name = prefix if prefix.endswith("ngram_embedding") else (
+            f"{prefix}.ngram_embedding" if prefix else "ngram_embedding")
         if quant_config is not None and quant_config.get_name() == "compressed_tensors":
             ignore = getattr(quant_config, "ignore", ())
             # Match the shard naming used in -ngram checkpoints. Using
             # ".weight" is wrong for FP8-ngram ignore regexes that only carve
             # out "...ngram_embedding.shard_N" without a trailing ".weight".
             ple_not_ignored = not should_ignore_layer(
-                f"{prefix}.shard_0", ignore
+                f"{ngram_name}.shard_0", ignore
             )
             if ple_not_ignored:
                 targets = getattr(quant_config, "target_scheme_map", {})
                 for target, scheme in targets.items():
-                    if not check_equal_or_regex_match(prefix, (target,)):
+                    if not check_equal_or_regex_match(ngram_name, (target,)):
                         continue
                     weight_args = scheme.get("weights") if scheme else None
                     weight_type = getattr(weight_args, "type", None)
@@ -884,7 +888,7 @@ class NGramMethods:
             if weight_bits == 8 or weight_bits == "8":
                 ignore = getattr(quant_config, "ignore", ()) or ()
                 ple_not_ignored = not should_ignore_layer(
-                    f"{prefix}.shard_0", ignore
+                    f"{ngram_name}.shard_0", ignore
                 )
                 if ple_not_ignored:
                     ple_int8 = True
