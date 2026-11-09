@@ -15,10 +15,15 @@
 
 from __future__ import annotations
 import functools
-from typing import Callable
-import sglang.srt.layers.moe.ep_moe.layer as _native_ep
+from typing import Callable, Optional
 
-globals().update({name:value for name,value in vars(_native_ep).items() if not name.startswith('__')})
+import torch
+from sglang.srt.batch_overlap.single_batch_overlap import DownGemmOverlapArgs
+from sglang.srt.utils import get_bool_env_var
+from hcu_sglang.layers.moe.deepep_current import (
+    DeepEPLLDispatchOutput,
+    DeepEPNormalDispatchOutput,
+)
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.layers.moe import deepep_current as D
 from sglang.srt.runtime_context import get_disagg
@@ -577,6 +582,10 @@ def around_ep_init(original, layer, *args, **kwargs):
         from hcu_sglang.layers.moe.deepep_int8 import configure_layer
         bound = inspect.signature(original).bind(layer, *args, **kwargs)
         configure_layer(layer, bound.arguments.get("quant_config"))
+    if _is_hcu and getattr(getattr(layer, "quant_method", None), "hcu_w4a8_hipc", False):
+        from sglang.srt.layers.moe.utils import get_deepep_mode
+        layer.deprecate_flag = False
+        layer.deepep_mode = get_deepep_mode()
     if _use_hcu_legacy_channel_fp8_deepep(layer):
         layer.deprecate_flag = False
         layer.use_fp8_w8a8 = True
@@ -597,6 +606,9 @@ def around_process_weights(original, scheme, layer):
 
 
 def around_run_moe_core(original, layer, dispatch_output, *args, **kwargs):
+    if _is_hcu and getattr(getattr(layer, "quant_method", None), "hcu_w4a8_hipc", False):
+        from hcu_sglang.layers.moe.ct_w4a8 import run_moe_core
+        return run_moe_core(layer, dispatch_output)
     if _is_hcu and getattr(layer, "use_int8_w8a8_deepgemm", False):
         from hcu_sglang.layers.moe.deepep_int8 import run_moe_core
         return run_moe_core(layer, dispatch_output)
