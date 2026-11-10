@@ -109,6 +109,9 @@ def patch_broken_torchaudio_availability() -> None:
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    from hcu_sglang import eagle_sampling
+
+    eagle_sampling.register_hooks()
     patch_broken_torchaudio_availability()
     from hcu_sglang.speculative_sampling import (
         around_can_use_sparse_target_sampling,

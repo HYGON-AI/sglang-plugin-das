@@ -304,7 +304,7 @@ def run_moe_core(layer, dispatch_output):
         wrapper = D.DeepEPNormalCombineInput
     elif DispatchOutputChecker.format_is_deepep_ll(dispatch_output):
         output = forward_masked(layer, dispatch_output)
-        layer.dispatcher.record_combine_input_ready_event()
+        D.record_combine_input_ready_event(layer.dispatcher, dispatch_output)
         wrapper = D.DeepEPLLCombineInput
     else:
         raise ValueError("HCU CT W4A8 requires DeepEP normal or low-latency dispatch")

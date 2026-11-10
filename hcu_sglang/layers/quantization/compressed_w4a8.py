@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 import torch
 import torch.nn.functional as F
 from sglang.srt.layers.quantization.base_config import FusedMoEMethodBase
@@ -23,6 +24,12 @@ from sglang.srt.utils import set_weight_attrs
 from hcu_sglang.layers.quantization.w4a8_utils import w4a8_weight_repack_impl
 
 logger = logging.getLogger(__name__)
+
+
+def _load_transposed_checkpoint_weight(
+    original_loader, param, loaded_weight, *args, **kwargs
+):
+    return original_loader(param, loaded_weight.t().contiguous(), *args, **kwargs)
 
 
 class HCUW4A8Int8DeepEPMoEMethod(FusedMoEMethodBase):
@@ -45,6 +52,10 @@ class HCUW4A8Int8DeepEPMoEMethod(FusedMoEMethodBase):
         # Retain checkpoint names and CT loader partitioning until post-load.
         # No actorder indices or zero points are needed for this qualified path.
         extra_weight_attrs.update(is_transposed=True, quant_method="channel")
+        if "weight_loader" in extra_weight_attrs:
+            extra_weight_attrs["weight_loader"] = partial(
+                _load_transposed_checkpoint_weight, extra_weight_attrs["weight_loader"]
+            )
         shapes = {
             "w13_weight_packed": (
                 num_experts,

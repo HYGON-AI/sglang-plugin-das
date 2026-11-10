@@ -86,8 +86,15 @@ def __init__(
         self.page_size if _is_hcu else self.page_size // index_kpool
     )
     layer_range = range(self.start_layer, self.start_layer + self.layer_num)
+    if skip_topk_layers is not None and len(skip_topk_layers) != self.layer_num:
+        raise ValueError("skip_topk_layers must have one entry per local layer")
     if indexer_layer_ids is None:
-        resolved_indexer_layer_ids = tuple(layer_range)
+        resolved_indexer_layer_ids = tuple(
+            layer_id
+            for layer_id in layer_range
+            if skip_topk_layers is None
+            or not skip_topk_layers[layer_id - self.start_layer]
+        )
     else:
         if len(indexer_layer_ids) != len(set(indexer_layer_ids)):
             raise ValueError("indexer_layer_ids must not contain duplicates")
@@ -259,7 +266,9 @@ def _create_index_k_buffer(self):
         self.index_k_buffer = [
             N.torch.zeros(
                 (
-                    num_pages,
+                    num_pages
+                    if self._should_allocate_index_layer(layer_id - self.start_layer)
+                    else 0,
                     self.page_size,
                     1,
                     self.index_head_dim,
@@ -267,7 +276,7 @@ def _create_index_k_buffer(self):
                 dtype=self.index_k_buffer_dtype,
                 device=self.device,
             )
-            for _ in range(self.indexer_layer_num)
+            for layer_id in self.indexer_layer_ids
         ]
 
 def _get_indexer_cache_index(self, layer_id: int) -> int:

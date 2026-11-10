@@ -95,6 +95,8 @@ from sglang.kernels.ops.quantization.fp8_kernel import fp8_dtype
 from hcu_sglang.layers.attention.current_dsa.dsa_topk_backend import DSATopKBackend, TopkTransformMethod
 from hcu_sglang.utils.detection import is_hcu
 _is_hcu = is_hcu()
+if _is_hcu:
+    from hcu_sglang.layers.attention.current_dsa.dequant_k_cache import dequantize_k_cache_paged
 from hcu_sglang.layers.attention.current_dsa.flashmla_backend import DSAFlashMLAMetadata, can_fuse_flashmla_metadata, get_flashmla_op, refresh_flashmla_metadata, wrap_flashmla_metadata_result
 from hcu_sglang.layers.attention.current_dsa.forward_batch_utils import effective_forward_mode, get_flashmla_kv_valid_rows
 from hcu_sglang.layers.attention.current_dsa.dsa_backend_mtp_precompute import DeepseekSparseAttnBackendMTPPrecomputeMixin, PrecomputedMetadata, fill_decode_page_table_gpu
