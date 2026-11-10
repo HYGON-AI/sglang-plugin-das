@@ -1952,3 +1952,34 @@ PR #37 的 HumanEval/MATH500 TP2、并发 8 预检触发实际服务退出：BHS
 本次仅将矩形 query 视图的构造移到 BHSD varlen 分支返回之后；varlen 原生接口继续直接接收扁平 query 和 cu_seqlens_q。单步 decode、固定长度 verify 及关闭 HCU layout 后的既有调用契约保持原路径，不改 adapter/官方源码。
 
 公共接口的 BF16/FP8 变长 prefill 用例在修复前均失败；修复后配置、query 与接口回归共 30 项通过。query_lengths=[3,7]、KV lengths=[67,75]、GQA=6、D=256、page=64 的 BF16/FP8 原生 GPU 输出均匹配 FP32 参考，最大绝对误差 0.00390625。L0、Ruff CI 规则、guide snapshot 与 diff 检查见本次验证记录。当前 prefill Graph 关闭，变长 prefill Graph 未验证；后续 TP2 并发全量精度使用固定新快照重新运行，原先失败尝试不与新结果混用。
+## 2026-11-09 mRoPE delta 设备缓存迁入插件
+
+固定组合：official `baa9befa381511cd4d56f83980951e5a45fffc6d`、adapter `3ad198a3eefcf858ffa425ed1ff5f03543ab4391`、plugin `40dee477cc3e63e038f420e2365916a4921624a1` 加工作区修改。开始前已有随机采样相关的未提交修改，本次保留；不将这些内容计为本次实现。
+
+来源是用户提供的 DAS `schedule_batch.py` 与 `forward_batch_info.py` 差异：为每请求的 mRoPE delta 缓存设备副本，并在 speculative/普通 decode 中直接构造设备端 delta，避免每轮 CPU stack/upload 和 CPU scalar 重建。固定官方版本在 CUDA/ROCm 上同样没有这一请求级缓存机制，因此按职责治理归入 plugin；adapter 和 official 源码保持原样。
+
+实现位于 [mrope_delta.py](../hcu_sglang/mrope_delta.py)，由 plugin 唯一聚合入口注册两个 AROUND 目标：`ForwardBatch.compute_spec_mrope_positions` 与 `ForwardBatch._compute_mrope_positions_decode`。官方 HookRegistry 先应用类 REPLACE，再将方法 Hook 绑定到最终 HCU ForwardBatch；目标合同同步增加这两项。非 HCU 不注册；文本、RL on-policy 和普通 decode 的预计算空间位置继续调用当前有效 original。speculative 调用保留显式 seq_positions 的 draft-extend 路径。
+
+缓存是按输入对象身份索引、由 weakref 回收的进程内 sidecar，不添加或替换 MultimodalInputs 字段，不进入该对象的 pickle/dataclass 序列化。缓存保留 pinned 源及设备副本，按设备隔离；源对象更换或可读取的 tensor version 改变时失效。inference tensor 无 version，沿用请求元数据创建后不再原地改写的约定。首次复制记录 ready event，新的消费 stream 先等待，设备副本通过 record_stream 保持生命周期。请求回收后清理 sidecar。
+
+实际验证：
+
+- `python -m unittest discover -s tests -p test_mrope_delta.py -v`：10 项通过，使用真实 MultimodalInputs、ForwardBatch 构造与官方 HookRegistry，覆盖混合批次、1/3/4 speculative 宽度、显式位置、decode 参考结果、请求复用、源替换/修改、回收、pickle、inference tensor 和有效 original 回退。
+- 0、1 号 HCU 分别经完整 plugin 注册及最终 ForwardBatch 分发验证；这是两张卡各自的设备级测试，不是 collective 测试。每卡旧 spec 路径五次调用观测到 5 次 pageable 阻塞 CPU→GPU `aten::_to_copy`；新路径首次 1 次 pinned non_blocking 上传，后续 5 次 spec 加 5 次普通 decode 的 `_to_copy` H2D 为 0。该计数不覆盖旧 `torch.tensor(device=...)` 内部直接上传，不能将其写为全部 H2D 数量。跨 stream 消费、改变位置输入后两次真实 CUDAGraph replay 均通过。
+- TP2 Qwen3.8-27B、MTP NEXTN 3/1/4（服务归一化为 EAGLE）、decode Graph 开启，真实服务验收通过。`17×19` 回答 `323` 且正常 stop；图片请求记录 1476 image tokens、21 completion tokens 且正常 stop。另一个固定 32-token 的原生生成请求记录 8 次 verify、24 个 proposed/correct drafts，用于确认实际 MTP 执行，不作为精度或吞吐结论。完整请求响应与有效配置见证据目录；服务保留在容器 localhost:30523。
+
+证据目录 `${EVIDENCE_ROOT}` 为本次容器的 `/sgl/mtp-mrope-plugin-20261109-01`，包含原始基线状态、已有 dirty 的备份、CPU/GPU 日志、可重放 GPU probe 与 `gpu-results.json`。GPU probe 首次计数断言误将 direct tensor 构造计为 `_to_copy`，保留 `gpu-probe-attempt1.log`；修正检测口径后重跑通过，未因此修改实现或放宽数值断言。
+
+已存在的可选 diffusion Hook 解析失败与 adapter CuTeDSL 缺 CUDA binding 软错误保留在日志，不属于本次修复和验证范围。尚未进行端到端性能 A/B、全模型精度、并发压力及其他模型/硬件验收；单个元数据上传消除不等于所有 MTP 空泡均已消除。网页导览重建后做结构/快照检查；当前服务器没有浏览器可执行文件，实际浏览器截图、交互和窄屏检查未执行。
+
+### 2026-11-09 同步 sample 合入后的 release 基线
+
+重新获取 `release/sglang_v0.5.22` 后，plugin 基线为 `23ed5ce`（NEXTN 随机采样修复 #35 已合入），adapter 基线为 `0d5d73b`，official 仍固定为 `baa9befa381511cd4d56f83980951e5a45fffc6d`。远端 release 历史已改写：同步前保留两仓旧 HEAD 的本地 backup 分支与插件完整 stash，并保存所有未提交文件。adapter 新旧 tree 完全一致，仅 commit 身份变化。旧工作区的 sampling 实现与上游仅差一个文件末尾空行，兼容 Hook 和 sampling 测试逐字一致，故保留最新已合入版本。
+
+本次只恢复请求级 mRoPE 设备缓存、聚合入口、两个目标合同和针对性测试；沿用上游其他新增内容，重新生成导览。原始迁入和 GPU/服务/性能结果仍归属于上节记录的旧组合，不冒充更新后的重跑结果。同步前后的证据位于 `${REAPPLY_EVIDENCE_ROOT}`（本次为 `/sgl/mrope-reapply-latest-20261109-01`）。此前用户要求的 node1 图片测试和 trace 已完成并关闭服务。本次同步后 14 项针对性回归通过（mRoPE 10 项、已合入 sampling 4 项），L0、导览生成/快照检查和 git diff --check 通过；未重启模型，未在新组合重测 GPU/模型服务与性能。当前服务器无浏览器可执行文件，导览实际浏览器渲染、交互及窄屏检查仍未执行。
+
+### PR #36 序列化测试安全扫描修正
+
+原测试对当场生成的 pickle payload 做 round-trip，触发 HYGON pickle 反序列化扫描告警。当前使用受约束的 Pickler 写入真实 MultimodalInputs，再通过 pickletools 静态检查字段；reducer_override 拒绝缓存 tensor 进入序列化，并直接序列化该 tensor 验证拒绝分支确实生效。覆盖默认和最高协议，保留缓存隔离断言，消除反序列化调用。
+
+同时按现有仓库模板为本次两个新增 Python 文件补齐 HYGON/Apache-2.0 文件头，对应新增源码归属复核告警。运行时逻辑保持原样；14 项针对性回归通过，文件头补齐前后可执行 AST 一致；L0、导览生成/快照检查及 diff 检查通过。
