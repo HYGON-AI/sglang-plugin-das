@@ -1587,7 +1587,13 @@ class DeepEPDispatcher(BaseDispatcher):
         self._update_stage(_Stage.AFTER_DISPATCH_A, _Stage.AFTER_DISPATCH_B)
         inner_state = self._dispatch_intermediate_state
         del self._dispatch_intermediate_state
-        return self._get_impl().dispatch_b(*inner_state)
+        impl = self._get_impl()
+        output = impl.dispatch_b(*inner_state)
+        if isinstance(impl, _DeepEPDispatcherImplLowLatency) and impl.quant_config.get(
+            "hcu_w4a8_deepep_ll_producer_event", False
+        ):
+            self._combine_input_dispatch_output = output
+        return output
 
     def combine(
         self,
@@ -1642,13 +1648,18 @@ class DeepEPDispatcher(BaseDispatcher):
         if self.deepep_mode.enable_normal():
             self._normal_dispatcher.set_quant_config(quant_config)
 
-    def record_combine_input_ready_event(self) -> None:
+    def record_combine_input_ready_event(self, dispatch_output=None) -> None:
+        if dispatch_output is not None and getattr(
+            self, "_combine_input_dispatch_output", None
+        ) is not dispatch_output:
+            raise RuntimeError("Combine-input event does not own this dispatch output")
         impl = self._get_impl()
         if not isinstance(impl, _DeepEPDispatcherImplLowLatency):
             raise RuntimeError(
                 "Combine-input ready events require DeepEP low-latency mode"
             )
         impl.record_combine_input_ready_event()
+        self._combine_input_dispatch_output = None
 
     def set_overlap_args(
         self, combine_overlap_args: CombineOverlapArgs, meta_overlap_args: dict
@@ -1684,6 +1695,23 @@ class DeepEPDispatcher(BaseDispatcher):
         if self._deepep_combine_hooks is None:
             self._deepep_combine_hooks = _DeepEPCombineHooks()
         return self._deepep_combine_hooks.register_hook(hook)
+
+
+def record_combine_input_ready_event(dispatcher, dispatch_output):
+    inners = (
+        [dispatcher]
+        if isinstance(dispatcher, DeepEPDispatcher)
+        else getattr(dispatcher, "_inners", ())
+    )
+    owners = [
+        inner
+        for inner in inners
+        if isinstance(inner, DeepEPDispatcher)
+        and getattr(inner, "_combine_input_dispatch_output", None) is dispatch_output
+    ]
+    if len(owners) != 1:
+        raise RuntimeError("Combine-input event requires exactly one dispatch owner")
+    owners[0].record_combine_input_ready_event(dispatch_output)
 
 
 import sglang.srt.layers.moe.token_dispatcher.deepep as _native

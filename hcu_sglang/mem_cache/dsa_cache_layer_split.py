@@ -235,7 +235,11 @@ class LayerSplitIndexKeyCache(IndexKeyCache):
 
     def _layer_num_pages(self, layer_idx: int, num_pages: int) -> int:
         layer_id = self.pool.indexer_layer_ids[layer_idx]
-        return num_pages if self.pool._is_layer_owned(layer_id) else 0
+        return (
+            super()._layer_num_pages(layer_idx, num_pages)
+            if self.pool._is_layer_owned(layer_id)
+            else 0
+        )
 
     def clear(self) -> None:
         super().clear()

@@ -517,6 +517,20 @@ class BaseKVReceiverMethods:
         """
         ...
 
+def around_fake_send_metadata(
+    original,
+    receiver,
+    kv_indices,
+    aux_index=None,
+    state_indices=None,
+    decode_prefix_len=None,
+    spec_metadata=None,
+):
+    return original(
+        receiver, kv_indices, aux_index, state_indices, decode_prefix_len
+    )
+
+
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     from sglang.srt.disaggregation.common import utils as U
@@ -575,3 +589,8 @@ def register_hooks():
     if not hasattr(B.BaseKVSender, 'set_pd_hidden_chunk_meta'):
         setattr(B.BaseKVSender, 'set_pd_hidden_chunk_meta', BaseKVSenderMethods.__dict__['set_pd_hidden_chunk_meta'])
     HookRegistry.register("sglang.srt.disaggregation.base.conn.BaseKVReceiver.send_metadata", BaseKVReceiverMethods.__dict__["send_metadata"], HookType.REPLACE)
+    HookRegistry.register(
+        "sglang.srt.disaggregation.fake.conn.FakeKVReceiver.send_metadata",
+        around_fake_send_metadata,
+        HookType.AROUND,
+    )

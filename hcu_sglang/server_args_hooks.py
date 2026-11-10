@@ -280,6 +280,10 @@ def _hcu_post_process(view):
 
 
 def _model_resolution(server_args, previous):
+    if is_hcu() and _resolving_view(server_args).enable_dsa_cache_layer_split:
+        from hcu_sglang.layer_split_pipeline import adapt_model_adjustments
+
+        previous = adapt_model_adjustments(previous)
     return handle_model_specific_adjustments(previous, server_args)
 
 

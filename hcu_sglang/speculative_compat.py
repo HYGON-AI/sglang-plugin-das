@@ -109,6 +109,9 @@ def patch_broken_torchaudio_availability() -> None:
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    from hcu_sglang import eagle_sampling
+
+    eagle_sampling.register_hooks()
     patch_broken_torchaudio_availability()
     HookRegistry.register(
         "sglang.srt.arg_groups.speculative_hook._handle_dspark",

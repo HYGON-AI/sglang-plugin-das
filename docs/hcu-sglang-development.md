@@ -2716,3 +2716,23 @@ Phase 1 遗留的组合栈 "Multiple AROUND hooks" 告警（6 目标 ×4 进程 
 - 本次组合验证还依赖：
   - adapter-das 同批 PR（platform_seam、sparse FlashMLA 分块、paged MQA 调度表用 lightop 规划器、HYV4 CT scale 命名、weak_ref torch 路由）；
   - 尚未入库的 `jit_overlay` 问题：与官方一致的影子文件会遮蔽 adapter 的 JIT 补丁，单独处理。
+
+## 2026-11-10 官方 SGLang 0.5.22 上的 GLM-5.3 W4A8 PP + LayerSplit
+
+官方 `release/v0.5.22` 的 DSA 参数检查会拒绝 PP>1 与 LayerSplit 的组合。
+plugin 在官方 `handle_model_specific_adjustments` Hook 上仅替换 HCU 的
+这一处分支，继续检查 DSA prefill、CP、Mooncake 和 HiCache L3 的约束。
+此路径依赖 adapter 的 `rewrite_resolution_function` 来保留已生效的
+元数据适配。
+
+P/D 接线补齐 prefill 的跨 PP stage 请求准入和传输完成状态同步、外部 KV
+状态初始化，以及 Fake KV warmup 的可选参数兼容。首层 KV 预取按当前 PP
+stage 与 forward batch 初始化。INT8 index-K 只为活动索引层分配持久缓存，
+并将反量化 workspace 和页 claim 计入容量。历史 KV 读取、CT 权重布局、
+DeepEP 事件所属 dispatcher 和 GLM CT EAGLE 采样沿用已核对的 HCU 路径。
+
+节点组合使用官方 `baa9befa`，P=PP2/TP8/CP8/EP8，D=TP16/DP16/EP16，
+保留 W4A8、FP8 KV 与 EAGLE。GPQA Diamond 为 181/198，HMMT Nov25 为
+25/30，HumanEval pass@1 为 162/164。分数对应合并功能修复及整理变更的
+节点快照。当前 PR 在最新主线上的验证范围是本地检查与接口对照，未在新
+主线组合重跑 GPU 全量 profile 或精度评测。

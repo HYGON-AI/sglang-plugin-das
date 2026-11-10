@@ -59,3 +59,8 @@ def register_hooks():
 
     from hcu_sglang.disagg import decode as pd_decode
     pd_decode.register_hooks()
+    from hcu_sglang.disagg import pp as pd_pp
+    pd_pp.register_hooks()
+
+    from hcu_sglang.disagg import external_kv_state
+    external_kv_state.register_hooks()
