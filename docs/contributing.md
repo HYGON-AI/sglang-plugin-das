@@ -44,7 +44,7 @@ flowchart TB
 |---|---|---|
 | 仅文档/skill | 标题与用途、路径/锚点、当前/规划区分、规则一致；执行 L0；Skill 改动做元信息校验 | [文档约定](README.md)、[CI](ci.md) |
 | 工具行为 | 对应实际契约测试与 L0；保留输入/输出保护 | [迁移](migration.md)、[回溯](backtracking.md) |
-| 首次运行时实现 | 先审查目录、entry point、依赖和阶段 gate；增加对应测试 | [架构规划](architecture.md#4-未来运行时目录规划) |
+| 首次运行时实现 | 先审查目录、entry point、依赖和阶段 gate；增加对应测试 | [架构规划](architecture.md#4-当前运行时职责与整理边界) |
 | 新能力或 Hook | 顶层可达、目标解析、签名/顺序、支持与回退、状态副作用；适用 GPU/组合 lane | [开发](plugins.md)、[验证](validation.md) |
 | 配置或依赖 | 所有者、默认、显式覆盖、最低版本和组合测试 | [配置](configuration.md) |
 

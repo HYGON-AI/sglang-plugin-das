@@ -25,9 +25,9 @@ python3 -m unittest discover -s tests -v
 
 ## 2. 自动化接入现状
 
-[.workflow/l0-gate.yml](../.workflow/l0-gate.yml) 目前仅保存 runner-neutral 命令配方，**未绑定托管 CI 平台**。本仓不声称已经在 push/MR 时自动执行，也没有常驻 watcher 或 GPU runner。
+[GitHub Quality Gate](../.github/workflows/quality-gate.yml) 已声明 PR 触发，并调用 `HYGON-AI/quality-gate` 的 `stable` 可复用工作流；实际结果以对应 PR run 为准。它与 [.workflow/l0-gate.yml](../.workflow/l0-gate.yml) 的本地结构门禁配方不同，不能据此声称 L0、完整测试或 GPU 验证已自动执行。
 
-接入时需明确平台、触发事件、Python 版本、工作目录、凭据使用方式、日志与退出码，再做一次真实触发验证。参考 adapter 的分层思路，不直接复制其镜像、硬件占用策略和已有门禁脚本。
+继续接入结构或硬件门禁时，需明确平台、触发事件、Python 版本、工作目录、凭据使用方式、日志与退出码，再做一次真实触发验证。参考 adapter 的分层思路，不直接复制其镜像、硬件占用策略和已有门禁脚本。
 
 ## 3. 验证分层与运行时门禁规划
 
@@ -46,7 +46,7 @@ python3 -m unittest discover -s tests -v
 - **放行顺序**：adapter 格 L1.5 绿 → adapter+plugin 格 L1.5 diff 干净 → L1.6 绿 → L2；每级失败定位到唯一责任仓，不得假定任何两个最新 HEAD 兼容。
 - 「官方 + plugin（无 adapter）」不是验收组合，仅诊断（见 [governance](governance.md#3-组合验证矩阵)）；L2 天然只有组合格。
 
-首次引入 `pyproject.toml` 或运行时目录时，要先更新 [架构阶段](architecture.md#4-未来运行时目录规划)、L0 的当前排除约束与相应测试。不能只删除禁止规则而不增加运行时质量约束。
+首次引入 `pyproject.toml` 或运行时目录时，要先更新 [架构阶段](architecture.md#4-当前运行时职责与整理边界)、L0 的当前排除约束与相应测试。不能只删除禁止规则而不增加运行时质量约束。
 
 ## 4. 失败与缺失条件的处理
 
@@ -72,7 +72,7 @@ python3 -m unittest discover -s tests -v
 
 [离线导览](../architecture.html) 内嵌当前文档与 Skill 内容，不在浏览时读取外部网络。修改共享文件或 [网页模板](../templates/architecture.html) 后，运行 `python3 tools/build_guide.py` 重新生成，随后运行 `python3 tools/build_guide.py --check`；后者只读比较，快照过期时非零退出。完整原文仍在 docs/skills/tools 等目录维护，不直接手改生成页。
 
-浏览器或 DOM 验证覆盖页面内跳转、文档章节链接、搜索与无结果状态、请求复制反馈、移动导航和历史返回；实际视觉渲染与 DOM 测试分别记录，不以语法或链接检查代替渲染结论。当前 runner 配方包含快照检查，接入平台后才形成自动 CI。
+浏览器或 DOM 验证覆盖页面内跳转、文档章节链接、搜索与无结果状态、请求复制反馈、移动导航和历史返回；实际视觉渲染与 DOM 测试分别记录，不以语法或链接检查代替渲染结论。当前 L0 runner 配方包含快照检查；该项接入平台后才形成自动快照门禁，不能与现有 PR Quality Gate 混为一谈。
 
 模块迁移规划页另由 `python3 tools/build_migration_plan.py --check` 检查计划定义、保存的源码盘点与 HTML 是否一致；该命令不重新访问输入仓库。三份来源版本变化后按 [规划维护指南](sglang-das-migration-plan.md#4-重新采集与维护) 显式重新采集，不能把缓存页面通过当作当前源码已审计。
 
