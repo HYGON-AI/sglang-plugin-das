@@ -2033,3 +2033,27 @@ GPU 对测试进程不可见；仅将导入所需的硬件探测及构造所需�
 将本次运行时改动暂时还原到基线重跑 `test_hcu_runtime.py`，同样为 6 tests、2 failures，
 随后完整恢复修复。mRoPE 的 import error 来自禁用 GPU 后官方模块导入期硬件探测；
 使用上述 CPU 探测夹具后其 10 项测试均通过。未修改这些无关实现与测试来消除告警。
+
+## 2026-11-10 hook 目标守卫：启动 traceback 归零
+
+问题来源：2026-11-09 Qwen3.8-Flash-Next W4A8 PD 压测的 `psg.out` / `dsg.out` 各含 226 条 traceback，其中 210 条是 `Failed to apply hooks to <target>`，覆盖 15 个目标 × 7 进程 × 2 次启动；另有 16 条 adapter 侧 `No module named 'cuda'`。服务运行期零 traceback，压测 1269 条请求全 200。分析见 `811/sglang-pd-log-analysis-20261110/`。
+
+基线：plugin `c6ec4f5`、adapter `0d5d73b`（`release/sglang_v0.5.22` 最新），official v0.5.22 仍为 `baa9befa381511cd4d56f83980951e5a45fffc6d`。
+
+15 个失败目标里 14 个是 multimodal/video-generation 面（Wan2.2 / LTX2 / MiniMax-H3 的 config 与 runtime），文本模型永不加载；核对官方树后确认这些符号**存在**，日志里的 `AttributeError: module 'sglang.multimodal_gen.configs' has no attribute 'pipeline_configs'` 源于子包懒加载链在 `diffusers` 处中断（官方 `pyproject.toml` 把它放在 `[project.optional-dependencies].diffusion` 可选组）。第 15 个 `_sync_eagle_verify_outputs` 已由 74f7f33 退役。
+
+plugin 侧改动：新增 `hcu_sglang/hook_guard.py`，在 `register()` 最前面调用 `install()`，包装 `HookRegistry._apply_target` 与 `apply_hooks`。选中 `_apply_target` 而非 `register`，因为"先解析再过滤"会误判——部分目标模块要等所有插件注册完才可导入；现方案先走原路径、只接管**失败**的那次，能解析的目标行为逐字不变，且 `HookRegistry._hooks` 保持插件声明原样，目标合同工具不受影响。失败目标按异常类型分组，在 `apply_hooks` 结束后打一条 INFO 汇总。`HCU_HOOK_GUARD=0` 退回原行为。
+
+`Multiple AROUND hooks`（112 条）**不处理**：`w8a8_lightop` 与 `w8a8_aiter` 两个 AROUND wrapper 在调用期按 runner backend 互斥自门控，注册期删任一个会永久关闭对应量化路径，而不是跳过判断。要消除该提示须把每对合并为单个分发 wrapper，属量化语义改动，需设备验证，另立任务。
+
+adapter 侧改动：`gdn_cutedsl_fallback.install()` 增加 `_cutedsl_unavailable()` 预探针，`ImportError` 且 `exc.name` 为 `cuda`/`cuda.*` 时记 INFO 并返回，不再让 `bridges/sglang.py` 的 `except` 打整栈。其它 ImportError 仍向上抛，真故障依旧可见。
+
+实际验证（本机 Python 3.10，无 torch、无 HCU）：
+
+- `tests/test_hook_guard.py` 6 项通过（假 registry）：缺目标跳过并汇总、多个缺目标共一行、幂等、`HCU_HOOK_GUARD=0` 生效、重复 AROUND 完整保留、`apply_hooks` 体内真异常不被吞。
+- `tests/runtime/hook_guard_real_registry.py`：加载官方 `hook_registry.py` 原件，0 条 ERROR、1 条汇总、对照目标仍 patched、两个 AROUND wrapper 均执行。
+- `tests/runtime/hook_guard_replay_20261109.py`：回放日志中全部 15 个真实失败目标，未加固 15 条 ERROR + 15 条 `Failed to apply hooks`，加固后 0 + 0，1 条 INFO 汇总列出全部目标，对照目标仍 patched。
+- adapter 探针用 stub torch 验证：`cuda` 缺失 → INFO 并返回 None；`onnxruntime` 缺失 → 照常抛出。
+- 既有 `tests/test_eagle_sync_hook_removed.py` 3 项仍通过；`py_compile` 通过。
+
+未验证项：未在 HCU 上重启 P/D 做端到端复验（缺少 `/home/Qwen3.8-Flash-Next` 环境与设备）；226 → 12 的实际条数变化来自静态回放，不是真机日志；`Multiple AROUND hooks` 仍存在；multimodal 根因（可选依赖缺失）未改变，只是不再刷屏。
