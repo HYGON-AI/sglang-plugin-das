@@ -52,14 +52,20 @@ _installed = False
 
 
 def _report() -> None:
-    """Emit one summary line per failure kind for targets this build lacks."""
+    """Emit one summary line per failure kind for targets this build lacks.
+
+    Logged at WARNING, not INFO: ``register()`` runs before SGLang configures
+    logging, so an INFO record emitted from this phase is dropped by the root
+    logger's last-resort handler and the operator sees nothing at all. WARNING
+    survives that window and still reads as a notice rather than an error.
+    """
     if not _skipped:
         return
     grouped: dict[str, list[str]] = {}
     for target, reason in _skipped.items():
         grouped.setdefault(reason, []).append(target)
     for reason, targets in grouped.items():
-        logger.info(
+        logger.warning(
             "hcu hook guard: skipped %d hook target(s) absent in this SGLang "
             "build (%s): %s",
             len(targets),
@@ -107,4 +113,4 @@ def install() -> None:
     registry._apply_target = classmethod(guarded_apply_target)
     registry.apply_hooks = classmethod(guarded_apply_hooks)
     _installed = True
-    logger.info("hcu hook guard installed")
+    logger.debug("hcu hook guard installed")
