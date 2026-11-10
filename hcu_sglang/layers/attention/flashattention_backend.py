@@ -80,9 +80,20 @@ def around_init(original_fn, backend, *args, **kwargs):
     backend._get_fa_runtime_policy = None
     from hcu_sglang.utils.detection import get_gcn_arch
     from hcu_sglang.mem_cache.hcu_mha_pool import _layout_enabled
+    model_runner = args[0] if args else kwargs.get("model_runner")
+    model_config = getattr(model_runner, "model_config", None)
+    hf_config = getattr(model_config, "hf_config", None)
+    architectures = getattr(hf_config, "architectures", None) or ()
     backend._hcu_bf16_fp8_kv_query = (
         get_gcn_arch().split(":", 1)[0] == "gfx936"
         and _layout_enabled()
+        and getattr(backend, "page_size", None) == 64
+        and len(architectures) == 1
+        and architectures[0] in (
+            "Qwen3_5ForConditionalGeneration",
+            "Qwen3_5ForCausalLM",
+            "Qwen3_5ForCausalLMMTP",
+        )
         and getattr(backend, "fa_impl_ver", None) == 3
         and getattr(backend, "kv_cache_dtype_str", None) == "fp8_e5m2"
         and not getattr(backend, "use_mla", False)

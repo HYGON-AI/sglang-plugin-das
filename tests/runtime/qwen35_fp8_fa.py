@@ -117,3 +117,119 @@ def test_uniform_decode_and_verify_keep_native_query_contract(monkeypatch, query
         native.flash_attn_varlen_func.assert_called_once()
         assert native.flash_attn_varlen_func.call_args.kwargs["q"] is q
         native.vllm_flash_attn_with_kvcache.assert_not_called()
+
+
+@pytest.fixture
+def initialized_backend(monkeypatch):
+    import sglang.srt.layers.attention.flashattention_backend as official
+    from sglang.srt.speculative import spec_utils
+    from hcu_sglang.mem_cache import hcu_mha_pool
+    from hcu_sglang.utils import detection
+
+    monkeypatch.setattr(subject, "is_hcu", lambda: True)
+    monkeypatch.setattr(detection, "get_gcn_arch", lambda: "gfx936:sramecc+")
+    monkeypatch.setattr(hcu_mha_pool, "_layout_enabled", lambda: True)
+    monkeypatch.setattr(official, "get_parallel", lambda: SimpleNamespace(attn_cp_size=1, attn_tp_size=1))
+    monkeypatch.setattr(official, "get_spec", lambda: SimpleNamespace(
+        speculative_eagle_topk=1, speculative_num_draft_tokens=4, speculative_algorithm="NEXTN"))
+    monkeypatch.setattr(spec_utils, "get_spec", official.get_spec)
+    monkeypatch.setattr(official, "get_exec", lambda: SimpleNamespace(
+        deterministic=SimpleNamespace(enable_deterministic_inference=False)))
+    monkeypatch.setattr(official, "get_model", lambda: SimpleNamespace(is_embedding=False))
+    monkeypatch.setattr(official, "get_device_capability", lambda: (9, 0))
+    monkeypatch.setattr(official, "get_kv_shard_pool", lambda pool: None)
+    monkeypatch.setattr(official, "_should_disable_scheduler_metadata_precompute", lambda: False)
+    monkeypatch.setattr(FlashAttentionBackend, "_maybe_init_local_attn_builder", lambda *args: None)
+    original = FlashAttentionBackend.prepare_paged_mha_query
+    fallback = mock.Mock(wraps=original)
+
+    def effective(*args, **kwargs):
+        return fallback(*args, **kwargs)
+
+    monkeypatch.setattr(FlashAttentionBackend, "prepare_paged_mha_query", effective)
+    monkeypatch.setattr(FlashAttentionBackend, "__init__", FlashAttentionBackend.__init__)
+    registered = []
+    monkeypatch.setattr(HookRegistry, "register", lambda *args: registered.append(args))
+    subject.register()
+    for target, hook, kind in registered:
+        if target.endswith((".__init__", ".prepare_paged_mha_query")):
+            HookRegistry._apply_target(target, [(kind, hook, None)])
+
+    def create(architecture, page_size=64, keyword=False):
+        config = SimpleNamespace(
+            is_encoder_decoder=False, context_len=1024, head_dim=256,
+            attention_arch=official.AttentionArch.MHA,
+            hf_config=SimpleNamespace(architectures=[architecture] if architecture else []),
+            hf_text_config=SimpleNamespace(num_attention_heads=12),
+            get_num_kv_heads=lambda size: 2)
+        runner = SimpleNamespace(
+            model_config=config, sliding_window_size=None, device="cpu",
+            req_to_token_pool=SimpleNamespace(size=2, req_to_token=torch.zeros(2, 1024, dtype=torch.int32)),
+            token_to_kv_pool=SimpleNamespace(), kv_index_translator=SimpleNamespace(is_translating=False),
+            kv_cache_dtype=torch.float8_e5m2, kv_cache_dtype_str="fp8_e5m2", page_size=page_size,
+            is_draft_worker=bool(architecture and architecture.endswith("MTP")))
+        if keyword:
+            return FlashAttentionBackend(model_runner=runner)
+        return FlashAttentionBackend(runner)
+
+    return create, original, fallback
+
+
+@pytest.mark.parametrize("architecture", [
+    "Qwen3_5ForConditionalGeneration", "Qwen3_5ForCausalLM", "Qwen3_5ForCausalLMMTP"])
+@pytest.mark.parametrize("is_prefill", [False, True])
+@pytest.mark.parametrize("scale", [None, 1.0, 0.75])
+def test_initialized_qwen35_page64_query_contract(initialized_backend, architecture, is_prefill, scale):
+    create, original, fallback = initialized_backend
+    backend = create(architecture, keyword=is_prefill)
+    assert backend._hcu_bf16_fp8_kv_query
+    value = torch.tensor(scale) if scale is not None else None
+    layer = SimpleNamespace(head_dim=256, k_scale=value, v_scale=value)
+    q = torch.randn(6 if is_prefill else 2, 12, 256, dtype=torch.bfloat16)
+    kwargs = dict(logical_batch_size=2, kv_head_num=2, is_prefill=is_prefill)
+    assert original(backend, q, None, None, layer, **kwargs)[0].dtype == torch.float8_e5m2
+    if scale is not None:
+        with pytest.raises(RuntimeError, match="requires unscaled KV cache"):
+            backend.prepare_paged_mha_query(q, None, None, layer, **kwargs)
+    else:
+        result = backend.prepare_paged_mha_query(q, None, None, layer, **kwargs)
+        assert result[0] is q
+        assert result[1:] == (None, None, None, None)
+    fallback.assert_not_called()
+
+
+@pytest.mark.parametrize("architecture,page_size", [
+    ("Qwen4ExpForConditionalGeneration", 64),
+    ("Qwen4ExpForCausalLMMTP", 64),
+    ("Qwen3_5ForConditionalGeneration", 16),
+    ("Qwen3_5ForConditionalGeneration", 128),
+    ("Qwen3_5ForCausalLMMTP", 16),
+    ("Qwen3_5MoeForConditionalGeneration", 64),
+    ("UnknownForCausalLM", 64),
+    (None, 64),
+])
+@pytest.mark.parametrize("is_prefill", [False, True])
+@pytest.mark.parametrize("scale", [None, 1.0, 0.75])
+def test_initialized_out_of_scope_query_matches_official(
+        initialized_backend, architecture, page_size, is_prefill, scale):
+    create, original, fallback = initialized_backend
+    backend = create(architecture, page_size, keyword=is_prefill)
+    k_scale = torch.tensor(scale) if scale is not None else None
+    v_scale = torch.tensor(scale * 2 if scale != 1.0 else scale) if scale is not None else None
+    layer = SimpleNamespace(head_dim=256, k_scale=k_scale, v_scale=v_scale)
+    q = torch.randn(6 if is_prefill else 2, 12, 256, dtype=torch.bfloat16)
+    kwargs = dict(logical_batch_size=2, kv_head_num=2, is_prefill=is_prefill)
+    expected = original(backend, q, None, None, layer, **kwargs)
+    actual = backend.prepare_paged_mha_query(q, None, None, layer, **kwargs)
+    fallback.assert_called_once_with(backend, q, None, None, layer, **kwargs)
+    assert not backend._hcu_bf16_fp8_kv_query
+    assert actual[0].dtype == expected[0].dtype == torch.float8_e5m2
+    assert actual[1:3] == expected[1:3] == (None, None)
+    torch.testing.assert_close(actual[0].float(), expected[0].float(), rtol=0, atol=0)
+    for got, want in zip(actual[3:], expected[3:]):
+        if want is None:
+            assert got is None
+        else:
+            assert got.shape == want.shape == (2, 2)
+            assert got.untyped_storage().data_ptr() == want.untyped_storage().data_ptr()
+            torch.testing.assert_close(got, want, rtol=0, atol=0)
