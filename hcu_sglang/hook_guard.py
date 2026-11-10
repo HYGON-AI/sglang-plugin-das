@@ -30,13 +30,13 @@ some target modules only become importable after every plugin has registered.
 Registration itself is untouched, so ``HookRegistry._hooks`` still lists exactly
 what the plugin declared and the target-contract tooling keeps working.
 
-Scope note: this guard deliberately does not touch SGLang's "Multiple AROUND
-hooks" notice. Several HCU targets carry two AROUND wrappers that self-gate at
-call time on mutually exclusive runner backends (``w8a8_lightop`` vs
-``w8a8_aiter``); dropping either one at registration time would permanently
-disable that quantization path rather than merely skip a branch. Removing that
-notice requires merging each pair into a single dispatching wrapper, which
-changes quantization code and needs device validation -- tracked separately.
+Scope note: this guard deliberately does not merge or drop the pairs of AROUND
+hooks SGLang flags with its "Multiple AROUND hooks" notice. Those pairs wrap
+mutually exclusive or complementary runner-backend paths (``w8a8_lightop`` vs
+``w8a8_aiter``, marlin vs aiter for unquantized MoE), and every one of them
+falls back to ``original(...)`` when its gate misses, so chain order cannot drop
+a call. What it does do is *silence the notice for the pairs audited to be
+safe*, so a genuinely risky future duplicate stands out. See ``SAFE_AROUND_PAIRS``.
 """
 
 from __future__ import annotations
@@ -45,6 +45,37 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
+
+# Targets where this plugin intentionally registers two AROUND wrappers, both of
+# which call ``original(...)`` when their own gate misses, so the inner wrapper
+# is never bypassed. Audited 2026-11-10; each entry names the pair and why it is
+# safe. SGLang's "Multiple AROUND hooks" warning is suppressed for exactly these
+# targets and nothing else -- a new duplicate elsewhere still warns.
+SAFE_AROUND_PAIRS: dict[str, str] = {
+    "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod.apply":
+        "lightop gate (_requested_lightop) and aiter gate (_use_aiter_runner) are "
+        "mutually exclusive; both miss-cases return original(...)",
+    "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod.create_moe_runner":
+        "same lightop/aiter pair; lightop and aiter each delegate when their "
+        "backend gate misses",
+    "sglang.srt.layers.quantization.w8a8_fp8.W8A8FP8MoEMethod.apply":
+        "same lightop/aiter pair; both miss-cases return original(...)",
+    "sglang.srt.layers.quantization.w8a8_fp8.W8A8FP8MoEMethod.create_moe_runner":
+        "same lightop/aiter pair; both miss-cases return original(...)",
+    "sglang.srt.layers.quantization.unquant.UnquantizedFusedMoEMethod.forward_cuda":
+        "marlin wrapper additionally requires layer._marlin_w16a16_moe_packed and "
+        "the aiter wrapper requires its own gate; both miss-cases call original",
+    "sglang.srt.layers.quantization.compressed_tensors.schemes."
+    "compressed_tensors_w8a8_fp8_moe.CompressedTensorsW8A8Fp8MoE.apply_weights":
+        "lightop channelwise gate vs aiter gate, both fall through to original",
+    "sglang.srt.layers.quantization.compressed_tensors.schemes."
+    "compressed_tensors_w8a8_fp8_moe.CompressedTensorsW8A8Fp8MoE."
+    "process_weights_after_loading":
+        "lightop channelwise gate vs aiter gate, both fall through to original",
+    "sglang.srt.arg_groups.parallel_hook.handle_eplb_and_dispatch":
+        "placement and integration each call original(server_args) first, then "
+        "apply their own validation; neither can skip the other",
+}
 
 # Target -> exception type name that made it unresolvable, in encounter order.
 _skipped: dict[str, str] = {}
@@ -75,16 +106,49 @@ def _report() -> None:
     _skipped.clear()
 
 
+class _KnownPairFilter(logging.Filter):
+    """Drop the "Multiple AROUND hooks" notice for audited-safe targets only.
+
+    Filters on the exact message prefix plus the target name, so an unrelated
+    warning from the same logger still gets through. Enabled by default because
+    the pairs it hides are audited; ``HCU_HOOK_KNOWN_PAIRS=0`` restores them.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        if not message.startswith("Multiple AROUND hooks on "):
+            return True
+        if any(f"on '{target}'" in message for target in SAFE_AROUND_PAIRS):
+            return False
+        return True
+
+
+def _install_known_pair_filter(registry_module) -> None:
+    """Attach the filter to the SGLang hook_registry logger once."""
+    if os.environ.get("HCU_HOOK_KNOWN_PAIRS", "1") == "0":
+        logger.debug("hcu hook guard: known-pair silencing disabled")
+        return
+    hook_logger = logging.getLogger(registry_module.__name__)
+    if any(isinstance(f, _KnownPairFilter) for f in hook_logger.filters):
+        return
+    hook_logger.addFilter(_KnownPairFilter())
+
+
 def install() -> None:
     """Install the guard once per process; no-op when disabled."""
     global _installed
     if _installed:
         return
     if os.environ.get("HCU_HOOK_GUARD", "1") == "0":
-        logger.info("hcu hook guard disabled by HCU_HOOK_GUARD=0")
+        logger.warning("hcu hook guard disabled by HCU_HOOK_GUARD=0")
         return
 
     from sglang.srt.plugins import hook_registry
+
+    _install_known_pair_filter(hook_registry)
 
     registry = hook_registry.HookRegistry
     # Both members are classmethods in SGLang, so attribute access yields a

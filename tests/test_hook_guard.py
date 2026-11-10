@@ -10,6 +10,7 @@ target raising inside ``_apply_target``.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import types
@@ -150,6 +151,37 @@ class HookGuardTests(unittest.TestCase):
         }
         self.registry.apply_hooks()
         self.assertEqual(self.registry.applied, [("present.a", 2)])
+
+    def test_known_pair_filter_silences_only_audited_targets(self):
+        known = "sglang.srt.arg_groups.parallel_hook.handle_eplb_and_dispatch"
+        unknown = "sglang.srt.future.Some.method"
+        filt = hook_guard._KnownPairFilter()
+
+        def record(msg):
+            return logging.LogRecord(
+                "sglang.srt.plugins.hook_registry", logging.WARNING, __file__, 1, msg, None, None
+            )
+
+        notice = "Multiple AROUND hooks on '%s' (2 hooks, from: a, b). If any AROUND hook skips calling original_fn, inner hooks will be bypassed."
+        self.assertFalse(filt.filter(record(notice % known)))
+        self.assertTrue(filt.filter(record(notice % unknown)))
+        # Unrelated messages from the same logger are never touched.
+        self.assertTrue(filt.filter(record("Failed to apply hooks to %s" % known)))
+
+    def test_known_pair_filter_respects_environment(self):
+        hook_logger = logging.getLogger("sglang.srt.plugins.hook_registry")
+        saved = hook_logger.filters[:]
+        hook_logger.filters = []
+        try:
+            with mock.patch.dict(os.environ, {"HCU_HOOK_KNOWN_PAIRS": "0"}):
+                hook_guard._install_known_pair_filter(
+                    self.modules["sglang.srt.plugins.hook_registry"]
+                )
+            self.assertFalse(
+                any(isinstance(f, hook_guard._KnownPairFilter) for f in hook_logger.filters)
+            )
+        finally:
+            hook_logger.filters = saved
 
     def test_apply_hooks_still_propagates_real_errors(self):
         """A non-target failure inside apply_hooks must not be swallowed."""
