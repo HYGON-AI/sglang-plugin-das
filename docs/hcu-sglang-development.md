@@ -2057,3 +2057,32 @@ adapter 侧改动：`gdn_cutedsl_fallback.install()` 增加 `_cutedsl_unavailabl
 - 既有 `tests/test_eagle_sync_hook_removed.py` 3 项仍通过；`py_compile` 通过。
 
 未验证项：未在 HCU 上重启 P/D 做端到端复验（缺少 `/home/Qwen3.8-Flash-Next` 环境与设备）；226 → 12 的实际条数变化来自静态回放，不是真机日志；`Multiple AROUND hooks` 仍存在；multimodal 根因（可选依赖缺失）未改变，只是不再刷屏。
+
+## 2026-11-10 真机验证：hook 守卫与已知重复对静音
+
+验证环境：节点 bw46，容器 `yht-plugin-qwen38-dtk2610-bw46-1103`，8×BW1000 64GB，镜像 DTK 26.10。单实例 TP4/DP4/EP4、EAGLE 3/1/4，4 卡，端口 8291。脚本 `811/verify16/run_hook_check.sh`（新增，直接 exec + `python3 -u`，日志由外层重定向）。基线 `0f329e9`，改动 `2c52c9e`。
+
+启动期实测（同一份参数、同一批卡）：
+
+| 指标 | 基线 `0f329e9` | 改动 `2c52c9e` |
+|---|---|---|
+| `Traceback (most recent call last)` | 105 | **1**（外部占卡导致的 OOM，非 hook） |
+| `Failed to apply hooks to` | 105 | **0** |
+| `Multiple AROUND hooks` | 56 | **0** |
+| `hcu hook guard: skipped` | — | 7（7 个进程各一条，各列出同一组 14 个目标） |
+| `CuTeDSL fallback skipped` | — | 8 |
+
+基线在 2262 行、`Application startup complete` 出现后取的数；改动版在 625 行、因外部占卡 OOM 退出前取的数，两者进程数一致（7），可比。基线的 105 = 15 目标 × 7 进程，改动的 0 与之对应。
+
+真机验证纠正了两处只有实跑才会暴露的问题：
+
+1. **汇总日志在 INFO 级别会丢**。第一版用 `logger.info`，实测 `Failed to apply hooks` 已归零但汇总行完全不可见；插件自身的 `optimization hooks registered` 同样缺失，而 SGLang 自己的 WARNING 可见。原因是 `register()` 跑在 SGLang 配置 logging 之前，root logger 的 last-resort handler 丢弃 INFO。汇总改用 WARNING 后稳定可见（提交 882e09a）。adapter 的 CuTeDSL 跳过提示同理改为 WARNING（adapter 提交 a39bdf6）。
+2. **`Multiple AROUND hooks` 不能靠合并或删注册消除**。审计 8 个目标后确认：`w8a8_lightop` 与 `w8a8_aiter` 的两个 wrapper 都按各自 runner backend 门控，`unquant` 的 marlin 侧额外要求 `layer._marlin_w16a16_moe_packed`，`eplb` 的 placement 与 integration 各自先调 `original(server_args)` 再校验 —— **所有 wrapper 在门控未命中时都 `return original(...)` 透传**，链式调用不会丢失。因此重复注册本身安全，但注册期无法择一：`get_moe_runner_backend()` 在注册时仍是 AUTO，要等 `ServerArgs` 解析后才确定。
+
+   处理方式取中间路线：不合并语义、不删注册，只在 logger 上过滤该目标的这条提示，白名单 `SAFE_AROUND_PAIRS` 显式列出 8 个目标及各自的安全理由；不在名单内的新重复仍会告警。`HCU_HOOK_KNOWN_PAIRS=0` 恢复提示（提交 2c52c9e）。
+
+离线与真实 registry 验证：`tests/test_hook_guard.py` 8 项通过；`tests/runtime/hook_guard_known_pairs.py`（新增）用官方 `hook_registry.py` 验证已知对被静音、未知目标仍告警、同 logger 其他警告不受影响；`tests/runtime/hook_guard_replay_20261109.py` 回放 15 个真实失败目标，加固前 15 条 ERROR、加固后 0 条 + 1 条汇总。
+
+未完成项：因其他任务在验证中途占满 8 张卡（各约 59GB，本容器不持有 kfd），改动版未跑到 `Application startup complete`，**未做推理请求验证**。基线那次是完整到 ready 并用 `1+1=` 得到 `3` 的。改动只影响插件注册期的日志分流，不参与前向计算，但仍应在空闲卡上补一次到 ready 的冒烟。
+
+环境侧教训（记录以免重复踩坑）：`verify16/env.sh` 无条件重设 `PYTHONPATH`，在 source 之后覆盖才有效，否则测的仍是软链接指向的旧工作树；`docker exec -d` + `nohup` + `exec` + `tee` 组合下日志会落到外层驱动文件，改用直接 `exec` 并由外层 `>` 重定向、`python3 -u` 无缓冲后可稳定落盘。
