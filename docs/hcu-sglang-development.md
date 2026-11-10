@@ -2086,3 +2086,32 @@ adapter 侧改动：`gdn_cutedsl_fallback.install()` 增加 `_cutedsl_unavailabl
 未完成项：因其他任务在验证中途占满 8 张卡（各约 59GB，本容器不持有 kfd），改动版未跑到 `Application startup complete`，**未做推理请求验证**。基线那次是完整到 ready 并用 `1+1=` 得到 `3` 的。改动只影响插件注册期的日志分流，不参与前向计算，但仍应在空闲卡上补一次到 ready 的冒烟。
 
 环境侧教训（记录以免重复踩坑）：`verify16/env.sh` 无条件重设 `PYTHONPATH`，在 source 之后覆盖才有效，否则测的仍是软链接指向的旧工作树；`docker exec -d` + `nohup` + `exec` + `tee` 组合下日志会落到外层驱动文件，改用直接 `exec` 并由外层 `>` 重定向、`python3 -u` 无缓冲后可稳定落盘。
+
+## 2026-11-10 bw47 单实例 DP2/EP2 验证：与 PD 分离无关
+
+问题：2026-11-09 那批 hook 噪音是否只在 PD 分离下出现。结论：**与部署形态无关**。`load_plugins()` 在每个进程启动时都调用一次 `apply_hooks()` 并遍历全部注册目标，PD 分离只是把进程数翻倍，所以条数看起来更多；单实例同样会全量触发。CuTeDSL 提示同理，属 adapter bootstrap 的依赖探测。
+
+验证环境：节点 bw47，容器 `yht-plugin-qwen38-dtk2610-bw47-1104`，单实例 TP2/DP2/EP2（原计划 TP4，因卡 0/3/4/5/6 被其他租户占用，改用空闲的卡 1、2），端口 8291，脚本 `811/verify16/run_bw47_ifb.sh`（新增）。改动 `2c52c9e` + adapter `a39bdf6`。
+
+结果（664 行，`Application startup complete` 出现，`/health` 200，`1+1=` 返回正确算术序列）：
+
+| 指标 | 值 |
+|---|---|
+| `Traceback (most recent call last)` | **0** |
+| `Failed to apply hooks to` | **0** |
+| `Multiple AROUND hooks` | **0** |
+| `hcu hook guard: skipped` | 5（各进程各一条，各列同一组 14 个目标） |
+| `CuTeDSL fallback skipped` | 6（一条 WARNING，非堆栈） |
+| `Application startup complete` | 1 |
+
+这条链路同时补上了 bw46 那次缺的「到 ready + 推理」验证。
+
+bw47 环境本身跑不动这套组合，需要先补五项前置条件（均为容器差异，与代码无关）：
+
+1. `pip install ipython`：`sglang/utils.py` 顶层 `from IPython.display import`，缺失会让 adapter 的 `platform_seam`、`dist_bc` 等 seam 连锁失败。
+2. `pip install gguf`：缺失时 adapter 的 slimquant 桥接装不上。
+3. `pip install scipy`：`hcu_sglang.layers.attention.current_dsa.rotation` 顶层 `from scipy.linalg import hadamard`，缺失会让插件 `register()` 在 `current_dsa` 处中断，**后续所有注册（含 `slimquant_w4a8_marlin` 量化方法）全部丢失**，表现为 `--quantization slimquant_w4a8_marlin` 报 invalid choice —— 这个症状极具误导性，容易被当成 ABI 问题。
+4. `pip install soundfile`：`sglang.srt.entrypoints.openai.audio_chunking` 顶层导入。
+5. `pip install -e . --no-deps --no-build-isolation`：bw47 没有 editable 安装，`sglang.srt.plugins` entry_point 为空（`[]`），插件完全不会被加载。安装前需 `git config --global --add safe.directory` 两仓路径，否则 setuptools 读版本号时因 dubious ownership 失败。
+
+`hook_guard` 在 bw47 上还额外验证了一个设计点：`apply_hooks` 用 `try/finally` 发汇总，即使 `register()` 中途抛异常（如上述缺 scipy），汇总仍会照常打印——日志里能看到汇总行出现在 `register()` 失败之后。
