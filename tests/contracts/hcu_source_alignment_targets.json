@@ -613,6 +613,8 @@
     "sglang.srt.models.glm4_moe.Glm4MoeSparseMoeBlock.forward_normal",
     "sglang.srt.models.hunyuan_v3.HYV3ForCausalLM",
     "sglang.srt.models.hunyuan_v3_nextn.HYV3ForCausalLMNextN",
+    "sglang.srt.models.hunyuan_v4.HYV4ForCausalLM.__init__",
+    "sglang.srt.models.hunyuan_v4.HYV4ForCausalLM.load_weights",
     "sglang.srt.models.minimax_m2.MiniMaxM2Attention.__init__",
     "sglang.srt.models.minimax_m2.MiniMaxM2Attention.forward",
     "sglang.srt.models.minimax_m2.MiniMaxM2Attention.forward_core",

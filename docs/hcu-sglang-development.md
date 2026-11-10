@@ -2736,3 +2736,53 @@ DeepEP 事件所属 dispatcher 和 GLM CT EAGLE 采样沿用已核对的 HCU 路
 25/30，HumanEval pass@1 为 162/164。分数对应合并功能修复及整理变更的
 节点快照。当前 PR 在最新主线上的验证范围是本地检查与接口对照，未在新
 主线组合重跑 GPU 全量 profile 或精度评测。
+
+## 2026-11-10 HY4 compressed-tensors W4A8 接入 slimquant_w4a8_marlin
+
+HY4 preview 的 compressed-tensors checkpoint 是混合格式：routed experts 为
+pack-quantized INT4 channel 权重，indexer `wk`/`wq_b`、MLA、shared experts 与
+首层 dense MLP 为 int-quantized INT8 channel 权重，激活均为 INT8 per-token
+dynamic。原 `slimquant_w4a8_marlin` 的 CT 分支要求所有 group 都是 INT4，
+遇到 INT8 group 返回 None，官方 `_verify_quantization` 报 quantization
+method 不匹配；`slimquant_marlin` 只认顶层 `int-quantized`，对该 checkpoint
+静默退回 compressed-tensors，MoE 仍走 W4A16 Triton。
+
+改动：
+- `SlimQuantW4A8Int8MarlinConfig._supports_compressed_config`：每个 group 为
+  4/8 bit channel 对称静态权重 + INT8 per-token dynamic 激活，4 bit 为
+  pack-quantized、8 bit 为 int-quantized（group 级 `format` 优先于顶层），
+  至少一个 INT4 group。全 INT4 checkpoint 仍满足，行为不变。
+- `from_config`：HYV4 架构的 CT checkpoint，或任意含 INT8 group 的 CT
+  checkpoint，设 `checkpoint_format=hy4_compressed_tensors_w4a8`，
+  `linear_targets` 取所有 INT8 group 的 targets；含 INT8 group 但非 HYV4 时
+  明确报错。
+- `get_quant_method`：`linear_targets` 非空时，命中的 Linear 走 W8A8 int8，
+  其余走 BF16，不再把 INT4 以外的 Linear 一律当 W8A8。
+- `normalize_checkpoint_weights`：CT 以 `q + 8` 存储且偶数 K 在低 nibble、
+  scale 为真实 per-channel scale；lightop/legacy W4A8 约定为有符号补码、
+  偶数 K 在高 nibble、scale/16。转换在 TP/EP 切分之后执行，每个 rank 只转
+  自己的分片。Marlin、Triton、Aiter 三个 MoE 方法的
+  `process_weights_after_loading` 开头调用。
+- registry 的 Lazy 包装：官方 `QUANTIZATION_METHODS` 登记的是
+  `LazySlimQuantW4A8Int8MarlinConfig`，CT 且用户显式选
+  `slimquant_w4a8_marlin` 时转调真实 Config 的 override，否则上面的校验不会
+  被调用。
+- `hcu_sglang/models/hunyuan_v4.py`：`HYV4ForCausalLM.__init__` 的 AROUND
+  在 `slimquant_w4a8_marlin` 但 checkpoint_format 不符时报错；`load_weights`
+  的 AROUND 丢弃 `*.weight_shape`，`*.weight_packed` 去掉 `_packed` 后缀并按
+  INT8 view，非 `.mlp.experts.` 的 INT32 2D 张量报错。
+
+验证（S1，gfx938，官方 `baa9befa` + adapter + 本分支，HY4 preview
+`Hy4-preview-Channel-INT4-w4a8`，TP8，decode graph 开、prefill graph 关）：
+- 8 个 rank 均 `selected_moe_method=SlimQuantW4A8Int8MarlinMoEMethod
+  resolved_backend=lightop`，加载 51.46 GB/卡。
+- chat 3/3；gsm8k 0-shot 200 题 193/200（W4A16 Triton 同配置 194/200），
+  用时 598s（W4A16 为 3364s）。
+- prefill profile（8k chunk）MoE GEMM 由约 12.3s/步降到约 0.47s/步
+  （同时合入 adapter meta_size 修复后的数字）。
+
+已知限制：
+- HY4 config 的 `swiglu_limit=10.0` 在 lightop
+  `fused_experts_impl_w4a8_marlin` 中没有对应参数，marlin 路径不做 clamp；
+  gsm8k 未见掉点，长输出与其他评测未验。
+- 未覆盖 MTP（`hunyuan_v4_nextn`）、DeepEP/EP、prefill graph、PD。

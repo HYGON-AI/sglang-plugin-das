@@ -53,6 +53,13 @@ class LazySlimQuantW4A8Int8MarlinConfig(metaclass=_LazyConfigMeta):
             "slimquant_marlin",
         ):
             return SLIMQUANT_MARLIN_NAME
+        if (
+            hf_quant_cfg.get("quant_method") == "compressed-tensors"
+            and user_quant == SLIMQUANT_MARLIN_NAME
+        ):
+            return _load_config_class().override_quantization_method(
+                hf_quant_cfg, user_quant
+            )
         return None
 
 
