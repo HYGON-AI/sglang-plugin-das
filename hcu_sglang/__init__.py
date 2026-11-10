@@ -118,6 +118,8 @@ def register() -> None:
     from hcu_sglang import dsa_utils
     dsa_utils.register_hooks()
     forward_batch.register_hooks()
+    from hcu_sglang import mrope_delta
+    mrope_delta.register_hooks()
     from hcu_sglang import prefill_output, prefill_graph_runner
     prefill_output.register_hooks()
     from hcu_sglang import speculative_vp
