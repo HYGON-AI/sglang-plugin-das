@@ -123,6 +123,14 @@ def around_mhc_fused_post_pre(
     return _dispatch_mhc("mhc_fused_post_pre", original, *args, **kwargs)
 
 
+def around_moe_route_radix_covered(
+    original: Callable[..., Any], *args: Any, **kwargs: Any
+) -> bool:
+    if is_hcu():
+        return False
+    return original(*args, **kwargs)
+
+
 def around_vision_flash3_init(
     original: Callable[..., Any], instance: Any, *args: Any, **kwargs: Any
 ):
@@ -168,5 +176,10 @@ def register_hooks() -> None:
     HookRegistry.register(
         "sglang.srt.layers.attention.vision.VisionFlash3Attention.__init__",
         around_vision_flash3_init,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.kernels.ops.moe.moe_route_radix.covered",
+        around_moe_route_radix_covered,
         HookType.AROUND,
     )

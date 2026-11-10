@@ -68,6 +68,7 @@
     "sglang.kernels.ops.layernorm.mhc.prewarm_mhc_pre",
     "sglang.kernels.ops.moe.dsv4.hash_topk",
     "sglang.kernels.ops.moe.dsv4.mega_moe_pre_dispatch",
+    "sglang.kernels.ops.moe.moe_route_radix.covered",
     "sglang.kernels.ops.quantization.fp8_kernel.scaled_fp8_quant",
     "sglang.kernels.ops.speculative.cache_locs.assign_extend_cache_locs_func",
     "sglang.kernels.ops.speculative.dspark.dspark_attn_metadata.BuildBlockSeqLensCausal",
