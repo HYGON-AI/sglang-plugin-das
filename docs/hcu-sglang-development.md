@@ -2874,3 +2874,7 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 - `_inflight_held_since` 采用首次访问惰性初始化，未在 `init_disaggregation` 中预置；与 `no-getattr-defensive` 风格建议不一致，保留原 patch 写法。
 
 **与健康探针改动的关系**：同目录 `修改方案.md` 的改动 A/B/C 处理 `health_generate` 超时不下发 abort、以及 scheduler 忙时丢弃探针 abort 的问题，本次 patch 不包含；本次只处理 inflight 队列的 rank 一致性与假 sender 回收。两者互补，不能互相替代。
+
+## 2026-11-11 HY3 main 基线迁移：模型与 NEXTN
+
+基于 main `9543829` 迁入历史提交 `e47b58b` 的 HY3 方法 Hook、FFN 边界与 NEXTN layer_stack 修改。保留 main 已有的 RoPE HIP 向量成员读取实现，不重复引入等价改写。目标合同只替换 HY3 两个整类条目，保留 main 新增的 HY4 等其他模型条目。本步骤仅完成代码迁移，CPU/组合加载/GPU/精度验证尚待执行；旧分支运行结果不作本次通过证据。
