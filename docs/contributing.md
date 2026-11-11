@@ -68,6 +68,12 @@ flowchart TB
 作者分支的中间态。本地拉取建议 `git pull --rebase`；撤销一个 PR = revert
 main 上那一颗。history 中 squash 政策生效前的 merge commit 不追改。
 
+**Agent 提交的 MR 一律 draft 起步**（2026-11-11 定，两仓一致）：凡由
+Agent（AI 协作者）发起的 MR，默认以 Draft 状态创建；人工审核确认
+没问题后，由 Agent 或人工将其改为 Open（Ready for review）才进入合入
+流程——draft 期间视为"未经人工背书的提案"。生效首个应用：adapter-das
+#80。
+
 ## 5. 共享节点与产物管理
 
 来源仓库只读审计，回溯输出放新的、不与输入重叠的目录。测试和探针默认仅操作本任务资源，不自行停止其他服务来制造空闲。用户明确授权处理某个 GPU 冲突时，以 GPU→宿主 PID→cgroup→完整容器 ID 核实归属，并遵守节点权限；权限拒绝记录为未完成，不绕过控制。实际等待/重试与清理见 [资源排障](../skills/hcu-plugin-triage/references/distributed-and-performance.md)。大体积日志、模型数据、dump 与生成仓库不纳入本方法库；使用 `.gitignore` 已覆盖的 `artifacts/`、`outputs/` 或专用输出目录。
