@@ -60,6 +60,7 @@ def register() -> None:
     from hcu_sglang.models import bailing_moe
     from hcu_sglang.models import dspark
     from hcu_sglang.models import hunyuan
+    from hcu_sglang.models import hunyuan_v4 as hunyuan_v4_hooks
     from hcu_sglang.models import glm4_moe
     from hcu_sglang.models import minimax_m2
     from hcu_sglang.models import utils as model_utils
@@ -188,6 +189,7 @@ def register() -> None:
     bailing_moe.register()
     dspark.register_hooks()
     hunyuan.register_hooks()
+    hunyuan_v4_hooks.register_hooks()
     glm4_moe.register_hooks()
     minimax_m2.register_hooks()
     from hcu_sglang.multimodal_gen import register_legacy
