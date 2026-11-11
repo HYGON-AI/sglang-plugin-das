@@ -2786,3 +2786,8 @@ method 不匹配；`slimquant_marlin` 只认顶层 `int-quantized`，对该 chec
   `fused_experts_impl_w4a8_marlin` 中没有对应参数，marlin 路径不做 clamp；
   gsm8k 未见掉点，长输出与其他评测未验。
 - 未覆盖 MTP（`hunyuan_v4_nextn`）、DeepEP/EP、prefill graph、PD。
+
+
+## 2026-11-11 HY3 main 基线迁移：模型与 NEXTN
+
+基于 main `9543829` 迁入历史提交 `e47b58b` 的 HY3 方法 Hook、FFN 边界与 NEXTN layer_stack 修改。保留 main 已有的 RoPE HIP 向量成员读取实现，不重复引入等价改写。目标合同只替换 HY3 两个整类条目，保留 main 新增的 HY4 等其他模型条目。本步骤仅完成代码迁移，CPU/组合加载/GPU/精度验证尚待执行；旧分支运行结果不作本次通过证据。
