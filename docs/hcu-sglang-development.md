@@ -13,6 +13,7 @@
 - [2026-10-30：后端与模型路径同步](#20-2026-10-30-dsa-indexer-当前-hcu-producerconsumer-同步)
 - [2026-11-01：分支迁移与八卡验证](#35-2026-11-01-rmsnormgemma-hcu-分支继续迁移)
 - [2026-11-02：DAS 分支逻辑对齐](#das-分支逻辑对齐2026-11-02)
+- [2026-11-11：GLM MQA 原生请求分组对齐](#2026-11-11-glm-mqa-原生请求分组对齐)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1434,6 +1435,43 @@ git show de390225d615381d3fd02b8d3eed639e5ef529b5:docs/hcu-sglang-targets.json
 生成器 v5 补齐 KDA HIP、KV C++、Rust crate 和 AITER 配置的 package-data。输出复制 721 个插件文件，726 项清单 SHA256 核验通过；314 个非 Python 包资源均被打包规则覆盖。上游受跟踪修改只有 bootstrap、插件 loader 与 pyproject，来源/许可另由生成器清单记录。
 
 在仓库外、仅输出 python 的 PYTHONPATH 下屏蔽全部外部 entry point，并清空 SGLANG_PLUGINS，验证 `sglang` 和 `hcu_sglang` 均来自内嵌输出；597/597 Hook 全部应用，4 个具名 seam、0 errors。工具仓库 117 项单元测试通过，其中 13 项需显式开启的层运行时测试未执行。本轮没有构建输出 wheel、启动模型服务或进行数值/性能验收；只验证源码生成、资源规则和隔离加载。原始证据保存在 `artifacts/backtrack-20261102/`。
+
+## 2026-11-11 GLM MQA 原生请求分组对齐
+
+MQA 保持当前容器的 LightOp 实现，迁入原生 CPU 请求分组规划器，源码 SHA256 为 `13ce48f015031f9c41d6837d18acdd6a272f304ee66adc9a27af1402616b8c82`。每个组使用对应的 K 切片与局部 ks/ke，TopK 使用全局偏移。现有 Q 显存预算继续约束各组，原生代价阈值为 2,000,000 个 logits 元素。复用 `SGLANG_DSA_MQA_SPLIT_BY_SEQ` 和 `SGLANG_DSA_MQA_SPLIT_MIN_SAVED_CELLS` 配置，前者在本插件默认关闭。
+
+启用范围为真实 HCU、GLM DSA、INT8 索引缓存反量化后的 BF16 Q/K、fused ragged legacy TopK、普通 eager Prefill，以及没有额外 init/local token mask 的路径。已验证的分组路径将 `clean_logit` 设为 false。
+
+使用 11 月 10 日 87K/C80 的 16 rank 实际输入，对“只关闭清理”和“再按请求切 K”分别重放。5,498,765,312 个有效 FP32 logits 的位差异均为零，选中索引集合以及按参考排列重建后的完整索引均一致。旧路径在相同输入上再次执行时也有 132,524,177 个返回槽位发生换序。
+
+| 单层 MQA 加 TopK，GPU 耗时中位数 | 原调用 | 仅关闭清理 | 原生请求分组 |
+|---|---:|---:|---:|
+| P0 | 29.65 ms | 21.48 ms | 18.35 ms |
+| P1 | 28.71 ms | 20.24 ms | 17.68 ms |
+
+上述为真实张量算子重放时间。端到端服务通过 `SGLANG_DSA_MQA_SPLIT_BY_SEQ=1` 单独验证，消费端补充相同索引重复调用、旧 TopK 再生成、分组 TopK 原始排列及分组 TopK 按旧排列重建四组对照。11 月 10 日的下游位差异记录保留，本次用旧路径自身重复对照核查其判定依据。
+
+消费端的四组对照已在两级 16 个 rank 完成。相同旧输入重复调用与分组索引按旧排列重建两组，其完整索引、attention、max logits、LSE 均逐位一致。旧路径再次生成无序 TopK 后有 77,846,089 个 BF16 attention 元素发生位变化，分组版原始排列有 76,765,524 个。两组的索引集合相同。由此修正 11 月 10 日的准入判定：直接比较不同无序排列下的 FlashMLA 输出位值，缺少旧路径自身波动对照，不能据此判定 MQA 数学不等价。
+
+服务与对拍证据保存在测试目录 `${RUN}/prefill-mqa-alignment-20261111-v1/`，原始结果为 `operator-validation-owner-verified.json`、逐 rank `operator-validation/` 和 `mla-controls/`。
+
+去掉诊断观测的服务已完成本轮原生与 MQA 候选配对计时。两边均为同一份 87K/C80 输入、160 次预热和 320 次正式请求，320 条均命中 80,896 个缓存 token，计时内 Triton 编译为零。原生新输入吞吐 20,311.67 token/s、耗时 96.80 s、TTFT P50 23.35 s；MQA 候选为 19,876.79 token/s、98.91 s、23.86 s，相对本轮原生为 -2.14%，相对历史原组合版 18,353.71 token/s 为 +8.30%。两个 PP stage 的八个 CP rank 全部实际进入请求分组路由。结果为 `paired-results-verified.json`；本轮只计 MQA 变化，Q 拼接仍有独立实现差异，继续单独对齐。
+
+
+### 同期 Q 拼接与组合计时
+
+Q 拼接由 adapter 的 immutable JIT 输入变换接入已核对的原生 HCU 拷贝内核，具体来源、ABI 与回退记录位于 adapter-das 仓 `docs/glm5.3-w4a8-development.md` 的 2026-11-11 章节。没有改变量化、scale 或浮点舍入；16 rank 的 2,415,919,104 个实际 BF16 输出元素在旧 JIT、新 HCU JIT 和原生安装 AOT 之间逐位相同，更换 Q 输入的 Graph 重放也相同。
+
+组合版使用 `SGLANG_DSA_MQA_SPLIT_BY_SEQ=1`、CP Aiter 开关关闭，并移除诊断包装。相同 87K/C80 输入、160 预热和 320 正式请求的配对结果：原生新输入吞吐 20,357.67 token/s、96.577 s、TTFT P50 23.317 s；组合版为 20,300.52 token/s、96.849 s、23.362 s，相对本轮原生为 -0.281%。两端 320 条均命中 80,896 个缓存 token，计时内 Triton 编译为零。MQA 单项相对原生为 -2.141%，加入 Q 后的组合吞吐相对 MQA 单项增加 2.132%。本性能结果只覆盖该档 Prefill，未代表整套场景或其他模型性能已验收。
+
+干净服务在计时结束后另抓完整 profile：全部 16 个实际工作 rank、每 rank 4 个完整 GPU 满批均通过；每批 39 次 Q 拼接均为 HCU grid8192/block256，MQA padding 清理调用为零，全部 rank 仍包含 W4A8 计算。P0/P1 每批 Q 拼接耗时中位数为 30.98/29.09 ms，实际 JIT 库 SHA256 为 `0ede0208613ceea8888fc43e047a3e8a54b82541ff492af2d0e9f8d9cf583d7b`。本轮证据位于 `${RUN}/prefill-qconcat-alignment-20261111-v1/` 的 `paired-results-verified.json`、`q-native-cross-image-verified.json` 和 `clean-profile-owner-verified.json`。本 PR 基于 plugin main `9543829be6177e4261a2a3902fb6762e5602b881`，不包含无端到端收益的 CP Aiter 通信实验。三个 MQA 运行时文件与节点已验收文件逐字节相同；环境变量文件只移除了该默认关闭的实验配置。未新增单测。
+
+HMMT 128K 与 HumanEval 已在官方 SGLang 0.5.22 加已冻结 #27/#62 组合部署上完成复测，不将该部署描述为整个 main PR head 的运行验收。真实 P/D 的 16 个 decode rank 均覆盖 MTP、Graph 与 Q 拼接；target Graph 子 kernel 被命令缓存隐藏，未声称新 trace 逐个显示其 W4A8/DeepEP kernel。未变路径另由完整源码对比及每节点 17 个库哈希绑定，精度结果见下文。
+
+真实 P/D 的 HMMT Nov25 128K 复测为 28/30（93.33%），旧组合为 30/30。`index=9/15` 两题均达到完整的 131,072-token 预算，最终答案为空；旧输出分别为 74,572/103,495 tokens 后正常停止。该差异暂保留记录，未做因果归属，本轮不继续追查。HumanEval 为 161/164（98.17%，旧 162/164、98.78%），两题退分、一题恢复：`HumanEval/116` 生成普通数值排序，未满足按二进制 1 的数量排序的要求；`HumanEval/145` 达到原定 100,000-token 预算且最终答案为空。两组输入、采样参数与请求预算均与基线核对一致，194 条模型输出均无推理接口 error，全部 judge 状态为 success；失败题为答案未通过或无最终答案，未修改评分。汇总脚本误把 HumanEval 的 acc 字段读作 accuracy，现仅修复指标读取并从已完成结果重建汇总，保留原错误记录。该轮存在精度差异，不作为精度无回退的证明；更广场景的性能复测由主对话继续，本节仅引用已完成的单档配对结果。
+
+
+结构化验证摘要保存于 `docs/glm5.3-mqa-validation-20261111.json`。HumanEval/145 的思考段反复宣布结束后继续推翻，存在重复长代码片段和说明段落，最终耗尽 100K 且 final 为空；HumanEval/116、140 也有反复讨论，但均正常结束并返回未通过测试的代码。HMMT 两个 128K 截断样本不因长度本身被判作固定文本循环。算子对拍、真实服务运行、基准分数和待核查项分别记录；这些结果不能证明精度差异由哪一项改动造成。
 
 ## 附录：布局、操作方式与汇总
 
