@@ -12,7 +12,7 @@ resolvable control) and compares unguarded vs guarded ``apply_hooks()``:
              and the control target still patched.
 
 Usage:
-    python tests/runtime/hook_guard_replay_20261109.py --sglang-python <path/to/sglang/python>
+    python tests/runtime/hook_guard_replay.py --sglang-python <path/to/sglang/python>
 """
 
 from __future__ import annotations
