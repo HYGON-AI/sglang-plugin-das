@@ -2791,3 +2791,8 @@ method 不匹配；`slimquant_marlin` 只认顶层 `int-quantized`，对该 chec
 ## 2026-11-11 HY3 main 基线迁移：模型与 NEXTN
 
 基于 main `9543829` 迁入历史提交 `e47b58b` 的 HY3 方法 Hook、FFN 边界与 NEXTN layer_stack 修改。保留 main 已有的 RoPE HIP 向量成员读取实现，不重复引入等价改写。目标合同只替换 HY3 两个整类条目，保留 main 新增的 HY4 等其他模型条目。本步骤仅完成代码迁移，CPU/组合加载/GPU/精度验证尚待执行；旧分支运行结果不作本次通过证据。
+
+
+## 2026-11-11 HY3 main 基线迁移：FP8 与 JIT
+
+迁入 `26e6eef` 的 Channel FP8 分组透传、DeepGEMM scale 连续布局、融合 RoPE 的 Q 二维形状与两处 JIT 宏兼容。基于 main 的合并保留最新 DeepEP 逻辑；本步骤未重新声明历史 GPU 测试通过，组合与模型验证待执行。

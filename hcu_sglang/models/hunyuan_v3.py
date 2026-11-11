@@ -728,6 +728,7 @@ class HYV3Attention(nn.Module):
                 v_scale=None,
                 epsilon=self.q_norm.variance_epsilon,
             )
+            q = q.reshape(qkv.shape[0], self.q_size)
             used_fused_hunyuan_rotary_kv_store = True
         else:
             if self.use_qk_norm:
