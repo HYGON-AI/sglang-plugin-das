@@ -2796,3 +2796,18 @@ method 不匹配；`slimquant_marlin` 只认顶层 `int-quantized`，对该 chec
 ## 2026-11-11 HY3 main 基线迁移：FP8 与 JIT
 
 迁入 `26e6eef` 的 Channel FP8 分组透传、DeepGEMM scale 连续布局、融合 RoPE 的 Q 二维形状与两处 JIT 宏兼容。基于 main 的合并保留最新 DeepEP 逻辑；本步骤未重新声明历史 GPU 测试通过，组合与模型验证待执行。
+
+
+## 2026-11-11 HY3 main 基线迁移：缓存输入长度
+
+迁入 `23567ba`，EXTEND 输出按 `_original_num_tokens` 裁剪，避免包含缓存前缀的 `seq_lens_sum` 保留多余 padding。保留冷/热缓存与短输入 CPU 回归；修复负尺寸不等于证明冷/热缓存输出数值一致。本次验证结果在后续迁移记录中单独列出。
+
+
+## 2026-11-11 HY3 main 迁移提交前检查
+
+- 固定基线：官方 SGLang v0.5.22；plugin main `9543829`；adapter main `1ab11bd` 加本次两项配套修复。
+- plugin L0 与导览快照检查通过，HY3 方法 Hook 的 7 项测试通过；`git diff --check` 通过。
+- 全量 unittest：候选分支 217 项、原 main 210 项；同条件均为 82 failures、7 errors、17 skipped。新增 7 项 HY3 测试全部通过，失败节点集合无新增。已有失败包括历史来源快照不匹配、缺少 input-code 外部输入以及当前混合运行时测试的导入问题，未修改无关测试或更新历史来源哈希来掩盖失败。
+- 缓存裁剪隔离回归：直接编译当前源文件中的真实方法与官方 ForwardMode，复用提交内三项测试，昂贵导入与草稿数据容器隔离；原 main 在热缓存/短输入两例失败，修复后三例全部通过。它证明裁剪数据流，不代表完整 NEXTN/GPU 通过。
+- Adapter L0、38 项 CPU 测试、本次两文件的 3 项测试及 3 个子例通过。
+- 完整导入形式的三份 runtime 测试在隐藏 GPU 时被 HIP 元数据查询阻断（hipGetDevice error 100），没有执行到用例，不记 passed；完整模型启动、精度、缓存命中和性能仍待 S2 新环境验证。旧分支的模型通过记录不外推到本次 main 组合。
