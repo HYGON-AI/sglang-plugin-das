@@ -2428,3 +2428,7 @@ Prefill 八卡成功选择 SlimQuant Marlin 后，社区 MaybeTboDeepEPDispatche
 ## 2026-11-12 MiniMax hook 合同
 
 把专用入口的 DSpark、稀疏 Prefill/Decode 与 KV dtype 目标登记在当前 hook 合同，保留量化和 DeepEP 已登记的目标。
+
+## 2026-11-12 MiniMax 评测脚本
+
+归档独立启动、ABI wheel 构建、trace 校验、配对复跑和性能 CSV 汇总。复用旧版冻结输入与原生客户端，三轮配对中位数逐 BS 检查 5% 阈值，性能计时和 profiler 分开执行。
