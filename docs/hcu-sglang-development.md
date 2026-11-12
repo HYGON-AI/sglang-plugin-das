@@ -2412,3 +2412,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax 专用入口的 W4A8 选择
 
 8 卡完成通信初始化后，构造 MoE 时发现专用入口依赖全量插件的环境注册。使用同名环境键及原 auto 默认读取 MoE backend，保持独立入口行为。
+
+## 2026-11-12 MiniMax profiler 接入
+
+复用基线 profiler 的满批计数与逐 rank 标记。仅在 profiling 进程注册，在当前 worker 的正式插件入口加载，Prefill BS4，Decode 满 BS64 跳过 10 步并保留第 11–20 步。实际 trace 与输出完成率另行核验。

@@ -39,3 +39,8 @@ def register() -> None:
         from hcu_sglang.layers.moe import deepep_current
 
         deepep_current.register_hooks()
+
+    if os.getenv("M31_PROFILE_STAGE") in ("prefill", "decode"):
+        from hcu_sglang.models import minimax_m31_profile
+
+        minimax_m31_profile.register_hooks()
