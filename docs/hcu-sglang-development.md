@@ -2408,3 +2408,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax DeepEP dispatcher
 
 复用插件已有 DeepEP normal/low-latency 实现，显式接入专用入口。与 adapter 的 vendor 低延迟 shim 互斥启用，保留插件的 INT8 dispatch 与原有 W4A8 HIPC 路由。独立探测确认 Python 3.12 的 DeepEP、LightOp 和 DeepGEMM 可以导入。
+
+## 2026-11-12 MiniMax 专用入口的 W4A8 选择
+
+8 卡完成通信初始化后，构造 MoE 时发现专用入口依赖全量插件的环境注册。使用同名环境键及原 auto 默认读取 MoE backend，保持独立入口行为。

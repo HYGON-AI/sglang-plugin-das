@@ -907,7 +907,7 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
                 return SlimQuantW4A8Int8MarlinMoEMethod(self)
             dspark_backend_override = get_dspark_w4a8_tpmoe_backend_override()
             if dspark_backend_override is None:
-                requested_backend = envs.SGLANG_W4A8_TPMOE_BACKEND.get()
+                requested_backend = os.getenv(W4A8_TPMOE_BACKEND_ENV, W4A8_TPMOE_BACKEND_AUTO)
                 env_name = W4A8_TPMOE_BACKEND_ENV
             else:
                 requested_backend = dspark_backend_override
