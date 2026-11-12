@@ -64,49 +64,6 @@ jobs:
           esac
           echo "用镜像: $image"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-  build:
-    name: build whl
-    needs: [image]
-    runs-on: hygon-build
-    timeout-minutes: 20
-    container:
-      # 镜像来自 ci/ci_docker_image（前置 image job 解析），必须带 digest
-      image: ${{ needs.image.outputs.image }}
-    defaults:
-      run:
-        # 容器 job 的默认 shell 是 sh，set -o pipefail 是 bash 扩展，不显式指定会在第一行就退出
-        shell: bash
-    outputs:
-      # L1 按这个目录安装 whl，不自己拼路径：merge 的提交号由 build 算出来，
-      # 让 L1 自己推等于两边各算一遍，迟早对不上
-      wheel_dir: ${{ steps.stage.outputs.wheel_dir }}
-      # dual = main 线（两个 dist）；single = release 线（一个 sgl-kernel 含两个包）
-      whl_model: ${{ steps.build.outputs.whl_model }}
-    steps:
-      - name: Checkout base branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.ref || github.ref }}
-          fetch-depth: 0
-          # Keep the token out of .git/config so PR code cannot read it.
-          persist-credentials: false
-
-      - name: Merge PR into base
-        if: github.event_name == 'pull_request_target' || inputs.pr-number != ''
-        env:
-          # Pass via env instead of inline ${{ }} so a manual input cannot inject shell commands.
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
-          # The repo is private, so the fetch needs a token; pass it only to this one command so it never lands in .git/config.
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # 容器里 workspace 常以别的 uid 挂进来，git 会以 dubious ownership 拒绝操作
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          auth=$(printf 'x-access-token:%s' "${GH_TOKEN}" | base64 -w0)
-          git -c http.extraheader="AUTHORIZATION: basic ${auth}" \
-            fetch "https://github.com/${GITHUB_REPOSITORY}.git" "pull/${PR_NUMBER}/head:pr"
-          git merge --no-ff --no-edit pr
 
   l0:
     name: L0 structural gate
