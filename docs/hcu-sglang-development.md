@@ -2388,3 +2388,7 @@ push 到 origin 仍未执行，等用户明确确认。
 - 对照运行分别使用 `SGLANG_PLUGINS=hcu_minimax_m31` 和开关值 `1`、`0`，以及未匹配任何入口的白名单。读取目标 checkpoint 的 `compression_config`，断言实际框架 loader 的 Hook 状态和量化配置查找结果。启用时 `slimquant_w4a8` 解析到插件注册，显式 `w4a8_int8` 选择可解析为 `slimquant_w4a8_marlin`。另外两组保持社区版查找结果。三组均保留原有 FP8 配置类。
 - 三组对照均通过。证据和可重放脚本位于 `artifacts/minimax-m31-20261111.uPB0D0/`。复跑时在 `PYTHONPATH` 中加入隔离安装目录，设 `HCU_ADAPTER_HOST=none`，向 `verify_m31.py` 传入模型的 `config.json`。
 - 全量 `hcu` 入口在该社区版本遇到缺失的 `sglang.kernels.ops.attention.dsa.index_buf_accessor`。本次最小入口验证未加载 checkpoint 权重或执行算子，adapter 启用组合、模型服务和数值仍待验证。
+
+## 2026-11-12 MiniMax M3.1 v0.5.23 CLI 接入
+
+固定社区版本 0.5.23。使用其 CLI 扩展入口登记 SlimQuant Marlin，保留已有量化 Hook。复现：加载插件后解析 --quantization slimquant_w4a8_marlin，旧版在 argparse 阶段拒绝该选项。整模型验证另行记录。
