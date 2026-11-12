@@ -29,3 +29,8 @@ def register() -> None:
         from hcu_sglang.layers.attention import minimax_m31_sparse
 
         minimax_m31_sparse.register_hooks()
+
+    if os.getenv("HCU_PREFILL_CP", "0") == "1":
+        from hcu_sglang.layers.attention import minimax_m31_cp
+
+        minimax_m31_cp.register_hooks()

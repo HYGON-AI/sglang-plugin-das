@@ -2400,3 +2400,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax gfx938 FlashMLA 适配
 
 从基线 1109 的 flash_mla_gfx938.py 抽取已执行的 MSA128 provider。在 v0.5.23 MiniMax 稀疏接口绑定 Prefill 与 Decode 的页表、有效长度、Top16 和 FP8 scale。容器的 DTK 26.10 / CPython 3.12 wheel 已构建并通过入口导入。GPU 数值与 graph 验证另行记录。
+
+## 2026-11-12 MiniMax Zigzag query-sharded Prefill
+
+社区 v0.5.23 的 MiniMaxSparseAttnBackend 未在 sparse extend 聚合 CP KV。插件沿用社区 Zigzag 复原顺序，合并 K/V 和索引 KV 后单次 gather，写完整缓存，再按前后两段的实际查询长度调用 sparse provider。当前 KV 传输用投影 BF16，旧基线的 FP8 KV 交换待复测。
