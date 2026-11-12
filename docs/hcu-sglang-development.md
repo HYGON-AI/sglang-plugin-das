@@ -2379,3 +2379,12 @@ push 到 origin 仍未执行，等用户明确确认。
 含义：27B 上逐位一致只说明该模型上这层转换无副作用，**不等于插件对所有模型都是 no-op**。
 
 未 commit、未 push。
+
+## 2026-11-11 MiniMax M3.1 Flash 混合量化入口验证
+
+在 `proj/minimax-m3.1-chenyue`（基线 `6830f4ee`）增加 `hcu_minimax_m31` 入口，沿用 `hcu_sglang.layers.quantization.registry` 的两个量化 Hook。只有在 `SGLANG_PLUGINS` 显式选择该入口且未同时选择 `hcu` 时才注册。设置 `HCU_PLUGIN_MINIMAX_M31_QUANT=0` 可保留入口发现并关闭 Hook 注册。
+
+- 环境为 `nmz16` 的 DTK 26.10 / Python 3.12 容器。SGLang 基线为 `v0.5.23-minimax3.1`（`297e54fd10`）。现有 Cargo 1.75 无法解析 resolver 3，本轮通过 `SGLANG_BUILD_RUST_EXTS=none` 安装 Python 部分。Adapter `ee305e5` 已 editable 安装，插件用 `--no-deps --no-build-isolation --target` 隔离安装。
+- 对照运行分别使用 `SGLANG_PLUGINS=hcu_minimax_m31` 和开关值 `1`、`0`，以及未匹配任何入口的白名单。读取目标 checkpoint 的 `compression_config`，断言实际框架 loader 的 Hook 状态和量化配置查找结果。启用时 `slimquant_w4a8` 解析到插件注册，显式 `w4a8_int8` 选择可解析为 `slimquant_w4a8_marlin`。另外两组保持社区版查找结果。三组均保留原有 FP8 配置类。
+- 三组对照均通过。证据和可重放脚本位于 `artifacts/minimax-m31-20261111.uPB0D0/`。复跑时在 `PYTHONPATH` 中加入隔离安装目录，设 `HCU_ADAPTER_HOST=none`，向 `verify_m31.py` 传入模型的 `config.json`。
+- 全量 `hcu` 入口在该社区版本遇到缺失的 `sglang.kernels.ops.attention.dsa.index_buf_accessor`。本次最小入口验证未加载 checkpoint 权重或执行算子，adapter 启用组合、模型服务和数值仍待验证。
