@@ -44,9 +44,37 @@ stop_owned() {
         kill -KILL -- "-$p" 2>/dev/null || true
     ' bash "$inside_run" "$kind"
 }
+watch_gpus() {
+    local foreign
+    while sleep 30; do
+        hy-smi --showpids > "$run/gpu-pids.last" 2>&1 || continue
+        docker top "$container" -eo pid > "$run/container-pids.last" 2>&1 || continue
+        foreign=$(comm -23 \
+            <(awk '/^PID:/ {p=$2} /HCU Index:[[:space:]]*\[[^]]/ && p {print p}' \
+                "$run/gpu-pids.last" | sort -u) \
+            <(awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' "$run/container-pids.last" | sort -u))
+        if [[ -n $foreign ]]; then
+            printf '%s unexpected GPU process(es):
+%s
+' "$(date -Is)" "$foreign" > "$run/foreign-gpu.log"
+            stop_owned "$container" service || true
+            if [[ $action != smoke ]]; then stop_owned "$baseline" bench || true; fi
+            return
+        fi
+    done
+}
+gpu_watch=
 cleanup() {
     local rc=$?
     trap - EXIT
+    if [[ -n $gpu_watch ]]; then
+        kill "$gpu_watch" 2>/dev/null || true
+        wait "$gpu_watch" 2>/dev/null || true
+    fi
+    if [[ -s "$run/foreign-gpu.log" ]]; then
+        cat "$run/foreign-gpu.log" >&2
+        rc=75
+    fi
     stop_owned "$container" service || true
     if [[ $action != smoke ]]; then stop_owned "$baseline" bench || true; fi
     if [[ $role == plugin ]] && ! record_community after; then
@@ -88,8 +116,11 @@ docker exec "$container" env M31_PROFILE_STAGE="$profile_stage" M31_GRAPH_MODE="
         exec bash "$1"
     ' bash "$script" > "$run/service.log" 2>&1 &
 service=$!
+watch_gpus &
+gpu_watch=$!
 ready=0
 for ((n=0; n<240; n++)); do
+    [[ ! -s "$run/foreign-gpu.log" ]] || exit 75
     if ! kill -0 "$service" 2>/dev/null; then
         wait "$service"
         exit 1
