@@ -328,6 +328,7 @@
     "sglang.srt.layers.attention.linear.gdn_backend.GDNAttnBackend.forward_decode",
     "sglang.srt.layers.attention.linear.gdn_backend.GDNAttnBackend.forward_extend",
     "sglang.srt.layers.attention.linear.kernels.gdn_triton.TritonGDNKernel.target_verify",
+    "sglang.srt.layers.attention.minimax_sparse_backend.MiniMaxSparseAttnBackend.__init__",
     "sglang.srt.layers.attention.minimax_sparse_backend.MiniMaxSparseAttnBackend.forward_extend",
     "sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse.minimax_sparse_decode",
     "sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse.minimax_sparse_prefill",

@@ -143,9 +143,30 @@ def _index_dtype(original, *, fp8_attn_gemm, kv_cache_dtype, model_dtype):
     )
 
 
+def _restore_hip_verify(_result, backend, runner):
+    # The adapter deliberately exposes CUDA semantics to SGLang. This
+    # hardware-dependent flag selects the existing linear HIP verify metadata
+    # and grouped sparse decode path, including in-graph metadata rebuilds.
+    if not torch.version.hip or backend.is_hip:
+        return
+    from sglang.srt.layers.attention.minimax_sparse_backend import get_spec
+
+    spec = get_spec()
+    if spec.speculative_algorithm != "DSPARK":
+        return
+    if spec.speculative_eagle_topk != 1:
+        raise ValueError("MiniMax HIP DSpark verification requires a linear draft chain")
+    backend.is_hip = True
+
+
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    HookRegistry.register(
+        "sglang.srt.layers.attention.minimax_sparse_backend.MiniMaxSparseAttnBackend.__init__",
+        _restore_hip_verify,
+        HookType.AFTER,
+    )
     HookRegistry.register(
         "sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse.minimax_sparse_prefill",
         _prefill,
