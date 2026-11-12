@@ -59,12 +59,29 @@ def main():
         raise ValueError(f"Expected trace files for TP ranks 0–7, found {ranks}")
     traces = [verify_trace(path, stage, graph) for path in paths]
     benchmark = run / "measurements" / "PASS.json"
-    result = json.loads(benchmark.read_text()) if benchmark.is_file() else None
+    validation = run / "measurements" / "validation.json"
+    result = json.loads(validation.read_text()) if validation.is_file() else None
+    journal = run / "traces" / "request-completions.jsonl"
+    finished = {}
+    if journal.is_file():
+        with journal.open() as stream:
+            for line in stream:
+                if line.endswith("\n"):
+                    record = json.loads(line)
+                    finished[record["id"]] = record
     bs = 4 if stage == "Prefill" else 64
-    complete = bool(result and result["completed"] == bs and result["cache_min"] == 131072)
+    output = 1 if stage == "Prefill" else 1024
+    completed = sum(
+        r["success"] and r["completion_tokens"] == output for r in finished.values()
+    )
+    complete = bool(
+        benchmark.is_file() and result and result["completed"] == bs
+        and result["cache_min"] == 131072 and completed == bs
+    )
     index = dict(stage=stage, runtime="cuda_graph" if graph else "eager",
                  traces=traces, input_tokens=147456, cached_tokens=131072, batch_size=bs,
-                 output_tokens=1 if stage == "Prefill" else 1024,
+                 output_tokens=output, completed_requests=completed,
+                 completion_rate=completed / bs, client_responses=len(finished),
                  benchmark_completed=complete, benchmark=result)
     target = run / ("PASS.json" if complete else "CAPTURE.json")
     target.write_text(json.dumps(index, indent=2) + "\n")

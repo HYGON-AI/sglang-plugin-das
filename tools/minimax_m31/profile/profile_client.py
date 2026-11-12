@@ -21,6 +21,21 @@ traces.mkdir(parents=True, exist_ok=True)
 @contextlib.contextmanager
 def adapter(*args, **kwargs):
     session = args[3]
+    captured = args[2]
+
+    class Journal:
+        def append(self, item):
+            req, response, meta = item
+            record = dict(
+                id=req.extra_request_body["rid"],
+                success=response.success,
+                completion_tokens=meta.get("completion_tokens"),
+            )
+            with (traces/"request-completions.jsonl").open("a") as stream:
+                stream.write(json.dumps(record) + "\n")
+            captured.append(item)
+
+    args = (*args[:2], Journal(), *args[3:])
     base = 'http://127.0.0.1:11010'
     request = dict(output_dir=str(traces), profile_by_stage=True,
                    profile_stages=[a.mode], activities=['CPU', 'GPU'],
