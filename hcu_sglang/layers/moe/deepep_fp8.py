@@ -571,6 +571,10 @@ def forward_groupgemm_w8a8_fp8_masked(
     return down_output
 
 def around_ep_init(original, layer, *args, **kwargs):
+    if _is_hcu and get_bool_env_var("HCU_PLUGIN_MINIMAX_M31_DEEPEP"):
+        from hcu_sglang.layers.moe import minimax_m31_moe
+
+        return minimax_m31_moe.init_on_hip(original, layer, args, kwargs)
     result = original(layer, *args, **kwargs)
     if _is_hcu:
         import inspect
@@ -597,6 +601,10 @@ def around_process_weights(original, scheme, layer):
 
 
 def around_run_moe_core(original, layer, dispatch_output, *args, **kwargs):
+    if _is_hcu and getattr(layer, "_minimax_w4a8_hipc", False):
+        from hcu_sglang.layers.moe import minimax_m31_moe
+
+        return minimax_m31_moe.run_core(layer, dispatch_output)
     if _is_hcu and getattr(layer, "use_int8_w8a8_deepgemm", False):
         from hcu_sglang.layers.moe.deepep_int8 import run_moe_core
         return run_moe_core(layer, dispatch_output)
@@ -620,6 +628,15 @@ def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     from sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8_moe import CompressedTensorsW8A8Fp8MoE
     CompressedTensorsW8A8Fp8MoE._register_runtime_buffer = _register_runtime_buffer
+    register_ep_runtime_hooks()
+    HookRegistry.register("sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8_moe.CompressedTensorsW8A8Fp8MoE.process_weights_after_loading", around_process_weights, HookType.AROUND)
+
+
+
+def register_ep_runtime_hooks():
+    if not _is_hcu:
+        return
+    from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
     HookRegistry.register("sglang.srt.layers.moe.ep_moe.layer.DeepEPMoE.__init__", around_ep_init, HookType.AROUND)
     HookRegistry.register("sglang.srt.layers.moe.ep_moe.layer.DeepEPMoE.run_moe_core", around_run_moe_core, HookType.AROUND)
-    HookRegistry.register("sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8_moe.CompressedTensorsW8A8Fp8MoE.process_weights_after_loading", around_process_weights, HookType.AROUND)

@@ -1250,6 +1250,10 @@ class SlimQuantW4A8Int8MarlinMoEMethod:
                     layer.w2_weight_scale.data * scale_mul,
                     requires_grad=False,
                 )
+                if get_bool_env_var("HCU_PLUGIN_MINIMAX_M31_DEEPEP"):
+                    from hcu_sglang.layers.moe.minimax_m31_moe import configure_dispatcher
+
+                    configure_dispatcher(layer)
             else:
                 # mxfp4_to_int4.py packs (even_k << 4) | odd_k with two's
                 # complement nibbles and stores scale/16 (the legacy lightop

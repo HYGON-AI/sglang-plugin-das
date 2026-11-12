@@ -2436,3 +2436,7 @@ Prefill 八卡成功选择 SlimQuant Marlin 后，社区 MaybeTboDeepEPDispatche
 ## 2026-11-12 MiniMax router GEMV
 
 旧 Prefill/Decode 日志确认 gfx938 小 M router 路径实际命中。抽取旧版纯 Triton GEMV，保留 BF16 shape、设备、FP32 输出及原实现回退。M=64 的 LightOp 可选接口在现有 Python 3.12 包中未发现，使用 Triton。
+
+## 2026-11-12 MiniMax W4A8 DeepEP HIPC 核心
+
+旧 trace 的 normal contiguous 和 low-latency masked GEMM 在社区 v0.5.23 的 DeepEPMoE.run_moe_core 缺失。复用现有 DeepEP scatter/gather、原 HIPC 权重布局和原 scale/16 契约。仅 MiniMax 显式入口激活，CPython 3.12 LightOp 缺少 INT8 OAI 扩展时复用基线 Triton 激活。
