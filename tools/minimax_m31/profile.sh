@@ -45,4 +45,32 @@ for case in "${cases[@]}"; do
         fi
     done
 done
+python3 - "$root/traces" "$stamp" <<'PY_INDEX'
+import json, sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+stamp = sys.argv[2]
+index = {}
+for case in ("prefill-eager", "decode-eager", "decode-full"):
+    attempts = []
+    for run in sorted((root / case).glob(stamp + "-attempt-*")):
+        status = run / "status"
+        data = dict(path=str(run.relative_to(root)),
+                    status=status.read_text().strip() if status.exists() else "unknown")
+        for filename in ("PASS.json", "CAPTURE.json"):
+            manifest = run / filename
+            if manifest.is_file():
+                evidence = json.loads(manifest.read_text())
+                data.update(manifest=str(manifest.relative_to(root)), runtime=evidence["runtime"],
+                            completed_requests=evidence["completed_requests"],
+                            completion_rate=evidence["completion_rate"],
+                            verified_ranks=len(evidence["traces"]))
+                break
+        attempts.append(data)
+    index[case] = attempts
+tmp = root / ("TRACE_INDEX-" + stamp + ".tmp")
+tmp.write_text(json.dumps(index, indent=2) + "\n")
+tmp.replace(root / ("TRACE_INDEX-" + stamp + ".json"))
+PY_INDEX
 exit "$result"
