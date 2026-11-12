@@ -2432,3 +2432,7 @@ Prefill 八卡成功选择 SlimQuant Marlin 后，社区 MaybeTboDeepEPDispatche
 ## 2026-11-12 MiniMax 评测脚本
 
 归档独立启动、ABI wheel 构建、trace 校验、配对复跑和性能 CSV 汇总。复用旧版冻结输入与原生客户端，三轮配对中位数逐 BS 检查 5% 阈值，性能计时和 profiler 分开执行。
+
+## 2026-11-12 MiniMax router GEMV
+
+旧 Prefill/Decode 日志确认 gfx938 小 M router 路径实际命中。抽取旧版纯 Triton GEMV，保留 BF16 shape、设备、FP32 输出及原实现回退。M=64 的 LightOp 可选接口在现有 Python 3.12 包中未发现，使用 Triton。

@@ -44,3 +44,8 @@ def register() -> None:
         from hcu_sglang.models import minimax_m31_profile
 
         minimax_m31_profile.register_hooks()
+
+    if os.getenv("SGLANG_OPT_USE_MINIMAX_ROUTER_GEMV") == "1":
+        from hcu_sglang.models import minimax_m31_router
+
+        minimax_m31_router.register_hooks()

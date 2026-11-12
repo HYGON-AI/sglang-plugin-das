@@ -618,6 +618,7 @@
     "sglang.srt.models.minimax_m2.MiniMaxM2QKRMSNorm.forward",
     "sglang.srt.models.minimax_m2.MiniMaxM2RMSNormTP.__init__",
     "sglang.srt.models.minimax_m2.MiniMaxM2RMSNormTP.weight_loader",
+    "sglang.srt.models.minimax_m3.MiniMaxM3MoE._compute_router_logits",
     "sglang.srt.models.qwen2.Qwen2Attention.__init__",
     "sglang.srt.models.qwen2.Qwen2Attention.forward",
     "sglang.srt.models.qwen3.Qwen3Attention.__init__",
