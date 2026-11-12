@@ -19,7 +19,16 @@ esac
 case "$action" in smoke|bench|profile) ;; *) exit 2 ;; esac
 [[ "$run" == "$root/"* ]]
 inside_run="$inside/${run#"$root/"}"
+community="$(dirname -- "$(dirname -- "$root")")/sglang-community"
+community_pin=297e54fd105e974cdf401e5b4d20253a22c16f90
 mkdir -p "$run"
+record_community() {
+    local point=$1
+    GIT_OPTIONAL_LOCKS=0 git -C "$community" rev-parse HEAD > "$run/community-$point.sha" &&
+    GIT_OPTIONAL_LOCKS=0 git -C "$community" status --porcelain=v1 > "$run/community-$point.status" &&
+    [[ $(cat "$run/community-$point.sha") == "$community_pin" &&
+       ! -s "$run/community-$point.status" ]]
+}
 status() { printf '%s\n' "$1" > "$run/status.tmp"; mv "$run/status.tmp" "$run/status"; }
 stop_owned() {
     local target=$1 kind=$2
@@ -40,6 +49,10 @@ cleanup() {
     trap - EXIT
     stop_owned "$container" service || true
     if [[ $action != smoke ]]; then stop_owned "$baseline" bench || true; fi
+    if [[ $role == plugin ]] && ! record_community after; then
+        echo "Community checkout no longer matches the clean pinned revision" >&2
+        rc=1
+    fi
     if (( rc != 0 )); then status failed; fi
     exit "$rc"
 }
@@ -58,7 +71,11 @@ status starting
 if [[ $role == plugin ]]; then
     cat "$root/runtime/plugin-site" > "$run/plugin-site.txt"
     git -C "$root/worktrees/adapter" rev-parse HEAD > "$run/adapter-sha.txt"
-    git -C "$(dirname -- "$(dirname -- "$root")")/sglang-community" rev-parse HEAD > "$run/community-sha.txt"
+    if ! record_community before; then
+        echo "Expected clean SGLang community revision $community_pin" >&2
+        exit 1
+    fi
+    cp "$run/community-before.sha" "$run/community-sha.txt"
 fi
 profile_stage=
 if [[ $action == profile ]]; then
