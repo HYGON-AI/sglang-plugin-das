@@ -30,9 +30,19 @@ for case in "${cases[@]}"; do
         prefill-eager|decode-eager|decode-full) ;;
         *) echo "Unknown profile case $case" >&2; exit 2 ;;
     esac
-    run="$root/traces/$case/$stamp"
-    if ! M31_GRAPH_MODE="${case#*-}" bash "$root/scripts/run_case.sh" plugin "${case%-*}" "$run" profile; then
-        result=1
-    fi
+    attempt=0
+    while :; do
+        attempt=$((attempt + 1))
+        run="$root/traces/$case/$stamp-attempt-$attempt"
+        if M31_GRAPH_MODE="${case#*-}" bash "$root/scripts/run_case.sh" plugin "${case%-*}" "$run" profile; then
+            break
+        else
+            rc=$?
+            if (( rc != 75 )); then
+                result=1
+                break
+            fi
+        fi
+    done
 done
 exit "$result"
