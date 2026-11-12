@@ -25,7 +25,7 @@ export GPU_ARCHS=gfx938 ROCSHMEM_GDR_DISABLE_HDP=1
 export ROCSHMEM_ALLOWED_IBV_DEVICES=mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8,mlx5_9
 export SGLANG_EPLB_AUTO_START_RECORDER=0 SGLANG_USE_DEEPGEMM_MOE=0
 export SGLANG_USE_LIGHTOP=1 SGLANG_USE_LIGHTOP_OAI_INT8_QUANT=1
-export LIGHTOP_PER_TOKEN_INT8_METHOD=native W8A8_SUPPORT_METHODS=3
+export W8A8_SUPPORT_METHODS=3
 export SGLANG_USE_LIGHTOP_GEMMA_RMSNORM=1 SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE=1
 export SGLANG_MINIMAX_INDEX_FP8=dot SGLANG_MINIMAX_CACHE_PREFILL_INDEX_METADATA=1
 export SGLANG_OPT_USE_MINIMAX_ROUTER_GEMV=1
@@ -45,7 +45,7 @@ opts=(
 case "$stage" in
     prefill)
         [[ $mode == default || $mode == eager ]]
-        export HCU_PREFILL_CP=1
+        export HCU_PREFILL_CP=1 LIGHTOP_PER_TOKEN_INT8_METHOD=native
         export HIPBLASLT_TUNING_OVERRIDE_FILE="$assets/config/w4a8-w8a8/tuning_20261105/blaslt/hipblaslt.prefill.accepted.config"
         export ROCBLAS_TENSILE_LIBPATH="$assets/config/w4a8-w8a8/tuning_20261105/rocblas/prefill/candidate_library_gpu6"
         export SGLANG_HCU_DEEPEP_NO_M_INDICES_SYNC=1
@@ -69,7 +69,7 @@ case "$stage" in
             default|full) ;;
             *) exit 2 ;;
         esac
-        export HCU_PREFILL_CP=0
+        export HCU_PREFILL_CP=0 LIGHTOP_PER_TOKEN_INT8_METHOD=triton
         export HIPBLASLT_TUNING_OVERRIDE_FILE="$assets/config/w4a8-w8a8/dspark-int8-20261107/hipblaslt.decode.accepted.config"
         export ROCBLAS_TENSILE_LIBPATH="$assets/config/w4a8-w8a8/tuning_20261105/rocblas/decode/candidate_library_gpu6"
         export SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK=128
