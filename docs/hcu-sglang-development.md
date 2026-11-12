@@ -2848,3 +2848,16 @@ SGLang `0.5.18+dtk2604.torch2110.2610211227.g414c32`）运行：
 日志位于 ignored 目录 `artifacts/clean-buffer-num-topk-20261111/`。
 以上是 CPU/接口检查，未验证 GPU 通信内核、真实模型生成或多卡 Graph。
 远端托管 Quality Gate 未触发，本次执行本地 CI 配方。
+
+
+## 2026-11-12 PR #41 的评审修复与变基后验收边界
+
+本轮将 PR 变基到 plugin main `b7d4356`，保留该基线的 DeepEP clean-buffer top-k 与 nightly wheel 变更。`architecture.html` 的冲突通过 `tools/build_guide.py` 从合并后的源文档重新生成。四个 MQA 运行时修改文件与旧 PR head `d557ddd` 逐字节一致；本轮没有改变 LightOp API、分组门控、默认配置、索引顺序或量化语义。
+
+按 reviewer 点名的范围增加 `tests/test_mqa_request_split.py`，直接加载零依赖规划器，不导入框架或设备库。九项 CPU 测试通过，覆盖空输入和全零 Q、单请求、部分分组优于两种极端划分、阈值相等时保留更多分组、完整切片回退、零 Q 请求跨 K 边界与两端裁剪、一字节预算的逐行分块、零预算和非法长度/阈值。它们验证规划与坐标，不代表 native kernel、Graph 或整模型通过。
+
+提交前按 CI 的 Ruff 0.12.1 E9/F63/F7/F82（ignore-noqa）规则检查全部 PR Python 文件，并执行语法、L0、导览重建与 `--check`、`git diff --check`。GitHub CI 独立记录结果；没有在本机运行完整测试套件。
+
+变基后完整组合的真机重验明确为 **pending**，由 [#47](https://github.com/HYGON-AI/sglang-plugin-das/issues/47) 记录两 PR 的提交、实际安装库与输入绑定，以及全部实际工作 rank 的调用链、小样本 logits/消费者对照和 P0/P1 延迟接受条件。历史 `glm5.3-mqa-validation-20261111.json` 保留原有来源和 frozen #27/#62 组合边界，未改为当前 head 已通过；历史 HMMT/HumanEval 差异仍未归因。
+
+本轮浏览器截图、交互与窄屏复核未执行：浏览器工具的 URL 安全策略拒绝 `file://` 协议。已执行导览重建与快照检查，未将结构检查记作截图验收。
