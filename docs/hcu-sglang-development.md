@@ -2788,26 +2788,25 @@ method 不匹配；`slimquant_marlin` 只认顶层 `int-quantized`，对该 chec
 - 未覆盖 MTP（`hunyuan_v4_nextn`）、DeepEP/EP、prefill graph、PD。
 
 
-## 2026-11-11 HY3 main 基线迁移：模型与 NEXTN
+## HY3 Channel FP8 与 NEXTN 适配（SGLang 0.5.22）
 
-基于 main `9543829` 迁入历史提交 `e47b58b` 的 HY3 方法 Hook、FFN 边界与 NEXTN layer_stack 修改。保留 main 已有的 RoPE HIP 向量成员读取实现，不重复引入等价改写。目标合同只替换 HY3 两个整类条目，保留 main 新增的 HY4 等其他模型条目。本步骤仅完成代码迁移，CPU/组合加载/GPU/精度验证尚待执行；旧分支运行结果不作本次通过证据。
+### 改动范围
 
+- HY3 主模型和 NEXTN 使用方法 Hook，内部组件仍实例化官方类；调整 FFN 通信边界，并为 NEXTN 使用独立的 `layer_stack`。模型 Hook 目标仅包含 HY3 两个类，保留 HY4 等其他模型的注册条目。
+- Channel FP8 的旧版 grouped GEMM 路径显式向 adapter 请求 `quant_group_size=0`；两处 masked DeepGEMM 调用前将 scale 转为连续布局。公共 FP8 路径不限定模型名称，不能据 HY3 通过推断其他模型通过。
+- 融合 RMSNorm/RoPE 后恢复 Q 的二维形状，补齐两处 JIT 宏兼容；保留 main 已有的 HIP RoPE 实现。
+- EXTEND 输出按本轮实际输入长度 `_original_num_tokens` 裁剪，避免把已缓存前缀计入输出，修复缓存命中后的 NEXTN 负尺寸问题。
 
-## 2026-11-11 HY3 main 基线迁移：FP8 与 JIT
+### 验证结果
 
-迁入 `26e6eef` 的 Channel FP8 分组透传、DeepGEMM scale 连续布局、融合 RoPE 的 Q 二维形状与两处 JIT 宏兼容。基于 main 的合并保留最新 DeepEP 逻辑；本步骤未重新声明历史 GPU 测试通过，组合与模型验证待执行。
+- 2026-11-11 组合验证：官方 SGLang `baa9befa`、plugin `3eb48a8`、adapter `9e616cc`；DTK 26.10、Python 3.12、Torch 2.11。HY3 Channel FP8 在 TP8 / attention DP8、DeepEP、FA3、E4M3 KV、NEXTN 2/1/3 下完成启动，基础问答 4/4 正确且正常结束。静态显存比例为 0.70，prefill Graph 档位为 64/128/256/512/1024，decode 最大 batch 为 16。
+- 固定 GSM8K 5-shot 200 题：数值答案正确 197/200，正确且正常结束 196/200，1 题达到 2048-token 上限，0 请求错误。与旧 plugin 分支 `e05a1cd` 的相同样本相比，200/200 完整文本、数值答案和结束原因一致；对照对象不是 sglang-das 0.5.18。
+- NEXTN 缓存回归共 128 次请求完整返回，未复现负尺寸 `-64` 或服务退出。合成 token 输入的冷、热缓存完整输出仍有差异，原因未定位；这不等于模型准确率下降，也不能记作数值一致性通过。
+- HY3 方法 Hook 7 项、实际模块缓存裁剪 3 项、DeepEP 分发 5 项通过。DeepEP FP8 6/7 通过，其中 GPU scatter/gather 最大绝对误差为 0；剩余为 main 已存在的 `_fp8_max` 全局符号检查失败。
+- CPU 全量 unittest：候选分支 217 项、原 main `9543829` 210 项；同条件均为 82 failures、7 errors、17 skipped，失败和错误节点集合无新增。已有失败涉及历史来源快照、缺少外部输入与运行时导入；全量测试未通过。L0、导览快照和 `git diff --check` 通过。
 
+### 依赖与限制
 
-## 2026-11-11 HY3 main 基线迁移：缓存输入长度
+Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还使用部署目录中的 DeepGEMM v4 兼容扩展，该扩展不在两仓提交内；AITER custom all-reduce 初始化存在回退警告，通信后端未验收。公共 ForwardBatch、FP8 路径改动尚无 HY4 回归证据。
 
-迁入 `23567ba`，EXTEND 输出按 `_original_num_tokens` 裁剪，避免包含缓存前缀的 `seq_lens_sum` 保留多余 padding。保留冷/热缓存与短输入 CPU 回归；修复负尺寸不等于证明冷/热缓存输出数值一致。本次验证结果在后续迁移记录中单独列出。
-
-
-## 2026-11-11 HY3 main 迁移提交前检查
-
-- 固定基线：官方 SGLang v0.5.22；plugin main `9543829`；adapter main `1ab11bd` 加本次两项配套修复。
-- plugin L0 与导览快照检查通过，HY3 方法 Hook 的 7 项测试通过；`git diff --check` 通过。
-- 全量 unittest：候选分支 217 项、原 main 210 项；同条件均为 82 failures、7 errors、17 skipped。新增 7 项 HY3 测试全部通过，失败节点集合无新增。已有失败包括历史来源快照不匹配、缺少 input-code 外部输入以及当前混合运行时测试的导入问题，未修改无关测试或更新历史来源哈希来掩盖失败。
-- 缓存裁剪隔离回归：直接编译当前源文件中的真实方法与官方 ForwardMode，复用提交内三项测试，昂贵导入与草稿数据容器隔离；原 main 在热缓存/短输入两例失败，修复后三例全部通过。它证明裁剪数据流，不代表完整 NEXTN/GPU 通过。
-- Adapter L0、38 项 CPU 测试、本次两文件的 3 项测试及 3 个子例通过。
-- 完整导入形式的三份 runtime 测试在隐藏 GPU 时被 HIP 元数据查询阻断（hipGetDevice error 100），没有执行到用例，不记 passed；完整模型启动、精度、缓存命中和性能仍待 S2 新环境验证。旧分支的模型通过记录不外推到本次 main 组合。
+早期 0.9 显存配方曾 OOM，8 并发曾出现 NEXTN padding 失败，未按这两个原始配方复验。环境变量治理、与 sglang-das 0.5.18 的同条件性能和精度对照仍未完成。上述模型结果不能代替这些验收项。
