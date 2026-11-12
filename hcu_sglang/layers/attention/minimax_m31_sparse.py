@@ -143,6 +143,16 @@ def _index_dtype(original, *, fp8_attn_gemm, kv_cache_dtype, model_dtype):
     )
 
 
+def _can_fuse_kv_store(original, pool, index_pool, cache_k, cache_idx_k, unit_scales):
+    # The pinned JIT store supports raw copies on HIP but explicitly rejects
+    # BF16-to-FP8. Keep the same scaled-store fallback as the old baseline.
+    if torch.version.hip and (
+        cache_k.dtype != pool.main_pool.dtype or cache_idx_k.dtype != index_pool.dtype
+    ):
+        return False
+    return original(pool, index_pool, cache_k, cache_idx_k, unit_scales)
+
+
 def _restore_hip_verify(_result, backend, runner):
     # The adapter deliberately exposes CUDA semantics to SGLang. This
     # hardware-dependent flag selects the existing linear HIP verify metadata
@@ -178,6 +188,11 @@ def register_hooks():
         HookType.AROUND,
     )
 
+    HookRegistry.register(
+        "sglang.srt.mem_cache.memory_pool.MiniMaxSparseKVPool._can_fuse_kv_index_store",
+        _can_fuse_kv_store,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.srt.mem_cache.memory_pool.get_minimax_sparse_index_dtype",
         _index_dtype,

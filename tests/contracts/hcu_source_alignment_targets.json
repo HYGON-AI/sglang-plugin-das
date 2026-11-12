@@ -487,6 +487,7 @@
     "sglang.srt.mem_cache.memory_pool.MLATokenToKVPool._write_mla_kv_buffer",
     "sglang.srt.mem_cache.memory_pool.MambaPool.__init__",
     "sglang.srt.mem_cache.memory_pool.MambaPool._should_fuse_slot_ops",
+    "sglang.srt.mem_cache.memory_pool.MiniMaxSparseKVPool._can_fuse_kv_index_store",
     "sglang.srt.mem_cache.memory_pool.conv_window_dedup_enabled",
     "sglang.srt.mem_cache.memory_pool.get_minimax_sparse_index_dtype",
     "sglang.srt.mem_cache.multimodal_cache.MultiModalStaticCache.set",
