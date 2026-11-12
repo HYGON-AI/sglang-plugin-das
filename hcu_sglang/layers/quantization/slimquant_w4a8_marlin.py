@@ -27,7 +27,6 @@ import triton.language as tl
 from torch.nn.parameter import Parameter
 
 
-from sglang.srt.environ import envs
 from sglang.srt.layers.linear import LinearBase
 from sglang.srt.layers.moe import (
     MoeRunner,
@@ -169,7 +168,7 @@ def _ensure_aiter_w4a8_marlin_available() -> None:
 
 def _aiter_w4a8_config_kwargs(**kwargs):
     """Force moe_c when SGLANG_FORCE_AITER_MOE_C=1 (tuned gfx936 configs)."""
-    if _is_hcu and envs.SGLANG_FORCE_AITER_MOE_C.get():
+    if _is_hcu and get_bool_env_var("SGLANG_FORCE_AITER_MOE_C"):
         from aiter.moe import MoeSolutionType
 
         kwargs["spec_sol_type"] = MoeSolutionType.MOE_C

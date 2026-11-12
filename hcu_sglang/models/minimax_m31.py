@@ -34,3 +34,8 @@ def register() -> None:
         from hcu_sglang.layers.attention import minimax_m31_cp
 
         minimax_m31_cp.register_hooks()
+
+    if os.getenv("HCU_PLUGIN_MINIMAX_M31_DEEPEP", "0") == "1":
+        from hcu_sglang.layers.moe import deepep_current
+
+        deepep_current.register_hooks()

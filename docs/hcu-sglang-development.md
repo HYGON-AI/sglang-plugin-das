@@ -2404,3 +2404,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax Zigzag query-sharded Prefill
 
 社区 v0.5.23 的 MiniMaxSparseAttnBackend 未在 sparse extend 聚合 CP KV。插件沿用社区 Zigzag 复原顺序，合并 K/V 和索引 KV 后单次 gather，写完整缓存，再按前后两段的实际查询长度调用 sparse provider。当前 KV 传输用投影 BF16，旧基线的 FP8 KV 交换待复测。
+
+## 2026-11-12 MiniMax DeepEP dispatcher
+
+复用插件已有 DeepEP normal/low-latency 实现，显式接入专用入口。与 adapter 的 vendor 低延迟 shim 互斥启用，保留插件的 INT8 dispatch 与原有 W4A8 HIPC 路由。独立探测确认 Python 3.12 的 DeepEP、LightOp 和 DeepGEMM 可以导入。
