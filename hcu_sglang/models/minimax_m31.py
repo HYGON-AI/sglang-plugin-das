@@ -20,3 +20,7 @@ def register() -> None:
         if SLIMQUANT_MARLIN_NAME not in QUANTIZATION_CHOICES:
             add_quantization_method_choices([SLIMQUANT_MARLIN_NAME])
         register_hooks()
+
+    from hcu_sglang.models import minimax_m31_dspark
+
+    minimax_m31_dspark.register_hooks()

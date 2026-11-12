@@ -2392,3 +2392,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax M3.1 v0.5.23 CLI 接入
 
 固定社区版本 0.5.23。使用其 CLI 扩展入口登记 SlimQuant Marlin，保留已有量化 Hook。复现：加载插件后解析 --quantization slimquant_w4a8_marlin，旧版在 argparse 阶段拒绝该选项。整模型验证另行记录。
+
+## 2026-11-12 MiniMax DSpark 与 DeepEP 解析接入
+
+社区 v0.5.23 在 DP attention 下拒绝 DeepEP。仅对 HIP 的 MiniMax M3.1 SlimQuant 组合扩展原解析函数的后端集合，保留 static verify、LM head 和其余校验。基线 Decode eager 栈确认此模型曾运行 DeepEP low latency 与 DSpark verify，GPU/Graph 仍需验证。
