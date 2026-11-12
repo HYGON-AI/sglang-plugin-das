@@ -1,4 +1,5 @@
 import logging
+import os
 from functools import cache
 from inspect import signature
 
@@ -131,8 +132,26 @@ def _decode(original, *args, **kwargs):
     )
 
 
+def _index_dtype(original, *, fp8_attn_gemm, kv_cache_dtype, model_dtype):
+    if (
+        os.getenv("SGLANG_MINIMAX_INDEX_FP8") == "dot"
+        and kv_cache_dtype == torch.float8_e4m3fn
+        and torch.version.hip
+    ):
+        return torch.float8_e4m3fn
+    return original(
+        fp8_attn_gemm=fp8_attn_gemm, kv_cache_dtype=kv_cache_dtype, model_dtype=model_dtype
+    )
+
+
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     HookRegistry.register(f"{_SPARSE}.minimax_sparse_prefill", _prefill, HookType.AROUND)
     HookRegistry.register(f"{_SPARSE}.minimax_sparse_decode", _decode, HookType.AROUND)
+
+    HookRegistry.register(
+        "sglang.srt.mem_cache.memory_pool.get_minimax_sparse_index_dtype",
+        _index_dtype,
+        HookType.AROUND,
+    )

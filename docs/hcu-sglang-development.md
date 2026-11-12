@@ -2416,3 +2416,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax profiler 接入
 
 复用基线 profiler 的满批计数与逐 rank 标记。仅在 profiling 进程注册，在当前 worker 的正式插件入口加载，Prefill BS4，Decode 满 BS64 跳过 10 步并保留第 11–20 步。实际 trace 与输出完成率另行核验。
+
+## 2026-11-12 MiniMax FP8 index cache
+
+基线 index dot 模式使用 E4M3FN index K。复用社区 KV 容量估算与分配共享的 dtype 选择点，使两处一致。只在插件 FlashMLA 路由显式选 dot 且为 HIP E4M3FN 时启用。
