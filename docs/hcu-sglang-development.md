@@ -2420,3 +2420,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax FP8 index cache
 
 基线 index dot 模式使用 E4M3FN index K。复用社区 KV 容量估算与分配共享的 dtype 选择点，使两处一致。只在插件 FlashMLA 路由显式选 dot 且为 HIP E4M3FN 时启用。
+
+## 2026-11-12 DeepEP dispatcher 构造参数兼容
+
+Prefill 八卡成功选择 SlimQuant Marlin 后，社区 MaybeTboDeepEPDispatcher 传入 runner_backend。插件 dispatcher 接收并向 normal/low latency 实现透传，保留缺省值与原全局选择。
