@@ -2424,3 +2424,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 DeepEP dispatcher 构造参数兼容
 
 Prefill 八卡成功选择 SlimQuant Marlin 后，社区 MaybeTboDeepEPDispatcher 传入 runner_backend。插件 dispatcher 接收并向 normal/low latency 实现透传，保留缺省值与原全局选择。
+
+## 2026-11-12 MiniMax hook 合同
+
+把专用入口的 DSpark、稀疏 Prefill/Decode 与 KV dtype 目标登记在当前 hook 合同，保留量化和 DeepEP 已登记的目标。

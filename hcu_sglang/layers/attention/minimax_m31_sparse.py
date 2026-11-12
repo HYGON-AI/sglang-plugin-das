@@ -8,7 +8,6 @@ import torch
 from hcu_sglang.layers.attention import minimax_m31_flashmla as native
 
 LOG = logging.getLogger(__name__)
-_SPARSE = "sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse"
 
 
 @cache
@@ -147,8 +146,16 @@ def _index_dtype(original, *, fp8_attn_gemm, kv_cache_dtype, model_dtype):
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
-    HookRegistry.register(f"{_SPARSE}.minimax_sparse_prefill", _prefill, HookType.AROUND)
-    HookRegistry.register(f"{_SPARSE}.minimax_sparse_decode", _decode, HookType.AROUND)
+    HookRegistry.register(
+        "sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse.minimax_sparse_prefill",
+        _prefill,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse.minimax_sparse_decode",
+        _decode,
+        HookType.AROUND,
+    )
 
     HookRegistry.register(
         "sglang.srt.mem_cache.memory_pool.get_minimax_sparse_index_dtype",
