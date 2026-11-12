@@ -2396,3 +2396,7 @@ push 到 origin 仍未执行，等用户明确确认。
 ## 2026-11-12 MiniMax DSpark 与 DeepEP 解析接入
 
 社区 v0.5.23 在 DP attention 下拒绝 DeepEP。仅对 HIP 的 MiniMax M3.1 SlimQuant 组合扩展原解析函数的后端集合，保留 static verify、LM head 和其余校验。基线 Decode eager 栈确认此模型曾运行 DeepEP low latency 与 DSpark verify，GPU/Graph 仍需验证。
+
+## 2026-11-12 MiniMax gfx938 FlashMLA 适配
+
+从基线 1109 的 flash_mla_gfx938.py 抽取已执行的 MSA128 provider。在 v0.5.23 MiniMax 稀疏接口绑定 Prefill 与 Decode 的页表、有效长度、Top16 和 FP8 scale。容器的 DTK 26.10 / CPython 3.12 wheel 已构建并通过入口导入。GPU 数值与 graph 验证另行记录。
