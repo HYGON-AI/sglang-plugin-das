@@ -13,6 +13,7 @@
 - [2026-10-30：后端与模型路径同步](#20-2026-10-30-dsa-indexer-当前-hcu-producerconsumer-同步)
 - [2026-11-01：分支迁移与八卡验证](#35-2026-11-01-rmsnormgemma-hcu-分支继续迁移)
 - [2026-11-02：DAS 分支逻辑对齐](#das-分支逻辑对齐2026-11-02)
+- [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -2843,3 +2844,33 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 变基后完整组合的真机重验明确为 **pending**，由 [#47](https://github.com/HYGON-AI/sglang-plugin-das/issues/47) 记录两 PR 的提交、实际安装库与输入绑定，以及全部实际工作 rank 的调用链、小样本 logits/消费者对照和 P0/P1 延迟接受条件。历史 `glm5.3-mqa-validation-20261111.json` 保留原有来源和 frozen #27/#62 组合边界，未改为当前 head 已通过；历史 HMMT/HumanEval 差异仍未归因。
 
 本轮浏览器截图、交互与窄屏复核未执行：浏览器工具的 URL 安全策略拒绝 `file://` 协议。已执行导览重建与快照检查，未将结构检查记作截图验收。
+## 2026-11-12 PD prefill inflight 队列 rank 一致性
+
+**问题来源**：输入为 `prefill-consensus-fix.patch`（来源目录 `zhongxing/zombie-process`），对方基线为 `sglang/srt/disaggregation/prefill.py`。该路径的上下文只存在于本仓扩展后的 `hcu_sglang/disagg/prefill.py`（`external_kv_cleanup_done`、`_all_reduce_polls`、`FAKE_BOOTSTRAP_HOST` 均为本仓自有符号），因此按路径映射落到本仓，不进入 sglang-das 的 `disaggregation/prefill.py`。
+
+**改动范围**：仅 `hcu_sglang/disagg/prefill.py`，共 5 处。
+
+- `process_batch_result_disagg_prefill` 的 external KV 清理分支：队列入队不再依赖 rank 本地的 `cleanup_done`，改为一律入队。
+- `process_batch_result_disagg_prefill` 的 abort 分支：`bootstrap_host == FAKE_BOOTSTRAP_HOST` 时先调用 `req.disagg_kv_sender.abort()`，让假 sender 从 `WaitingForInput` 进入 Failed，避免 abort 落在 forward 期间时永久滞留。
+- `process_disagg_prefill_inflight_queue` 的 poll 循环：`external_kv_cleanup_done and external_kv_response_sent` 的请求直接判 done，不再走 sender poll。
+- `process_disagg_prefill_inflight_queue` 的循环之后：done/undone 划分改为 TP、CP 两组各一次 `_all_reduce_polls` MIN 汇总；按 RID 累计超过 60 秒未清理的请求每分钟告警一次；`rank_consensus_checker.assert_same` 记录 done/kept 数量。
+- `handle_bootstrap_failure`：入队同样不再依赖 `cleanup_done`，去掉已被消费的返回值。
+
+同时把 `handle_bootstrap_failure` 中不再使用的 `cleanup_done` 局部变量删除，避免未使用变量告警。
+
+**实际验证（本机，Windows / Python 3.14，无 torch、无 sglang、无 DCU）**：
+
+- `python -m py_compile hcu_sglang/disagg/prefill.py` 通过。
+- 新增 `tests/test_pd_prefill_inflight_consensus.py`，9 项 AST 结构契约全部通过：导入来源、TP/CP 两次汇总、汇总位置在 poll 循环之后、done 集合由汇总结果重建、已回包请求提前出队、两处入队不依赖 `cleanup_done`、假 sender abort 在入队之前、告警限频。
+- 全量 `python -m unittest discover -s tests`：本次改动前后同为 80 failures / 31 errors / 16 skipped（改动前 202 项，改动后 211 项）。属既存失败，与本次改动无关，未逐项归因。
+- `python ci/l0_gate.py` 失败于 `plans/hcu-runtime-target-closure-20261105.csv` 快照过期；stash 本次改动后复现相同结果，确认为既存问题，未重建快照。
+
+**未验证项**：
+
+- 未在真实 PD 分离拓扑上运行。多 rank 下队列长度是否已先一致（all_reduce 要求各 rank 长度相同，否则会 hang 或报错而非修复）未经运行时确认。
+- 未复现原始症状（`POST /flush_cache` 返回 400、`#inflight-req` 只增不减）。
+- 未跑 `test_zombie_inflight.py` 压测流程。
+- 未验证 `rank_consensus_checker` 在未开启 `SGLANG_ENABLE_RANK_CONSENSUS_CHECKER` 时的行为（按实现为 no-op）。
+- `_inflight_held_since` 采用首次访问惰性初始化，未在 `init_disaggregation` 中预置；与 `no-getattr-defensive` 风格建议不一致，保留原 patch 写法。
+
+**与健康探针改动的关系**：同目录 `修改方案.md` 的改动 A/B/C 处理 `health_generate` 超时不下发 abort、以及 scheduler 忙时丢弃探针 abort 的问题，本次 patch 不包含；本次只处理 inflight 队列的 rank 一致性与假 sender 回收。两者互补，不能互相替代。
