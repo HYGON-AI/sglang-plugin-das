@@ -117,7 +117,8 @@ if [[ $action == profile ]]; then
     profile_stage=$mode
 fi
 docker inspect --format '{{.Image}} {{.State.Status}}' "$container" > "$run/image.txt"
-docker exec "$container" env M31_PROFILE_STAGE="$profile_stage" M31_GRAPH_MODE="$graph" M31_RUN_PATH="$inside_run"     M31_LOG_FILE="$inside_run/runtime.log"     setsid --wait bash -euc '
+docker exec "$container" env M31_DIAG_NO_OVERLAP="${M31_DIAG_NO_OVERLAP:-0}" \
+    M31_PROFILE_STAGE="$profile_stage" M31_GRAPH_MODE="$graph" M31_RUN_PATH="$inside_run"     M31_LOG_FILE="$inside_run/runtime.log"     setsid --wait bash -euc '
         echo "$$" > "$M31_RUN_PATH/service.pid"
         exec bash "$1"
     ' bash "$script" > "$run/service.log" 2>&1 &

@@ -46,7 +46,10 @@ done
 git -C "$base/../1eval_baseline1109/source/sglang" rev-parse HEAD > "$replay/baseline-sha.txt"
 sha256sum "$base/bench-rsc.sh" "$base/dai-sh/m31_rsc_bench/protocol.json" > "$replay/client-inputs.sha256"
 
-for stage in prefill decode; do
+stages=("$@")
+if (( ${#stages[@]} == 0 )); then stages=(prefill decode); fi
+for stage in "${stages[@]}"; do
+    case "$stage" in prefill|decode) ;; *) exit 2 ;; esac
     for pair in 1 2 3; do
         roles=(baseline plugin)
         if (( pair % 2 == 0 )); then roles=(plugin baseline); fi
@@ -66,4 +69,6 @@ for stage in prefill decode; do
         done
     done
 done
-python3 "$root/scripts/compare.py" "$replay" "$base"
+if (( ${#stages[@]} == 2 )); then
+    python3 "$root/scripts/compare.py" "$replay" "$base"
+fi
