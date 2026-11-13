@@ -24,10 +24,11 @@ docker exec "$container" env HCU_ADAPTER_HOST=none PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH="$dest" python3 -c "
 import lightop, torch
 from lightop import _router_gemm, minimax_qk_norm_rope, minimax_cp_fp8_pack
-from lightop.activation import swiglu_oai_int8_quant
+from lightop.activation import swiglu_oai_int8_quant_contiguous, swiglu_oai_int8_quant_masked_flat
 from lightop.quant.int8 import per_token_quant_int8
 assert all(callable(f) for f in (_router_gemm.forward, minimax_qk_norm_rope,
-    minimax_cp_fp8_pack, swiglu_oai_int8_quant, per_token_quant_int8))
+    minimax_cp_fp8_pack, swiglu_oai_int8_quant_contiguous,
+    swiglu_oai_int8_quant_masked_flat, per_token_quant_int8))
 print(lightop.__file__, lightop.op.__file__, torch.__version__, torch.version.hip)
 "
   ' bash "$inside"
