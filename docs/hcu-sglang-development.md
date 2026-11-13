@@ -2808,3 +2808,9 @@ method 不匹配；`slimquant_marlin` 只认顶层 `int-quantized`，对该 chec
 实际验证：`tests/runtime/moe_route_radix_covered.py` 4 项通过——真实注册后断言 `_patched` 含该 target 且两个消费者的模块引用同一对象；非 HCU 下 K3 decode 形状（4×896，topk=16）判真、topk=8 判假；HCU 下两条消费者入口均判假且输入张量未被改写；非 HCU 的 AROUND 把参数原样转给生效的上一层 wrapper。目标合同增加 1 项至 598。
 
 未验证模式：真实 K3 MoE 层的数值路径对照（本轮服务日志未观察到该 bypass 的正向命中记录）、除 `moe_fused_gate`/`moe_route_quant_fused` 之外的潜在消费者。
+
+## 2026-11-13 Kimi K3.1 Day-0 two-node validation
+
+Ran full TP16 on nmz20 and nmz22 with upstream SGLang bbcdb38c71. The opt-in HCU_KIMI31_DAY0 entry uses HCU FlashMLA, SlimQuant, and the existing Triton MoE router. Logits gathering uses NCCL. The original checkpoint retains DSA and FP8 KV. The run used eager execution and Torch top-k.
+
+Attempt 14 loaded all 96 shards and passed four deterministic text chat checks: arithmetic, JSON, multi-turn recall, and ordering. Launch script: logs/launch-day0-1113.sh. Raw responses: logs/day0-dialogue-a14.jsonl. This run did not cover image inputs, long contexts, CUDA graph, speculative decoding, or benchmark-level accuracy.
