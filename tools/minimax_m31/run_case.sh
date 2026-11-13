@@ -98,6 +98,12 @@ fi
 status starting
 if [[ $role == plugin ]]; then
     cat "$root/runtime/plugin-site" > "$run/plugin-site.txt"
+    lightop="$root/runtime/lightop-0e7df9a3e8291f2e0aa7392119d9195cd689c9f9/M31-VERIFIED"
+    if [[ -s "$lightop" ]]; then
+        cat "$lightop" > "$run/lightop-provider.txt"
+    else
+        printf '%s\n' image > "$run/lightop-provider.txt"
+    fi
     git -C "$root/worktrees/adapter" rev-parse HEAD > "$run/adapter-sha.txt"
     if ! record_community before; then
         echo "Expected clean SGLang community revision $community_pin" >&2

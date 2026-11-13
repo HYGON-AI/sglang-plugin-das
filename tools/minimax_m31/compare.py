@@ -80,7 +80,10 @@ def compare(replay, baseline):
                     if role == "plugin":
                         versions.add(tuple(
                             (lane / name).read_text().strip()
-                            for name in ("plugin-site.txt", "adapter-sha.txt", "community-sha.txt")
+                            for name in (
+                                "plugin-site.txt", "adapter-sha.txt", "community-sha.txt",
+                                "lightop-provider.txt",
+                            )
                         ))
                     values, measured_digest = case(lane / "measurements" / ("bs%d" % size), mode, size)
                     if measured_digest != digest:

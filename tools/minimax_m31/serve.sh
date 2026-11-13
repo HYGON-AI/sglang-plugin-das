@@ -13,6 +13,10 @@ export HCU_ADAPTER_HOST=sglang SGLANG_PLUGINS=hcu_minimax_m31 HCU_SLIMQUANT=0
 export HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}
 site=$(cat "$root/runtime/plugin-site")
 export PYTHONPATH="$root/worktrees/adapter:$root/runtime/$site:$community/python"
+lightop="$root/runtime/lightop-0e7df9a3e8291f2e0aa7392119d9195cd689c9f9"
+if [[ -s "$lightop/M31-VERIFIED" ]]; then
+    export PYTHONPATH="$lightop:$PYTHONPATH"
+fi
 if [[ -d "$root/runtime/flashmla/flash_mla" ]]; then
     export PYTHONPATH="$root/runtime/flashmla:$PYTHONPATH"
     export HCU_PLUGIN_MINIMAX_M31_FLASHMLA=1
