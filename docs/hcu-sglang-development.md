@@ -2786,3 +2786,25 @@ method 不匹配；`slimquant_marlin` 只认顶层 `int-quantized`，对该 chec
   `fused_experts_impl_w4a8_marlin` 中没有对应参数，marlin 路径不做 clamp；
   gsm8k 未见掉点，长输出与其他评测未验。
 - 未覆盖 MTP（`hunyuan_v4_nextn`）、DeepEP/EP、prefill graph、PD。
+
+## 2026-11-10 KDA 前缀缓存 track mask 在无 dispatcher 时解引用崩溃
+
+完成模块/行为：`hcu_sglang/layers/attention/linear/kda_backend.py` 的 `_KdaMethods.init_forward_metadata` 在构建 mamba track mask 分支时无条件读 `self.kernel_dispatcher.extend_kernel.uses_state_checkpoints`。HCU 构造函数把 `kernel_dispatcher` 置为 `None`（三条 KDA backend 全部强制 Triton，并改用 `HcuKDAKernel`），该分支一旦进入即 `AttributeError: 'NoneType' object has no attribute 'extend_kernel'`。改动为守卫条件增加 `self.kernel_dispatcher is not None and`，一行、无注释。
+
+该分支只负责构建 FlashInfer KDA prefill checkpoint plan。`FlashInferKDAPrefillKernel.__init__` 在非 SM100/SM103 设备上主动拒绝，因此任何 HCU 配置都无法走到它；HCU 侧 track mask 由 `return_intermediate_state=forward_metadata.has_mamba_track_mask` 加 `_track_mamba_state_extend` 承担，跳过该分支不丢失行为。上游 sglang 同名代码有同样的裸解引用，但上游从不清空 dispatcher，缺陷仅由 HCU 覆写引入。
+
+问题来源：Kimi-K3.1 W4A8 服务（gfx938）在图捕获阶段崩溃，调用链 `eager_runner._execute_extend` → `hybrid_linear_attn_backend.init_forward_metadata` → 上述行；先排除的 OOM、JIT 与 route_radix 均非原因。
+
+实际验证：先在 `tests/runtime/fix_kda_backend.py` 加两条用例——真实 `ForwardBatch`、真实 `HybridReqToTokenPool`/`KimiLinearCacheParams`/`KDAAttnBackend` 构造下，HCU 形态（`kernel_dispatcher=None`）执行 tracked prefill 得到 `has_mamba_track_mask=True`、`conv_states_mask_indices=[1]`、`track_ssm_final_src` 等于 `mamba_cache_indices`、`num_state_checkpoints=0`；对照用例把 dispatcher 换回 `uses_state_checkpoints=True` 并断言 FlashInfer plan 仍被调用一次。修复前 1 error 落在 `kda_backend.py:390`，修复后 KDA 用例 7 项全过（`Ran 7 tests in 76.327s`）。真机：`The server is fired up and ready to roll!`，prefill 与 decode 图捕获均完成；全量 93 层随后在双机 TP16 上加载完成（单卡权重 101 GB）、服务就绪、chat completions 返回 200。门禁：L0 557 Python 文件 + 8 Skill 零错误；`validate_plugin_runtime.py` 598 注册 / 584 应用，14 项未应用仍为既有 `sglang.multimodal_gen.*`（缺 `torchaudio`/`quack`），本轮未新增 hook。
+
+未验证模式：DFLASH 投机路径、prefix caching 命中下的 track mask 复算、非 HCU 设备回归（本次改动在 `is not None` 为真时逐字节等价）；全量服务的输出数值正确性未在此路线上确认。
+
+## 2026-11-10 MoE route radix 在 HCU 上放行 Triton 路由
+
+完成模块/行为：`hcu_sglang/kernel_compat.py` 新增 `around_moe_route_radix_covered`，在 HCU 上直接返回 `False`，其余平台转发原实现。注册到 `sglang.kernels.ops.moe.moe_route_radix.covered`，`moe_fused_gate` 与 `moe_route_quant_fused` 两个消费者读同一模块对象，一次注册同时覆盖。
+
+覆盖谓词在 CUDA 上判定该形状可由融合 kernel 承接；HCU 没有对应实现，返回真会把 K3 的 896 选 16 路由从不存在的融合路径上执行。返回假让上游保留 Triton 路由分派。
+
+实际验证：`tests/runtime/moe_route_radix_covered.py` 4 项通过——真实注册后断言 `_patched` 含该 target 且两个消费者的模块引用同一对象；非 HCU 下 K3 decode 形状（4×896，topk=16）判真、topk=8 判假；HCU 下两条消费者入口均判假且输入张量未被改写；非 HCU 的 AROUND 把参数原样转给生效的上一层 wrapper。目标合同增加 1 项至 598。
+
+未验证模式：真实 K3 MoE 层的数值路径对照（本轮服务日志未观察到该 bypass 的正向命中记录）、除 `moe_fused_gate`/`moe_route_quant_fused` 之外的潜在消费者。
