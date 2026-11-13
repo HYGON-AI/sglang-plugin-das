@@ -9,8 +9,25 @@ status() {
     printf '%s\n' "$1" > "$queue/status.tmp"
     mv "$queue/status.tmp" "$queue/status"
 }
-trap 'rc=$?; if ((rc)); then printf "%s\n" "$rc" > "$queue/exit-code"; fi' EXIT
+plugin=chenyue_sgl1103_plugin_minimax
+started_plugin=0
+cleanup() {
+    local rc=$?
+    trap - EXIT
+    if (( started_plugin )); then
+        docker stop "$plugin" || true
+    fi
+    docker inspect --format '{{.Name}} {{.State.Status}} {{.State.FinishedAt}}' \
+        "$plugin" chenyue_sgl1026_minimax > "$queue/containers-final.log" || true
+    printf '%s\n' "$rc" > "$queue/exit-code"
+    exit "$rc"
+}
+trap cleanup EXIT
 trap 'exit 130' INT TERM
+if [[ $(docker inspect --format '{{.State.Running}}' "$plugin") != true ]]; then
+    docker start "$plugin"
+    started_plugin=1
+fi
 for stage in prefill decode; do
     attempt=0
     while :; do
