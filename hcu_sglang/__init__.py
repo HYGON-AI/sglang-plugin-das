@@ -1,6 +1,7 @@
 """SGLang HCU general plugin - model and layer adaptations."""
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,11 @@ def register() -> None:
     from hcu_sglang.environ import register_envs
 
     register_envs()
+
+    if os.environ.get("HCU_KIMI31_DAY0") == "1":
+        from hcu_sglang.kimi31_day0 import register_hooks
+        register_hooks()
+        return
 
     from hcu_sglang import (
         batch_overlap,
