@@ -69,6 +69,7 @@ import sys
 import types
 module = types.ModuleType('sglang.srt.arg_groups.arg_utils')
 module.is_record = lambda cls: False
+module.field_names = lambda cls: set()
 sys.modules[module.__name__] = module
 from hcu_sglang.server_args import ensure_choices
 from hcu_sglang.layers.quantization.registry import _HCU_QUANTIZATION_NAMES

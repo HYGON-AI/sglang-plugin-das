@@ -1,0 +1,331 @@
+# SPDX-License-Identifier: Apache-2.0
+"""MiniMax H3 packed-token DiT.
+
+Native SGLang implementation of the MiniMax H3 audio-video DiT. The forward
+contract accepts packed inference keyword arguments and returns packed logits.
+"""
+
+from __future__ import annotations
+
+def _norm(size: int, *, eps: float, dtype: torch.dtype = _BF16_DTYPE) -> nn.RMSNorm:
+    # RMSNorm uses fp32 accumulation with bf16 inputs and outputs.
+    # torch.nn.RMSNorm upcasts reduced-precision inputs for the variance
+    # reduction, matching that accumulation semantic.
+    return nn.RMSNorm(size, eps=eps, dtype=dtype)
+
+
+def _use_quant_fp32_modulation(arch, quant_config) -> bool:
+    if quant_config is None or arch.adaln_curve_grid is None:
+        return False
+    from sglang.multimodal_gen.runtime.layers.quantization.minimax_h3_quant import (
+        MiniMaxH3QuantConfig,
+    )
+
+    return (
+        isinstance(quant_config, MiniMaxH3QuantConfig)
+        and quant_config.compressed_adaln
+        and quant_config.fused
+        and arch.adaln_curve_grid is not None
+    )
+
+
+def _modulate_scale_shift(
+    x: torch.Tensor,
+    shift: torch.Tensor,
+    scale: torch.Tensor,
+    indices: torch.Tensor,
+    *,
+    dtype: torch.dtype,
+    fused_fp32: bool = False,
+) -> torch.Tensor:
+    """Apply indexed affine modulation, reusing disposable CUDA BF16 input."""
+    if fused_fp32:
+        from sglang.multimodal_gen.runtime.layers.quantization.minimax_h3_quant import (
+            affine,
+            supports_fp32_modulation,
+        )
+
+        if supports_fp32_modulation(x, (shift, scale), indices, dtype=dtype):
+            return affine(x, shift, scale, indices)
+    # Apply per-index affine modulation: x * (1 + scale[idx]) + shift[idx].
+    if (
+        x.is_cuda
+        and x.dtype == _BF16_DTYPE
+        and dtype == _BF16_DTYPE
+        and shift.dtype == _BF16_DTYPE
+        and scale.dtype == _BF16_DTYPE
+        and x.is_contiguous()
+    ):
+        return indexed_scale_shift_bf16_(x, shift, scale, indices)
+    return (
+        x * (1.0 + scale.index_select(0, indices)) + shift.index_select(0, indices)
+    ).to(dtype)
+
+
+def _modulate_gate(
+    x: torch.Tensor,
+    gate: torch.Tensor,
+    other: torch.Tensor,
+    indices: torch.Tensor,
+    *,
+    dtype: torch.dtype,
+    allow_inplace: bool = True,
+    fused_fp32: bool = False,
+) -> torch.Tensor:
+    """Apply an indexed gated residual, optionally reusing the input buffer."""
+    if fused_fp32:
+        from sglang.multimodal_gen.runtime.layers.quantization.minimax_h3_quant import (
+            gate as fused_gate,
+        )
+        from sglang.multimodal_gen.runtime.layers.quantization.minimax_h3_quant import (
+            supports_fp32_modulation,
+        )
+
+        if supports_fp32_modulation(x, (gate,), indices, dtype=dtype, other=other):
+            # Out of place even with CacheDiT: its saved residual must survive.
+            return fused_gate(x, gate, other, indices)
+    # Apply the per-index gated residual: x + gate[idx] * other.
+    if (
+        x.is_cuda
+        and x.dtype == _BF16_DTYPE
+        and dtype == _BF16_DTYPE
+        and gate.dtype == _BF16_DTYPE
+        and other.dtype == _BF16_DTYPE
+        and x.is_contiguous()
+        and other.is_contiguous()
+    ):
+        if allow_inplace:
+            return indexed_gate_bf16_(x, gate, other, indices)
+        return indexed_gate_bf16(x, gate, other, indices)
+    return (x + gate.index_select(0, indices) * other).to(dtype)
+
+
+class MiniMaxH3DiTBlock(nn.Module):
+    def __init__(
+        self,
+        arch: MiniMaxH3DiTArchConfig,
+        quant_config: QuantizationConfig | None,
+        *,
+        prefix: str,
+        use_adaln_cache: bool = False,
+    ) -> None:
+        super().__init__()
+        self._fused_fp32_modulation = _use_quant_fp32_modulation(arch, quant_config)
+        self.norm1 = _norm(arch.hidden_size, eps=arch.norm_eps)
+        self.norm2 = _norm(arch.hidden_size, eps=arch.norm_eps)
+        self.attn = MiniMaxH3Attention(
+            arch,
+            quant_config,
+            prefix=f"{prefix}.attn",
+        )
+        self.mlp = MiniMaxH3MLP(arch, quant_config, prefix=f"{prefix}.mlp")
+        self.adaln_proj = (
+            None
+            if use_adaln_cache
+            else MiniMaxH3AdalnProj(
+                arch,
+                arch.adaln_out_features,
+                quant_config,
+                prefix=f"{prefix}.adaln_proj",
+                expand_ratio=6,
+                modality_num=MINIMAX_H3_ADALN_MODALITY_NUM,
+            )
+        )
+        self.preserve_input_for_cache_dit = False
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        adaln_input: torch.Tensor,
+        combined_indices: torch.Tensor,
+        rope_cache: tuple[torch.Tensor, torch.Tensor],
+        cu_seqlens: torch.Tensor,
+        cu_seqlens_host: tuple[int, ...] | None = None,
+        max_seqlen: int,
+        ulysses_active: bool = False,
+        ring_active: bool = False,
+        adaln_params: tuple[torch.Tensor, ...] | None = None,
+    ) -> torch.Tensor:
+        """x: [T, H]; adaln_input: [M, t_dim]; combined_indices: [T]
+        (= inverse_indices * modality_num + token_tags.clamp(min=0)).
+
+        Each block computes AdaLN parameters once, then applies
+        norm1 -> scale/shift -> attention -> gated residual, followed by
+        norm2 -> scale/shift -> MLP -> gated residual.
+        """
+        if adaln_params is None:
+            if self.adaln_proj is None:
+                raise ValueError("MiniMax H3 AdaLN cache parameters are required")
+            adaln_params = self.adaln_proj(adaln_input)
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = adaln_params
+        # Cache-DiT retains the inputs to its Fn and Mn block ranges. Only the
+        # first gated residual writes to that tensor; the second one operates on
+        # a block-local buffer.
+        residual = x
+        h = self.norm1(x)
+        h = _modulate_scale_shift(
+            h,
+            shift_msa,
+            scale_msa,
+            combined_indices,
+            dtype=_BF16_DTYPE,
+            fused_fp32=self._fused_fp32_modulation,
+        )
+        h = self.attn(
+            h,
+            rope_cache=rope_cache,
+            cu_seqlens=cu_seqlens,
+            cu_seqlens_host=cu_seqlens_host,
+            max_seqlen=max_seqlen,
+            ulysses_active=ulysses_active,
+            ring_active=ring_active,
+        )
+        x = _modulate_gate(
+            residual,
+            gate_msa,
+            h,
+            combined_indices,
+            dtype=_BF16_DTYPE,
+            allow_inplace=not self.preserve_input_for_cache_dit,
+            fused_fp32=self._fused_fp32_modulation,
+        )
+
+        residual = x
+        h = self.norm2(x)
+        h = _modulate_scale_shift(
+            h,
+            shift_mlp,
+            scale_mlp,
+            combined_indices,
+            dtype=_BF16_DTYPE,
+            fused_fp32=self._fused_fp32_modulation,
+        )
+        h = self.mlp(h)
+        # `residual` is block-local here (see above), so this stays in-place
+        # even while Cache-DiT is attached.
+        return _modulate_gate(
+            residual,
+            gate_mlp,
+            h,
+            combined_indices,
+            dtype=_BF16_DTYPE,
+            fused_fp32=self._fused_fp32_modulation,
+        )
+
+
+class MiniMaxH3FinalLayer(nn.Module):
+    def __init__(
+        self,
+        arch: MiniMaxH3DiTArchConfig,
+        quant_config: QuantizationConfig | None,
+        *,
+        prefix: str,
+        use_adaln_cache: bool = False,
+    ) -> None:
+        super().__init__()
+        self._fused_fp32_modulation = _use_quant_fp32_modulation(arch, quant_config)
+        video_patch_dim = (
+            arch.latents_dim
+            * arch.patch_size[0]
+            * arch.patch_size[1]
+            * arch.patch_size[2]
+        )
+        self.norm = _norm(arch.hidden_size, eps=arch.final_norm_eps)
+        self.adaln_proj = (
+            None
+            if use_adaln_cache
+            else MiniMaxH3AdalnProj(
+                arch,
+                arch.final_adaln_out_features,
+                quant_config,
+                prefix=f"{prefix}.adaln_proj",
+                expand_ratio=2,
+                modality_num=1,
+            )
+        )
+        self.video_out = ColumnParallelLinear(
+            arch.hidden_size,
+            video_patch_dim,
+            bias=True,
+            gather_output=False,
+            params_dtype=_FP32_DTYPE,
+            quant_config=None,
+            prefix=f"{prefix}.video_out",
+        )
+        self.audio_out = ColumnParallelLinear(
+            arch.hidden_size,
+            arch.audio_latents_dim,
+            bias=True,
+            gather_output=False,
+            params_dtype=_FP32_DTYPE,
+            quant_config=None,
+            prefix=f"{prefix}.audio_out",
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        adaln_input: torch.Tensor,
+        inverse_indices: torch.Tensor,
+        adaln_params: tuple[torch.Tensor, ...] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Project all rows into TP-local video/audio output shards.
+
+        Apply single-modality shift/scale AdaLN to the final normalized
+        activations, cast to fp32, then apply both output heads to all rows.
+        The model gathers output columns only after selecting live media rows,
+        preserving the GEMM shape while reducing collective payload.
+        """
+        if adaln_params is None:
+            if self.adaln_proj is None:
+                raise ValueError("MiniMax H3 AdaLN cache parameters are required")
+            adaln_params = self.adaln_proj(adaln_input)
+        shift, scale = adaln_params
+        if x.device.type == "mps":
+            video = audio = None
+            for start in range(0, x.shape[0], _MPS_MLP_TOKEN_CHUNK_SIZE):
+                stop = min(start + _MPS_MLP_TOKEN_CHUNK_SIZE, x.shape[0])
+                h = self.norm(x[start:stop])
+                h = _modulate_scale_shift(
+                    h,
+                    shift,
+                    scale,
+                    inverse_indices[start:stop],
+                    dtype=_BF16_DTYPE,
+                ).to(_FP32_DTYPE)
+                video_chunk, _ = self.video_out(h)
+                audio_chunk, _ = self.audio_out(h)
+                if video is None:
+                    video = torch.empty(
+                        (x.shape[0], video_chunk.shape[-1]),
+                        dtype=video_chunk.dtype,
+                        device=x.device,
+                    )
+                    audio = torch.empty(
+                        (x.shape[0], audio_chunk.shape[-1]),
+                        dtype=audio_chunk.dtype,
+                        device=x.device,
+                    )
+                video[start:stop].copy_(video_chunk)
+                audio[start:stop].copy_(audio_chunk)
+                del h, video_chunk, audio_chunk
+                torch.mps.synchronize()
+                torch.mps.empty_cache()
+            assert video is not None and audio is not None
+            return video, audio
+        h = self.norm(x)
+        h = _modulate_scale_shift(
+            h,
+            shift,
+            scale,
+            inverse_indices,
+            dtype=_BF16_DTYPE,
+            fused_fp32=self._fused_fp32_modulation,
+        )
+        # Preserve full precision through both final output projections.
+        h = h.to(_FP32_DTYPE)
+        video, _ = self.video_out(h)
+        audio, _ = self.audio_out(h)
+        return video, audio

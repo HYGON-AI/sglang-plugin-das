@@ -1,0 +1,33 @@
+{
+  "source": "Old image installed MiniMax-H3 DiT g5c859f",
+  "source_file_sha256": "d893ce953bf15ee710ee631e695847161cc6e8dec2a9fdeba9f71b35ea82e547",
+  "fixture_sha256": "a6ce11ce84f9bdcfb244f672829b3962f7909eb56eabf626c6b1b2a37b59c98d",
+  "definitions": [
+    {
+      "name": "_norm",
+      "source_definition_sha256": "1f0837b4d0aaf41a683d12bf4934737ee792ee2bf8d6539569d2bc9e886837b1"
+    },
+    {
+      "name": "_use_quant_fp32_modulation",
+      "source_definition_sha256": "aa4125b1cb4ada1eefd0a76de22640b0654397c2d9da26368b9b8fd7654dab07"
+    },
+    {
+      "name": "_modulate_scale_shift",
+      "source_definition_sha256": "3fd0d97a20c9574075d2521bc42d1252c433a29b393fdbb4adc3f9e2ec17453b"
+    },
+    {
+      "name": "_modulate_gate",
+      "source_definition_sha256": "ea57fe76ab7586f78966269585d1689c2c4023cc81f8bb49eb6f539e7151b775"
+    },
+    {
+      "name": "MiniMaxH3DiTBlock",
+      "source_definition_sha256": "651d4dd3cc88f570fa5442874b41707d606c8e4bf777ef53427ab4e27a10b00e"
+    },
+    {
+      "name": "MiniMaxH3FinalLayer",
+      "source_definition_sha256": "8a16627f76a491ea7f5ee0157b1376da832fec91f50a488edec7dab551953978"
+    }
+  ],
+  "scope": "CPU caller/dataflow oracle; attention/MLP/projection/GPU kernels replaced",
+  "fixture_normalization": "Remove trailing blank line at EOF only; AST unchanged"
+}
