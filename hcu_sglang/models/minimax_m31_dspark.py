@@ -42,11 +42,52 @@ def _resolve_dspark(original, server_args):
     return _with_deepep(original)(server_args)
 
 
+def _minimax_hip_dspark():
+    import torch
+    from sglang.srt.runtime_context import get_model, get_spec
+
+    return (
+        torch.version.hip is not None
+        and get_spec().speculative_algorithm == "DSPARK"
+        and get_model().quantization == "slimquant_w4a8_marlin"
+    )
+
+
+@cache
+def _with_native_hip(original):
+    return FunctionType(
+        original.__code__,
+        {**original.__globals__, "_is_cuda": False, "_is_hip": True},
+        original.__name__,
+        original.__defaults__,
+        original.__closure__,
+    )
+
+
+def _hip_future_map(original, relay, *args, **kwargs):
+    # The private D2H copy stream is CUDA-only in the community relay.
+    # Use its native HIP publish fence and synchronous CPU length read.
+    if _minimax_hip_dspark():
+        original = _with_native_hip(original)
+    return original(relay, *args, **kwargs)
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     HookRegistry.register(
         "sglang.srt.arg_groups.speculative_hook._handle_dspark",
         _resolve_dspark,
+        HookType.AROUND,
+    )
+
+    HookRegistry.register(
+        "sglang.srt.managers.overlap_utils.FutureMap.__init__",
+        _hip_future_map,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.managers.overlap_utils.FutureMap.resolve_seq_lens_cpu",
+        _hip_future_map,
         HookType.AROUND,
     )
