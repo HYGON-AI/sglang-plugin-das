@@ -107,6 +107,7 @@
     "sglang.srt.arg_groups.speculative_hook._handle_dspark",
     "sglang.srt.managers.overlap_utils.FutureMap.__init__",
     "sglang.srt.managers.overlap_utils.FutureMap.resolve_seq_lens_cpu",
+    "sglang.srt.managers.scheduler.Scheduler.run_event_loop",
     "sglang.srt.batch_overlap.single_batch_overlap.SboFlags.enable_combine_down_gemm_two_stream_overlap",
     "sglang.srt.batch_overlap.two_batch_overlap.TboForwardBatchPreparer.filter_batch",
     "sglang.srt.configs.deepseek_v41.normalize_deepseek_v41_config",

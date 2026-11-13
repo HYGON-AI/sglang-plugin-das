@@ -72,6 +72,26 @@ def _hip_future_map(original, relay, *args, **kwargs):
     return original(relay, *args, **kwargs)
 
 
+@cache
+def _with_hip_scheduler(original):
+    return FunctionType(
+        original.__code__,
+        {**original.__globals__, "is_cuda": lambda: False, "_is_hip": True},
+        original.__name__,
+        original.__defaults__,
+        original.__closure__,
+    )
+
+
+def _hip_scheduler_loop(original, scheduler):
+    # Keep native HIP's stream alias check and its opt-in WAR barrier.
+    # CUDA semantics would otherwise add an unconditional wait from the
+    # scheduler stream to the previous forward, including on idle DP ranks.
+    if _minimax_hip_dspark():
+        original = _with_hip_scheduler(original)
+    return original(scheduler)
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -89,5 +109,11 @@ def register_hooks() -> None:
     HookRegistry.register(
         "sglang.srt.managers.overlap_utils.FutureMap.resolve_seq_lens_cpu",
         _hip_future_map,
+        HookType.AROUND,
+    )
+
+    HookRegistry.register(
+        "sglang.srt.managers.scheduler.Scheduler.run_event_loop",
+        _hip_scheduler_loop,
         HookType.AROUND,
     )
