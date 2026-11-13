@@ -36,10 +36,12 @@ def register() -> None:
         minimax_m31_cp.register_hooks()
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_DEEPEP", "0") == "1":
+        from hcu_sglang import deepep_graph
         from hcu_sglang.layers.moe import deepep_current, deepep_fp8
 
         deepep_current.register_hooks()
         deepep_fp8.register_ep_runtime_hooks()
+        deepep_graph.register_minimax_hooks()
 
     if os.getenv("M31_PROFILE_STAGE") in ("prefill", "decode"):
         from hcu_sglang.models import minimax_m31_profile
