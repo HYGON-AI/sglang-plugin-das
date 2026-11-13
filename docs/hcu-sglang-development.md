@@ -17,6 +17,7 @@
 - [2026-11-04：HCU MHA KV 单流构造试验](#2026-11-04-hcu-mha-kv-单流构造试验)
 - [2026-11-04：GDN 投影单流构造试验](#2026-11-04-gdn-投影单流构造试验)
 - [2026-11-04：KV 与 GDN 单流提交验证](#2026-11-04-kv-与-gdn-单流提交验证)
+- [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -2231,3 +2232,33 @@ GenerationBatchResult 有此可选字段。插件在读取时处理缺省，保�
 Berlin、Tokyo、LANTERN-8306、12，均为 stop。请求后健康检查 HTTP 200。
 官方仓库与验证副本的 10,592 个 tracked 文件哈希一致。此结果覆盖本次短问答；
 原始 JSON 和服务日志在验证目录 logs/nmz107/attempt-8。两项修复均位于 plugin。
+## 2026-11-12 PD prefill inflight 队列 rank 一致性
+
+**问题来源**：输入为 `prefill-consensus-fix.patch`（来源目录 `zhongxing/zombie-process`），对方基线为 `sglang/srt/disaggregation/prefill.py`。该路径的上下文只存在于本仓扩展后的 `hcu_sglang/disagg/prefill.py`（`external_kv_cleanup_done`、`_all_reduce_polls`、`FAKE_BOOTSTRAP_HOST` 均为本仓自有符号），因此按路径映射落到本仓，不进入 sglang-das 的 `disaggregation/prefill.py`。
+
+**改动范围**：仅 `hcu_sglang/disagg/prefill.py`，共 5 处。
+
+- `process_batch_result_disagg_prefill` 的 external KV 清理分支：队列入队不再依赖 rank 本地的 `cleanup_done`，改为一律入队。
+- `process_batch_result_disagg_prefill` 的 abort 分支：`bootstrap_host == FAKE_BOOTSTRAP_HOST` 时先调用 `req.disagg_kv_sender.abort()`，让假 sender 从 `WaitingForInput` 进入 Failed，避免 abort 落在 forward 期间时永久滞留。
+- `process_disagg_prefill_inflight_queue` 的 poll 循环：`external_kv_cleanup_done and external_kv_response_sent` 的请求直接判 done，不再走 sender poll。
+- `process_disagg_prefill_inflight_queue` 的循环之后：done/undone 划分改为 TP、CP 两组各一次 `_all_reduce_polls` MIN 汇总；按 RID 累计超过 60 秒未清理的请求每分钟告警一次；`rank_consensus_checker.assert_same` 记录 done/kept 数量。
+- `handle_bootstrap_failure`：入队同样不再依赖 `cleanup_done`，去掉已被消费的返回值。
+
+同时把 `handle_bootstrap_failure` 中不再使用的 `cleanup_done` 局部变量删除，避免未使用变量告警。
+
+**实际验证（本机，Windows / Python 3.14，无 torch、无 sglang、无 DCU）**：
+
+- `python -m py_compile hcu_sglang/disagg/prefill.py` 通过。
+- 新增 `tests/test_pd_prefill_inflight_consensus.py`，9 项 AST 结构契约全部通过：导入来源、TP/CP 两次汇总、汇总位置在 poll 循环之后、done 集合由汇总结果重建、已回包请求提前出队、两处入队不依赖 `cleanup_done`、假 sender abort 在入队之前、告警限频。
+- 全量 `python -m unittest discover -s tests`：本次改动前后同为 80 failures / 31 errors / 16 skipped（改动前 202 项，改动后 211 项）。属既存失败，与本次改动无关，未逐项归因。
+- `python ci/l0_gate.py` 失败于 `plans/hcu-runtime-target-closure-20261105.csv` 快照过期；stash 本次改动后复现相同结果，确认为既存问题，未重建快照。
+
+**未验证项**：
+
+- 未在真实 PD 分离拓扑上运行。多 rank 下队列长度是否已先一致（all_reduce 要求各 rank 长度相同，否则会 hang 或报错而非修复）未经运行时确认。
+- 未复现原始症状（`POST /flush_cache` 返回 400、`#inflight-req` 只增不减）。
+- 未跑 `test_zombie_inflight.py` 压测流程。
+- 未验证 `rank_consensus_checker` 在未开启 `SGLANG_ENABLE_RANK_CONSENSUS_CHECKER` 时的行为（按实现为 no-op）。
+- `_inflight_held_since` 采用首次访问惰性初始化，未在 `init_disaggregation` 中预置；与 `no-getattr-defensive` 风格建议不一致，保留原 patch 写法。
+
+**与健康探针改动的关系**：同目录 `修改方案.md` 的改动 A/B/C 处理 `health_generate` 超时不下发 abort、以及 scheduler 忙时丢弃探针 abort 的问题，本次 patch 不包含；本次只处理 inflight 队列的 rank 一致性与假 sender 回收。两者互补，不能互相替代。
