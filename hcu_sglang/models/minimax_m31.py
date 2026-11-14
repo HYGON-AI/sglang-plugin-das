@@ -43,6 +43,11 @@ def register() -> None:
         deepep_fp8.register_ep_runtime_hooks()
         deepep_graph.register_minimax_hooks()
 
+    if os.getenv("M31_DIAG_DECODE") == "1":
+        from hcu_sglang.models import minimax_m31_decode_diagnostics
+
+        minimax_m31_decode_diagnostics.register_hooks()
+
     if os.getenv("M31_PROFILE_STAGE") in ("prefill", "decode"):
         from hcu_sglang.models import minimax_m31_profile
 

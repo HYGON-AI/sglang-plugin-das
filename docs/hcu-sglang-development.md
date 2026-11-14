@@ -2440,3 +2440,14 @@ Prefill 八卡成功选择 SlimQuant Marlin 后，社区 MaybeTboDeepEPDispatche
 ## 2026-11-12 MiniMax W4A8 DeepEP HIPC 核心
 
 旧 trace 的 normal contiguous 和 low-latency masked GEMM 在社区 v0.5.23 的 DeepEPMoE.run_moe_core 缺失。复用现有 DeepEP scatter/gather、原 HIPC 权重布局和原 scale/16 契约。仅 MiniMax 显式入口激活，CPython 3.12 LightOp 缺少 INT8 OAI 扩展时复用基线 Triton 激活。
+
+### 2026-11-14 MiniMax-M3.1 Decode warmup diagnosis
+
+基于固定社区版本的调用栈，关闭重叠调度仍会在预热时卡住。DP0 卡在序列长度回传的
+hipMemcpyWithStream，其余 rank 卡在下一轮 DP 元数据同步。探针仅在设置
+M31_DIAG_DECODE=1 时记录首三次各阶段的 DSpark worker、MoE dispatch/combine、
+模型 forward、graph 选择和 draft KV 写入边界。只读取形状和已有 CPU 元数据。
+社区源码只读，正式 trace 和性能复跑保持默认设置。
+
+Python 3.12 通过四个实际社区方法绑定、重复注册和记录次数检查。完整 8 卡日志由
+后续诊断试次产生。
