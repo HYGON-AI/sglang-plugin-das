@@ -16,7 +16,8 @@ case "$role" in
     plugin) container=chenyue_sgl1103_plugin_minimax; script="$inside/scripts/0serve_$short.sh" ;;
     *) exit 2 ;;
 esac
-case "$action" in smoke|bench|profile) ;; *) exit 2 ;; esac
+case "$action" in smoke|bench|profile|accuracy) ;; *) exit 2 ;; esac
+if [[ $action == accuracy && $role != plugin ]]; then exit 2; fi
 [[ "$run" == "$root/"* ]]
 inside_run="$inside/${run#"$root/"}"
 community="$(dirname -- "$(dirname -- "$root")")/sglang-community"
@@ -189,6 +190,16 @@ elif [[ $action == profile ]]; then
         > "$run/bench.log" 2>&1 || client_rc=$?
     python3 "$root/scripts/profile/validate.py" "$run" "$mode" "$graph"
     (( client_rc == 0 ))
+elif [[ $action == accuracy ]]; then
+    status evaluating_accuracy
+    timeout "${M31_ACCURACY_TIMEOUT:-28800}" docker exec "$baseline" env \
+        M31_RUN_PATH="$inside_run" EVAL_OUTPUT_DIR="$inside_run/evalscope" \
+        EVAL_PORT="$port" EVAL_MAX_TOKENS=32768 EVAL_BATCH_SIZE=32 EVAL_LIMIT=None \
+        HIP_VISIBLE_DEVICES= CUDA_VISIBLE_DEVICES= NO_PROXY=127.0.0.1,localhost \
+        no_proxy=127.0.0.1,localhost PYTHONUNBUFFERED=1 setsid --wait bash -euc '
+        echo "$$" > "$M31_RUN_PATH/bench.pid"
+        exec bash /sgl/9minimax/evalscope_more_client.sh true humaneval,gsm8k,hmmt_nov25
+    ' > "$run/evalscope.log" 2>&1
 else
     status benchmarking
     sizes=(1 2 4 8 16 32 40 48 64)
