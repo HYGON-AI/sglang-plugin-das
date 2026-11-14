@@ -44,6 +44,25 @@ stop_owned() {
         kill -KILL -- "-$p" 2>/dev/null || true
     ' bash "$inside_run" "$kind"
 }
+own_bench_processes() {
+    local client_pid host_pid host_pgid client_pgid=
+    client_pid=$(cat "$run/bench.pid" 2>/dev/null) || return 0
+    [[ $client_pid =~ ^[0-9]+$ ]] || return 0
+    docker top "$baseline" -eo pid,pgid > "$run/client-pids.last" 2>&1 || return 0
+    while read -r host_pid host_pgid; do
+        [[ $host_pid =~ ^[0-9]+$ ]] || continue
+        if awk -v expected="$client_pid" \
+            '$1 == "NSpid:" && $NF == expected {found=1} END {exit !found}' \
+            "/proc/$host_pid/status" 2>/dev/null; then
+            [[ $host_pid == "$host_pgid" ]] || return 0
+            client_pgid=$host_pgid
+            break
+        fi
+    done < "$run/client-pids.last"
+    [[ -n $client_pgid ]] || return 0
+    awk -v group="$client_pgid" '$2 == group && $1 ~ /^[0-9]+$/ {print $1}' \
+        "$run/client-pids.last"
+}
 watch_gpus() {
     local foreign
     while sleep 30; do
@@ -52,7 +71,12 @@ watch_gpus() {
         foreign=$(comm -23 \
             <(awk '/^PID:/ {p=$2} /HCU Index:[[:space:]]*\[[^]]/ && p {print p}' \
                 "$run/gpu-pids.last" | sort -u) \
-            <(awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' "$run/container-pids.last" | sort -u))
+            <({
+                awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' "$run/container-pids.last"
+                if [[ $container != "$baseline" && $action != smoke ]]; then
+                    own_bench_processes
+                fi
+            } | sort -u))
         if [[ -n $foreign ]]; then
             printf '%s unexpected GPU process(es):
 %s
