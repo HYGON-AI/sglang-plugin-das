@@ -7,11 +7,12 @@ name = "hcu-sglang-plugin"
 version = "0.3.2.dev77"
 description = "SGLang HCU runtime plugin and development methods"
 requires-python = ">=3.10"
-dependencies = ["sglang==0.5.22"]
+dependencies = ["sglang==0.5.23"]
 license = {file = "LICENSE"}
 
 [project.entry-points."sglang.srt.plugins"]
 hcu = "hcu_sglang:register"
+hcu_minimax_m31 = "hcu_sglang.models.minimax_m31:register"
 
 [project.scripts]
 hcu-sglang-serve = "hcu_sglang.__main__:main"
