@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import csv
 import json
 from math import isclose, isfinite
@@ -63,11 +64,12 @@ def case(folder, mode, size):
     return result, request["rows_sha256"]
 
 
-def compare(replay, baseline):
+def compare(replay, baseline, stages=tuple(METRICS)):
     rows = []
     versions = set()
     csv_values = historical_csv(baseline / HISTORIC_CSV)
-    for mode, metrics in METRICS.items():
+    for mode in stages:
+        metrics = METRICS[mode]
         for size in SIZES:
             historical_path = baseline / mode / "results" / HISTORIC_RUN[mode]
             historical, digest = case(historical_path / "measurements" / ("bs%d" % size), mode, size)
@@ -115,14 +117,21 @@ def compare(replay, baseline):
 
 
 def main():
-    replay, baseline = map(Path, sys.argv[1:])
-    rows = compare(replay, baseline)
-    temp = replay / "comparison.csv.tmp"
+    parser = argparse.ArgumentParser()
+    parser.add_argument("replay", type=Path)
+    parser.add_argument("baseline", type=Path)
+    parser.add_argument("--stage", choices=METRICS)
+    args = parser.parse_args()
+    stages = (args.stage,) if args.stage else tuple(METRICS)
+    rows = compare(args.replay, args.baseline, stages)
+    filename = f"comparison-{args.stage}.csv" if args.stage else "comparison.csv"
+    target = args.replay / filename
+    temp = target.with_suffix(".csv.tmp")
     with temp.open("w", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    temp.replace(replay / "comparison.csv")
+    temp.replace(target)
     passed = sum(row["pass"] for row in rows)
     print("Passed {}/{} metric and batch-size checks".format(passed, len(rows)))
     return 0 if passed == len(rows) else 1

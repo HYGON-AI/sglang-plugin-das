@@ -69,6 +69,7 @@ for stage in "${stages[@]}"; do
         done
     done
 done
-if (( ${#stages[@]} == 2 )); then
-    python3 "$root/scripts/compare.py" "$replay" "$base"
-fi
+case "${#stages[@]}" in
+    1) python3 "$root/scripts/compare.py" "$replay" "$base" --stage "${stages[0]}" ;;
+    2) python3 "$root/scripts/compare.py" "$replay" "$base" ;;
+esac
