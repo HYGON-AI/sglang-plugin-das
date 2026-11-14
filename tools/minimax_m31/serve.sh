@@ -77,6 +77,9 @@ case "$stage" in
         if [[ ${M31_DIAG_NO_OVERLAP:-0} == 1 ]]; then
             opts+=(--disable-overlap-schedule)
         fi
+        if [[ ${M31_DIAG_SKIP_STARTUP_WARMUP:-0} == 1 ]]; then
+            opts+=(--skip-server-warmup)
+        fi
         export GPU_MAX_HW_QUEUES=4 DEEPEP_ENABLE_LL_LAYERED_OPT=1
         export HIPBLASLT_TUNING_OVERRIDE_FILE="$assets/config/w4a8-w8a8/dspark-int8-20261107/hipblaslt.decode.accepted.config"
         export ROCBLAS_TENSILE_LIBPATH="$assets/config/w4a8-w8a8/tuning_20261105/rocblas/decode/candidate_library_gpu6"
