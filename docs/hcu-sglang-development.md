@@ -2985,3 +2985,14 @@ main 来源候选已在单卡 gfx938 完成压缩/完整 AdaLN 的 T2VA 两步�
 
 精简后：两仓 L0、diff 和导览快照通过；adapter CPU 42 项、plugin H3 42 项通过。
 全仓 CPU import-probe 为279项、81 failures、6 errors、17 skipped，与干净 main 的失败标识一致，无新增项。
+
+### 2026-11-15 plugin 运行时评审范围
+
+为精简评审，将新增的七个 H3 测试脚本、旧 AdaLN 参考文件和来源记录移出源码 PR，
+共1163行；独立归档保留原文件和哈希。tests 仅保留新增 Hook 所需的11行目标合同登记。
+这些材料不参与模型推理；hcu_sglang 的515个 Python 文件和打包配置与T2VA实测版本一致。
+此前42项H3测试是独立验证结果，不能解释为当前PR仍携带测试脚本。
+
+本次复核：L0、diff、导览快照通过；独立保留的42项H3测试使用精简后运行时通过。
+当前仓内全仓CPU import-probe为237项、81 failures、6 errors、17 skipped，
+失败标识与干净main一致；不将移出测试导致的用例数减少解释为修复或全仓通过。
