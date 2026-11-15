@@ -981,8 +981,17 @@ class HCUW4A8Int8DeepEPMoEMethod(FusedMoEMethodBase):
     # which still resolves mixed W8A8 Linear layers.
     hcu_w4a8_hipc = True
 
-    def __init__(self, quant_config):
+    def __init__(self, quant_config, *, use_mega_moe=False):
+        if use_mega_moe:
+            from sglang.srt.runtime_context import get_disagg
+            if get_disagg().disaggregation_mode != "prefill":
+                raise ValueError("HCU compressed-tensors W4A8 MegaMoE is prefill-only")
         self.quant_config = quant_config
+        self.use_mega_moe = use_mega_moe
+
+    @staticmethod
+    def _load_compressed_weight(loader, param, loaded_weight, *args, **kwargs):
+        return loader(param, loaded_weight.t().contiguous(), *args, **kwargs)
 
     def create_weights(
         self,
@@ -996,6 +1005,9 @@ class HCUW4A8Int8DeepEPMoEMethod(FusedMoEMethodBase):
         # Retain checkpoint names and CT loader partitioning until post-load.
         # No actorder indices or zero points are needed for this qualified path.
         extra_weight_attrs.update(is_transposed=True, quant_method="channel")
+        extra_weight_attrs["weight_loader"] = functools.partial(
+            self._load_compressed_weight, extra_weight_attrs["weight_loader"]
+        )
         shapes = {
             "w13_weight_packed": (
                 num_experts,
@@ -1053,13 +1065,37 @@ class HCUW4A8Int8DeepEPMoEMethod(FusedMoEMethodBase):
         return storage[: scale.numel()].view_as(scale)
 
     def process_weights_after_loading(self, layer):
+        if self.use_mega_moe:
+            if getattr(layer, "_mega_moe_weights_built", False):
+                return
+            from hcu_sglang.layers.moe.mega_moe import (
+                build_hcu_w4a8_mega_moe_experts_weights,
+            )
+            for prefix in ("w13", "w2"):
+                weight = self._convert_packed_weight(
+                    getattr(layer, prefix + "_weight_packed").data
+                )
+                layer.register_parameter(
+                    prefix + "_weight", Parameter(weight, requires_grad=False)
+                )
+                scale_name = prefix + "_weight_scale"
+                scale = self._channel_scale(getattr(layer, scale_name).data)
+                setattr(layer, scale_name, Parameter(scale, requires_grad=False))
+                delattr(layer, prefix + "_weight_packed")
+            build_hcu_w4a8_mega_moe_experts_weights(layer)
+            return
+
         import deepgemm
-        from sglang.srt.layers.moe.ep_moe.layer import (
-            _use_w4a8_contiguous_hipc,
-            _use_w4a8_masked_hipc,
-        )
+        from hcu_sglang.layers.moe.deepep_w4a8 import configure_hipc
 
         mode = get_deepep_mode()
+        _use_w4a8_contiguous_hipc = get_bool_env_var("SGLANG_USE_W4A8_CONTIGUOUS_HIPC")
+        _use_w4a8_masked_hipc = get_bool_env_var("SGLANG_USE_W4A8_MASKED_HIPC")
+        configure_hipc(
+            layer,
+            masked=_use_w4a8_masked_hipc and mode.enable_low_latency(),
+            contiguous=_use_w4a8_contiguous_hipc and mode.enable_normal(),
+        )
         normal_layout = "hipc" if _use_w4a8_contiguous_hipc else "marlin"
         ll_layout = "hipc" if _use_w4a8_masked_hipc else "marlin_masked"
         layout = normal_layout if mode.enable_normal() else ll_layout
@@ -1118,8 +1154,10 @@ class HCUW4A8Int8DeepEPMoEMethod(FusedMoEMethodBase):
             scale_name = prefix + "_weight_scale"
             scale = self._channel_scale(getattr(layer, scale_name).data)
             setattr(layer, scale_name, torch.nn.Parameter(scale, requires_grad=False))
+        from hcu_sglang.layers.moe.deepep_w4a8 import _hcu_deepep_dispatcher
         layer.dispatcher.set_quant_config(
             {
+                **(_hcu_deepep_dispatcher(layer).quant_config or {}),
                 "normal_dispatcher_output_dtype": "int8",
                 "low_latency_dispatcher_output_dtype": "int8",
                 "normal_expert_alignment": 256,

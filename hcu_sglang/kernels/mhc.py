@@ -209,6 +209,8 @@ class _LazyTilelang:
                         if compiled is None:
                             real_tilelang = _load_tilelang()
                             real_kwargs = _resolve_lazy_tilelang_value(jit_kwargs)
+                            if _is_hcu:
+                                real_kwargs["compile_flags"] = ["-mcode-object-version=5"]
                             compiled = real_tilelang.jit(**real_kwargs)(fn)
                 return compiled(*args, **kwargs)
 

@@ -29,3 +29,8 @@ def register_hooks() -> None:
 
     from . import compressed_targets
     compressed_targets.register_hooks()
+
+    from . import compressed_w4a8
+    compressed_w4a8.register_hooks()
+    from . import channelwise_int8
+    channelwise_int8.register_hooks()

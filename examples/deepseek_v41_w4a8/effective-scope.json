@@ -1,0 +1,21 @@
+{
+  "effective_date": "2026-11-15",
+  "basis": "User requested continuing GSM8K and cancelling MATH500.",
+  "required": {
+    "HumanEval": {
+      "samples": 164,
+      "rounds": 1
+    },
+    "GSM8K": {
+      "samples": 1319,
+      "rounds": 2
+    }
+  },
+  "cancelled": [
+    "MATH500"
+  ],
+  "samples_each_side": 2802,
+  "accuracy_relative_drop_limit": 0.05,
+  "performance_parity_required": false,
+  "accuracy_alignment_passed": false
+}

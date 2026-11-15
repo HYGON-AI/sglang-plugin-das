@@ -321,6 +321,26 @@ def _moe_resolution(server_args, previous):
     return handle_a2a_moe(result, server_args)
 
 
+def around_check_mega_moe_compat(original, server_args):
+    from importlib.util import find_spec
+    from sglang.srt.environ import envs
+
+    if not is_hcu():
+        return original(server_args)
+    view = _resolving_view(server_args)
+    if (
+        view.moe_a2a_backend != "megamoe"
+        or envs.SGLANG_HCU_MEGA_MOE_RUNTIME.get().strip().lower() != "megamoe"
+    ):
+        return original(server_args)
+    if view.enable_two_batch_overlap or view.enable_single_batch_overlap:
+        raise ValueError("HCU MegaMoE does not support two-batch or single-batch overlap")
+    if view.disaggregation_mode != "prefill":
+        raise ValueError("HCU standalone MegaMoE is supported for prefill disaggregation only")
+    if find_spec("megamoe") is None:
+        raise RuntimeError("HCU standalone MegaMoE requires the megamoe provider package")
+
+
 def register() -> None:
     """Use official named resolution seams instead of removed ServerArgs methods."""
     global _RESOLUTION_REGISTERED
@@ -339,6 +359,9 @@ def register() -> None:
     HookRegistry.register(
         "sglang.srt.arg_groups.overrides._attention_backend_fa3_fp8_fallback",
         around_qwen4_fa3_fp8_fallback, HookType.AROUND)
+    HookRegistry.register(
+        "sglang.srt.arg_groups.mega_moe_hook.check_mega_moe_compat",
+        around_check_mega_moe_compat, HookType.AROUND)
     if not _RESOLUTION_REGISTERED:
         for name, wrapper in (
             ("handle_model_specific_adjustments", _model_resolution),

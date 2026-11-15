@@ -2,6 +2,8 @@
 # Modifications Copyright 2026 Hygon Information Technology Co., Ltd.
 """Owned HCU MQA classes with their original class closures and current ABI."""
 from __future__ import annotations
+
+from hcu_sglang.layers.quantization import channelwise_int8
 import functools
 import sglang.srt.models.deepseek_v4 as upstream
 from hcu_sglang.utils.detection import is_hcu
@@ -275,6 +277,11 @@ class MqaAttentionBase(nn.Module):
             parallel_group="attn_tp",
             **({} if quantize_wo_a else {"params_dtype": torch.bfloat16}),
         )
+        self.wo_a_int8 = self.is_dsv41 and channelwise_int8.enabled(
+            self.wo_a, quant_config, add_prefix("wo_a", prefix)
+        )
+        if self.wo_a_int8:
+            channelwise_int8.install(self.wo_a)
         if quantize_wo_a:
             assert hasattr(self.wo_a, "weight_scale_inv"), (
                 "FP8 quant_config must create weight_scale_inv"
@@ -2067,7 +2074,8 @@ class MQALayer(MqaAttentionBase):
                 self.use_flashinfer_mxfp8_wo_b and not get_forward().sp_active
             )
             fuse_rope_wo_a = (
-                self.use_fused_wo_a and 0 < o.shape[0] <= _FUSED_WO_A_MAX_TOKENS
+                self.use_fused_wo_a and not self.wo_a_int8
+                and 0 < o.shape[0] <= _FUSED_WO_A_MAX_TOKENS
             )
 
             if _is_npu:
@@ -2093,7 +2101,11 @@ class MQALayer(MqaAttentionBase):
 
             o = o.view(o.shape[0], self.n_local_groups, -1)
 
-            if fuse_rope_wo_a:
+            if self.wo_a_int8:
+                o = channelwise_int8.grouped(
+                    o, self.wo_a, self.n_local_groups, self.o_lora_rank
+                )
+            elif fuse_rope_wo_a:
                 wo_a = self.wo_a.weight.view(self.n_local_groups, self.o_lora_rank, -1)
                 out = fused_rope_wo_a_bf16(
                     o,

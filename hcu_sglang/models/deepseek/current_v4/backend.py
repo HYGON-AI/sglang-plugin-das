@@ -369,10 +369,9 @@ def _forward_prefill_sparse(
     """Gathers each request's SWA window and c4/c128 cache into a flat bf16
     workspace that flash_mla_sparse_fwd reads through per-query rebased indices."""
     if _is_hcu:
-        try:
-            from flash_mla.flash_mla_interface import flash_mla_sparse_fwd
-        except ImportError:
-            from flash_mla import flash_mla_sparse_fwd
+        from hcu_sglang.layers.attention.debug_flash_mla_adapter import (
+            flash_mla_sparse_fwd_entrypoint as flash_mla_sparse_fwd,
+        )
     elif _is_xpu:
         from sgl_kernel import flash_mla_sparse_fwd
     else:

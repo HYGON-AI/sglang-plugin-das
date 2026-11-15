@@ -108,6 +108,8 @@ def _accumulate_cache_tiles(
             tile_positions < topk_length.to(torch.long).unsqueeze(-1)
         )
         k_nope, k_rope = _unpack_nope_fp8_rope_bf16_parts(k_cache, tile_indices)
+        k_nope = k_nope.masked_fill(~valid.unsqueeze(-1), 0.0)
+        k_rope = k_rope.masked_fill(~valid.unsqueeze(-1), 0.0)
         logits = torch.einsum("bqhd,bqld->bqhl", q_nope, k_nope)
         logits = logits + torch.einsum("bqhd,bqld->bqhl", q_rope, k_rope)
         logits = logits * softmax_scale
@@ -195,6 +197,54 @@ def torch_native_flash_mla_with_kvcache(
 
     out = o / l.clamp_min(1e-20)
     return out.to(q.dtype), None
+
+
+def torch_native_flash_mla_sparse_fwd(
+    q, kv, indices, sm_scale, d_v=512, attn_sink=None, topk_length=None
+):
+    if q.dtype != torch.bfloat16 or kv.dtype != torch.bfloat16:
+        raise TypeError("Torch sparse prefill requires BF16 queries and keys")
+    if q.ndim != 3 or kv.ndim != 3 or kv.shape[1] != 1:
+        raise ValueError("Torch sparse prefill requires q[N,H,D] and kv[K,1,D]")
+    rows, heads, _ = q.shape
+    out = torch.empty((rows, heads, d_v), device=q.device, dtype=q.dtype)
+    max_logits = torch.empty((rows, heads), device=q.device, dtype=torch.float32)
+    lse = torch.empty_like(max_logits)
+    width = indices.shape[-1]
+    positions = torch.arange(width, device=q.device).view(1, -1)
+    for start in range(0, rows, 64):
+        end = min(start + 64, rows)
+        ids = indices[start:end].reshape(end - start, width).to(torch.int64)
+        valid = (ids >= 0) & (ids < kv.shape[0])
+        if topk_length is not None:
+            valid = valid & (positions < topk_length[start:end].reshape(-1, 1))
+        keys = kv[:, 0, :][ids.clamp(0, kv.shape[0] - 1)].float()
+        keys = keys.masked_fill(~valid.unsqueeze(-1), 0.0)
+        scores = torch.bmm(q[start:end].float(), keys.transpose(1, 2)) * sm_scale
+        scores = scores.masked_fill(~valid.unsqueeze(1), float("-inf"))
+        maximum = scores.amax(-1)
+        real_lse = torch.logsumexp(scores, -1)
+        denominator = real_lse
+        if attn_sink is not None:
+            denominator = torch.logaddexp(real_lse, attn_sink.float().reshape(1, -1))
+        probabilities = torch.exp(scores - denominator.unsqueeze(-1))
+        probabilities = probabilities.masked_fill(~valid.unsqueeze(1), 0)
+        out[start:end] = torch.bmm(probabilities, keys[..., :d_v]).to(q.dtype)
+        max_logits[start:end] = maximum
+        lse[start:end] = real_lse
+    return out, max_logits, lse
+
+
+def flash_mla_sparse_fwd_entrypoint(*args, **kwargs):
+    from sglang.srt.environ import envs
+
+    if envs.SGLANG_HACK_FLASHMLA_BACKEND.get() in {"torch", "native", "torch_native"}:
+        return torch_native_flash_mla_sparse_fwd(*args, **kwargs)
+    try:
+        from flash_mla.flash_mla_interface import flash_mla_sparse_fwd
+    except ImportError:
+        from flash_mla import flash_mla_sparse_fwd
+    return flash_mla_sparse_fwd(*args, **kwargs)
 
 
 def flash_mla_with_kvcache_entrypoint(backend: str, **kwargs):

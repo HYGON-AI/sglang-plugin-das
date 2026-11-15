@@ -2231,3 +2231,95 @@ GenerationBatchResult 有此可选字段。插件在读取时处理缺省，保�
 Berlin、Tokyo、LANTERN-8306、12，均为 stop。请求后健康检查 HTTP 200。
 官方仓库与验证副本的 10,592 个 tracked 文件哈希一致。此结果覆盖本次短问答；
 原始 JSON 和服务日志在验证目录 logs/nmz107/attempt-8。两项修复均位于 plugin。
+
+
+## 2026-11-13 CT W4A8 与 CP8/EP8、DP8/EP8 接线
+
+- 固定输入：plugin 9258ceff、adapter 766879be；迁移参照 DAS d9e87ae5。保留已有源码与行尾。
+- 当前 CT 的 INT4/channel 专家与 INT8/token 动态激活通过 plugin 专项路由接入已有 HIPC/DeepEP 与 prefill-only MegaMoE。三投影使用同一量化配置；DSV4.1 的 w1/w3/w2 别名按真实 checkpoint 匹配。
+- plugin 对所支持的 DSV4.1 配置保留实际 activation 参数，避免 adapter 的 W4A16 回退覆盖本专项行为；普通配置与未启用 plugin 的有效基线保持不变。
+- MegaMoE 从 canonical CT 权重转换后调用已有 builder，不能复用 DeepEP packed 布局；DeepEP 后处理沿 plugin dispatcher 检查 ABI 与 HIPC 布局，不引用官方不存在的私有全局量。
+- 验证边界：首次服务诊断实际命中 WNA16，已停止并保留负证据。新增 CPU 契约与组合服务、Graph、精度验证待执行，尚不授予模型精度通过。
+
+
+## 2026-11-13 HCU standalone MegaMoE Prefill compatibility
+
+The specified CP8/EP8 Prefill command was rejected by the official CUDA SM90/SM100 gate before model loading. The plugin adds a narrow wrapper for its own HCU standalone `megamoe` runtime, requiring the provider and Prefill disaggregation, and rejecting either overlap mode. Other backends, runtimes and platforms retain the current original implementation. Global architecture/platform detection is unchanged.
+
+Validation: four CPU contracts executed the public native check with the real HookRegistry and explicit platform/provider peers; all passed. Actual provider math, P/D readiness and HumanEval/GSM8K/MATH500 accuracy remain pending. Decode attempt02 was interrupted by container exit (Docker exit0, OOMKilled=false), with no completed load or accuracy result. No adapter source changes were made.
+
+
+## 2026-11-13 Compressed-tensors checkpoint loader orientation
+
+Decode attempt03 reproduced a native channel-scale copy failure: destination [1,1], checkpoint [2304,1]. The custom W4A8 method is outside the official name-based transpose list. Its parameter-owned loader now performs the same checkpoint transpose before delegating to the current native loader; native EP ownership and TP slicing remain delegated. Postload nibble/scale math is unchanged. CPU reproduction with real tensors and complete native loader functions covers original refusal and all gate/up/down packed weights and scales at TP1 and TP8 ranks0/7. Provider kernels, ready service and text accuracy remain pending.
+
+
+## 2026-11-13 special INT8 projections and HCU replay boundary
+
+Attempt04 exposed two migration gaps before any ready/accuracy result. HCU bounded replay must start after the final KV source, preserving the existing DAS/HIP protocol rather than importing the unavailable CUDA RowBucketGraphRunner. CPU6 already verifies that local predicate and unchanged HIP/CUDA behavior.
+
+The checkpoint explicitly stores wo_a, LM head and Markov output in channelwise INT8 with dynamic token INT8 activations. The new image has none of the seven DAS private dsv41_int8 native ops. The plugin adds a functional Torch INT8/INT32 backend instead of installing unsupported adapter ops or ignoring scales. Quantization uses the original 1e-10 floor and round-away-from-zero; scale order remains FP32 accumulator times token scale times channel scale. Grouped attention, draft attention, target/shared/owned vocab heads and the current Markov step_bias consumer preserve canonical weights/scales and original TP/padded loaders. Nonmatching methods delegate unchanged. No reference fork is imported at runtime. This backend does not claim original BLASLt optimization or performance parity. Numerical, Graph and consumer validation is pending at patch preparation; model load/accuracy are not granted by this record.
+
+
+## 2026-11-13 CP PD transfer namespace
+
+Attempt05 Prefill advanced through model loading into Scheduler.init_disaggregation, then the plugin KV-manager caller imported CP transfer descriptors from an absent upstream package. Both Prefill and Decode callers must import the existing plugin-owned configure_v4_transfer; no upstream alias/stub, adapter change or transport algorithm change is needed. A focused test executes both actual caller branches and the real descriptor producer, including draft/state identities, reordered matching and malformed buffer rejection. CPU evidence only grants these branches; actual cross-node PD/readiness and accuracy remain pending. The preceding special projection CPU5, real GPU five-shape eager/Graph with three buffer states, and actual public CT config/Markov consumers passed; these do not themselves grant model accuracy.
+
+
+## 2026-11-13 CP request-state descriptors
+
+Attempt06 completed target and draft loading on all ranks. Prefill then rejected incomplete DSPARK descriptors. The full state producer also registers PD hidden rows and draft valid-from request rows, but the descriptor producer returned an empty list for both. Give these request-scoped positional buffers stable (state type, buffer index) identities; retain every handshake and cross-rank byte-stride check. Focused CPU tests execute the original full setup_state_kv_args producer, descriptor serialization, sharded/unsharded handshake and negative metadata cases. This does not qualify actual PD transport or model accuracy. Decode independently failed during Graph capture in the installed FlashMLA scheduler kernel with no compatible kernel image; its cause is still under investigation.
+
+
+## 2026-11-13 FlashMLA native ABI isolation
+
+The installed DTK2610 FlashMLA sparse scheduler fails on gfx936 without adapter or plugin loaded. Its raw code object uses ELF ABI 4 (Code Object V6). An isolated comparison compiled the same minimal kernel as V5 and V6, extracted real ELF payloads, queried the actual agent BASE profile, and loaded them through the current HSA runtime: V5 load/freeze/symbol lookup succeeded, while V6 and the installed scheduler returned invalid-code-object. This establishes a loader compatibility problem for these inputs, not a repaired vendor package. No original binary, ELF header, global runtime or device policy was modified. A compatible source rebuild remains needed for the native kernel path. The first comparison used a compiler fatbundle as though it were ELF and assumed FULL profile; it is invalid evidence and is retained separately.
+
+The existing plugin Torch FlashMLA implementation passed nine independent packed-FP8 CPU-reference/GPU cases (batch 1/2, window 1/6, 64 heads, optional extra cache, three fixed-buffer states), with maximum absolute error 0.0009765625 and exact eager/Graph equality. The public load_plugins/attention-entrypoint lane also completed with return code zero and the same nine results. A fresh explicitly labelled diagnostic launch may set SGLANG_HACK_FLASHMLA_BACKEND=torch in its child environment only; the original p1/d1 bytes, Graph settings and other budgets remain unchanged. This is a functional diagnostic configuration, not native-kernel or model-accuracy acceptance.
+
+
+## 2026-11-14 sparse-prefill coverage and MHC compiler ABI
+
+Attempt07 completed all target/draft weight loads on both nodes. The Torch decode-attention lane advanced past the old FlashMLA scheduler failure, but Prefill separately called the native BF16 sparse-prefill primitive and hit the same incompatible vendor code object. Decode reached MHC post and failed looking up its generated TileLang kernel. The proposed plugin-only correction routes both existing HCU sparse-prefill callers through an explicit backend selector, preserving the native kernel branch and sparse-prefill setting. Its Torch implementation bounds query-chunk workspace and preserves output/max-logits/LSE, masks, lengths and sink semantics. The plugin MHC lazy compiler passes code-object-version=5 only on HCU, without changing kernel mathematics or global TileLang/runtime libraries. New private CPU and GPU/Graph lanes must pass before applying this candidate; no model or accuracy success is granted by this preparation.
+
+## 2026-11-14 Engram 注册 host 指针的 HCU 映射
+
+本次 scoped AROUND 仅在 HCU 上将已注册 host 地址通过当前已加载的 HIP runtime 查询设备地址，兼容 libgalaxyhip 与 libamdhip64 名称；非 HCU 委托现有 original_fn，映射失败严格拒绝。注册、表布局、装载与数学保持原 producer/consumer，不全局修改 is_hip。CPU 协议、真实小表 eager/Graph 与完整模型验收分别记录，本准备期尚未授予模型精度。
+
+## 2026-11-14 HCU DeepEP combine 重叠能力边界
+
+模型09的INT8 HIPC down GEMM不提供combine所需信号，官方compute_overlap_args仍生成overlap而meta缺block_m。按固定DAS参考的现有能力边界，新增窄AROUND：仅HCU的INT8/FP8或非3D masked布局返回无down/combine重叠；dispatch/shared重叠、数学、信号支持路径和非HCU原返回/异常保持。CPU重现原KeyError并通过真实预导入模型consumer和完整combine consumer验证；完整模型资格及精度另行执行，不能由CPU结果授予。
+
+## 2026-11-14 CP materialize的现有HCU实现绑定
+
+模型10双端完成Graph和ready，但首条真实PD chat的CP materialize non-v2分支仍导入官方已弃用NPU/MUSA shim。仅将该import指向本plugin已有hcu_cp_utils实现，不改算法、CP/CP-v2选择、adapter、默认flag或数学。新增public导出到完整helper的CPU反例和2D/3D/interleave/zigzag回归；8rank Gloo使用真实CPU collective和三次固定buffer状态，metadata/group facade为显式测试边界，不授予HCU/RCCL或模型精度。完整模型与精度须新的真实PD请求验证。
+
+
+## 2026-11-14：Torch FlashMLA 回退的无效 KV 槽位隔离
+
+本次只修 plugin 的分页和稀疏 prefill Torch 回退，adapter、原生 provider 和有效 KV 数值不变。
+原路径把无效索引映射到占位槽，随后只屏蔽概率；占位槽中的 NaN 仍可通过零乘法污染输出。
+现在在分数及 value 累加前屏蔽无效 K/V 操作数，保留有效位置的 NaN，不做全局数值替换。
+
+修复前 CPU 反例与私有原/新对照覆盖长度屏蔽、全无效行、sink 和多 tile。
+实际 GPU 私有对照覆盖分页/稀疏、8/64 heads、60 次 eager/Graph 变输入比较和4项有效 NaN 保留检查，全部通过。
+最终代码仅移除私有原型新增的一行说明注释，与已测原型的完整 AST 相同；保留原有许可和注释。
+新增显式 GPU 准入回归 [flashmla_masked_kv_gpu.py](../tests/runtime/flashmla_masked_kv_gpu.py)，
+在既有 adapter/plugin 环境中用 `HCU_PLUGIN_RUN_GPU_TESTS=1 SGLANG_HACK_FLASHMLA_BACKEND=torch python tests/runtime/flashmla_masked_kv_gpu.py` 执行。
+独立算子对照不代表实际 checkpoint、P/D 生成、精度或性能通过，模型根因仍需单独复验。
+
+
+## 2026-11-14：HCU logits gather 保留官方通信回退
+
+当前 native MultimemAllGatherer 在检查 multicast 能力前先分配并映射对称内存。
+真实启动诊断在该链路出现非法地址访问；其它 rank 等待 rendezvous，不能把清理栈误判为首个故障。
+插件只在 HCU 的 _build 边界返回 None，使用该原生类已有的 TP all-gather 回退；
+其它平台委托有效 original，不新增 adapter 算法、不修改驱动或全局平台语义。
+新增目标已加入当前 Hook 合同。
+
+完整 native 类和实际 HookRegistry 注册/apply 的 CPU7 合同通过，框架/设备/通信是显式夹具。
+私有 GPU35 的48项数值通过但通信组销毁超时，负结果保留；GPU36仅修正测试中 Graph 对象的释放顺序，
+相同八卡输入和阈值下48项 eager/Graph对照及正常退出通过。
+新增 [logits_gather_gpu.py](../tests/runtime/logits_gather_gpu.py) 经公开加载链回归，需显式
+`HCU_PLUGIN_RUN_GPU_TESTS=1` 和一个新的 `HCU_PLUGIN_TEST_OUTPUT_DIR`，用 torchrun 启动8个进程。
+运行时配置发布为测试元数据，通信、Graph和数值是真实设备执行；不授予 native symmetric-memory 路径或模型精度通过。

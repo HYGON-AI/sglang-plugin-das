@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from hcu_sglang.layers.quantization import channelwise_int8
+
 import types
 import dis
 import builtins
@@ -407,6 +409,10 @@ class _ModelMethods:
             markov_rank=int(dspark_config.markov_rank),
             is_dsv41=getattr(config, "model_type", None) == "deepseek_v41",
         )
+        if (getattr(config, "model_type", None) == "deepseek_v41"
+            and channelwise_int8.enabled(self.markov_head.markov_w2, quant_config,
+                                         add_prefix("markov_head.head", prefix))):
+            channelwise_int8.install(self.markov_head.markov_w2)
         self.confidence_head = build_dspark_v4_confidence_head(
             config=config, markov_rank=int(dspark_config.markov_rank)
         )
@@ -427,6 +433,9 @@ class _ModelMethods:
             self.embed_tokens: Optional[nn.Module] = None
             self.lm_head: Optional[nn.Module] = None
         if self.lm_head is not None:
+            if (getattr(config, "model_type", None) == "deepseek_v41"
+                and channelwise_int8.enabled(self.lm_head, quant_config, add_prefix("lm_head", prefix))):
+                channelwise_int8.install(self.lm_head)
             self.markov_head.configure_tp_shard(lm_head=self.lm_head)
 
     def prune_to_ctx_projection(self) -> None:
