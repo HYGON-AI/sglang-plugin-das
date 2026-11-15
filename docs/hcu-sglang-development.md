@@ -2973,3 +2973,15 @@ plugin H3 CPU 42 项通过。相同 CPU import-probe 条件下，干净 main 全
 
 迁 main 后未重跑完整镜像 GPU/Graph/生成性能；上面的设备结果属于 release 来源候选。
 本次导览重建及快照已检查，浏览器工具受阻，实际渲染、交互及窄屏截图未复验。
+
+### 2026-11-15 PR 测试范围精简
+
+按评审范围移除与 H3 无关的 CLI 假模块 field_names 修改，保留 H3 专项测试、
+调制来源记录和 Hook 目标合同。此前 CLI 少一项失败的统计仅属于当时提交，
+不作为当前全仓通过结论。adapter 的大体积 native JSON 改由独立证据归档保存。
+两仓运行时 Python 源码与已实测候选逐文件哈希一致；未修改 H3 适配实现。
+main 来源候选已在单卡 gfx938 完成压缩/完整 AdaLN 的 T2VA 两步生成，
+两条任务 completed、音视频完整解码通过。未重跑完整步数与 FL2VA/Ref2VA。
+
+精简后：两仓 L0、diff 和导览快照通过；adapter CPU 42 项、plugin H3 42 项通过。
+全仓 CPU import-probe 为279项、81 failures、6 errors、17 skipped，与干净 main 的失败标识一致，无新增项。
