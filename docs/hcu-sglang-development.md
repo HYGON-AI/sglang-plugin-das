@@ -2394,3 +2394,109 @@ release 基线均为 132 项，1 failure、2 errors、13 skipped，失败/错误
 用例集合相同；两项错误为主机缺少 torch，一项为既有模拟 arg_utils
 缺少 field_names。未重跑真实模型、GPU Graph、多卡和性能验收；
 导览未执行浏览器渲染、交互及窄屏截图检查。
+
+
+### 2026-11-13：社区 diffusion 入口与 Wan SLA 跳过
+
+本轮目标改为社区 SGLang v0.5.22（`baa9befa381511cd4d56f83980951e5a45fffc6d`），
+配套插件以 `768b2e6`、adapter 以 `3fbbc89` 加本轮工作区改动运行；官方源码保持干净。
+用户明确批准将 RoPE 原地计算放入 adapter 的 sgl_kernel，以及由 plugin 实现
+Wan SLA 跳过线性分支。本条记录不沿用此前 DAS 框架的生成成功结果。
+
+- 新增 `sglang.multimodal_gen.plugins` 正式入口。八个 multimodal 注册模块接收
+  可选 registry，由 diffusion worker 在平台初始化后注册和 apply；SRT 入口仅在
+  旧框架没有该独立机制时沿原路径注册，避免同一目标在两份 registry 中重复包装。
+- Wan 构造期间沿用已有 `sla_topk`、`sla_skip_linear` 解析，限定普通
+  `SparseLinearAttentionImpl`；默认跳过时不创建 `proj_l` 和特征映射，不执行
+  线性 attention。forward 复用社区 get_block_map 与 _attention，不修改稀疏算法。
+- 显式关闭跳过时保留社区线性分支，并将新增投影参数声明为零初始化；非 Wan、
+  非 HCU 和 SageSLA 不进入这项新跳过逻辑。更新目标合同、安装说明和回归。
+
+实际验证：24 个 diffusion Hook 目标全部 apply。正式回归 7/7 通过（六项 CPU
+契约、一项 head size 64 的真实 GPU/Graph 对拍），覆盖真实
+  entry-point 加载、registry 所有权、meta 构造无参数、跳过计算、关闭后计算、
+  非目标模型/平台及构造失败后的上下文恢复。独立 GPU 探针在 BF16、40 heads、
+  head size 64、513 tokens 下 eager 及三轮变输入 Graph 与社区零投影完整 SLA
+  输出逐元素一致。该结果不外推至 Wan 的 head size 128。
+
+独立探针另记录两项社区稀疏 kernel 限制：129 tokens、topk=0.25 时，
+  `int(ceil(129/64)*0.25)` 为零；head size 128 默认 kernel 需要 81920 bytes
+  shared memory，超过本机 65536 bytes。保留失败日志，本轮未修改这些算法或
+  launch 配置，不能声称普通 CUDA SLA 在本机 Wan 形状下已通过 GPU 验收。
+
+真实单卡、DiT/text encoder/VAE CPU offload、720p、17 帧、一步请求已执行。
+两个 WanTransformer3DModel、UMT5EncoderModel 和 VAE 均按 sgl-diffusion 实现
+加载，无 native fallback；原 proj_l 缺失初始化报错消失。文本编码完成后，
+去噪在社区 `scale_residual_norm_cutedsl.fused_norm_scale_shift` 失败：
+TVM FFI 要求 CUDA Tensor，收到 HIP Tensor。请求失败、无视频输出，服务已停止。
+这项 CuTeDSL 兼容问题与稀疏 kernel shared-memory 限制均留待后续处理。
+
+adapter RoPE 的 25 项 GPU/接口回归通过，另有 CPU 41 passed、22 GPU skipped；
+kernel 在阻断 SGLang/vLLM 导入后仍可独立执行。原地 RoPE 保留 restore-safe
+  autotune，稳态不分配临时 GPU 张量；BF16/40 heads/head size 128 的四种 token
+  规模中，相对先前社区 out-of-place kernel 加写回的 ABI 版本约快 1.58–1.69 倍。
+性能为独立算子结果，不能描述为模型加速。
+
+两仓 L0 通过。插件全量主机 unittest 为 132 项，1 failure、2 errors、13 skipped，
+与前一 release 基线记录相同（缺 torch 和 field_names 测试替身缺项）。容器全量
+  unittest 为 135 项，2 failures、2 errors、13 skipped，另涉及隐藏 GPU 的 SRT
+导入、启动时已加载 torch 与 embedded 来源隔离；本轮不修改这些无关用例。
+目标测试通过不等于全量门禁通过，暂未提交或 push 本轮改动。证据按
+`inplace-rope-sla` 实验目录归档，包含源码摘要、patch、原始失败与成功日志。
+导览重建与 freshness 单独检查；未执行浏览器渲染、交互或窄屏截图验收。
+
+## CUDA 语义下的厂商 SLA 接入（2026-11-14）
+
+本轮按用户确认，将 HCU 的 CUDA `SLA_ATTN` 选择接到已有
+`RocmSparseLinearAttentionBackend`。Hook 位于实际定义 classmethod 的
+`CudaPlatformBase.get_attn_backend_cls_str`，保留类和实例调用的绑定语义。
+全局仍为 CUDA 平台，其他后端与非 HCU 请求交给传入的 original。
+支持 head size 64/128、FP16/BF16；依赖厂商 FlashAttention 的
+`sparse_attn_with_sla`，底层为 HIP `fwd_sparse`，不是 NVIDIA CUDA 二进制。
+
+Wan 构造上下文将既有 `sla_local_blocks` 和 `sla_skip_linear` 配置传到厂商
+实现。跳过线性分支时不创建 `proj_l`；关闭跳过时保留零初始化和缺失参数
+初始化标记。无需修改社区源码、模型接口或全局平台身份。
+
+新增 `tests/runtime/vendor_sla_cuda.py` 覆盖真实选择器/构造链、其他 CUDA
+后端、无投影分支、D128 独立 FP64 稠密参考和输入不变性、变更输入的 Graph
+重放。稠密参考仅对应 topk=1；topk=0.25 检查有限值和形状，不代表稀疏
+掩码语义或生成质量验收。实际执行结果及单步模型状态保存在本轮项目记录。
+
+本轮两个 runtime 文件各 7 项测试通过（含 GPU/Graph）；L0 通过、导览 freshness
+通过。真实单卡一步越过首个 SLA，原 shared-memory 报错消失；请求在后续
+`self_attn_residual_norm.forward_cuda` 调用另一个 CuTeDSL 算子
+`fused_scale_residual_norm_scale_shift` 时设备类型错误，最终 failed，无视频。
+服务已停止；本轮未修改 residual 算子，未 commit/push。浏览器渲染未验证。
+
+
+## 2026-11-15：社区 Wan2.2 组合端到端验证
+
+保持社区 SGLang v0.5.22 `baa9befa381511cd4d56f83980951e5a45fffc6d`
+源码不变；plugin 基于 release/sglang_v0.5.22 的 `9258cef`，adapter 基于
+同名 release 分支的 `766879b`，沿用各自功能分支及本轮改动组合部署。
+本轮仅整理验证记录后推送用户 fork，不更新未验证的上游运行时代码。
+
+已验证正式 diffusion 入口、CUDA SLA 选择、无 proj_l 的 Wan 构造、
+adapter 原地 RoPE、norm/residual norm CUDA dispatch。BW1000/gfx936
+四卡 FSDP+Ulysses4、DiT常驻、text encoder/VAE offload、vendor SLA
+0.25、720p/81帧/16fps/40步、CFG4/6：此前10条与官方提示词队列前37条
+均完成去噪、VAE解码及MP4保存，无 native loader fallback。
+37条视频全部解码验证为81帧，七项 VBench custom_input 评分各37条。
+用户人工查看视频认为语义基本正确；部分首帧彩噪/块状伪影仍存在，
+不宣称与参照平台逐位一致、全模型画质通过或官方完整VBench成绩。
+
+torch.compile 独立测试完成2步、4步冷预热与40步请求，实际DiT模式为default。
+40步API推理927.98秒，eager同prompt/seed为943.72秒；卡组不同且n=1，
+仅记录执行结果，不确定编译的性能收益。测试输出未混入37条评分样本。
+模型日志、源文件快照及评分明细保存在本机项目记录，不将视频或测试日志纳入Git。
+历史条目中“未提交”和失败状态保留为对应阶段记录，不覆盖本轮端到端结果。
+
+
+本次推送前复验：两个 SLA runtime 文件开启 `HCU_PLUGIN_RUN_GPU_TESTS=1`
+后各7项通过（共14项，无skip，包含GPU与变输入Graph）；adapter对应算子与
+custom-op定向130项通过，CPU契约38项通过。两仓L0及导览freshness通过。
+主机全量unittest当前分支和干净`768b2e6`归档各132项，均为1 failure、
+2 errors、13 skipped，失败/错误用例集合一致：主机缺torch，以及现有
+arg_utils测试替身缺field_names。保留全量非GREEN结论，不以定向或模型通过
+替代未通过的全量项目。导览未新增浏览器渲染/交互截图证据。

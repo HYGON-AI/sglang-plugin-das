@@ -70,8 +70,11 @@ def around_full_state_dict_load(original_fn, *args, **kwargs):
     )
 
 
-def register_hooks():
+def register_hooks(registry=None):
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    if registry is not None:
+        HookRegistry = registry
 
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.loader.component_loaders."

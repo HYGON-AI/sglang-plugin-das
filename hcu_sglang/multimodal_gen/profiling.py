@@ -172,8 +172,11 @@ def around_profile_execution(
     return profile_context()
 
 
-def register_hooks() -> None:
+def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    if registry is not None:
+        HookRegistry = registry
 
     patch_sampling_params_field()
     target = (

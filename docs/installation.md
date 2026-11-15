@@ -25,6 +25,7 @@
 | distribution / pip 安装与卸载名 | `hcu-sglang-plugin` |
 | Python 包 / 模块启动名 | `hcu_sglang` |
 | `sglang.srt.plugins` 入口 | `hcu = hcu_sglang:register` |
+| `sglang.multimodal_gen.plugins` 入口 | `hcu = hcu_sglang.multimodal_gen:register` |
 | 启用白名单 | `SGLANG_PLUGINS=hcu` |
 | 服务入口 | `python3 -m hcu_sglang` 或 `hcu-sglang-serve` |
 
@@ -115,8 +116,21 @@ print("plugin:", hcu_sglang.__file__)
 print("version:", pkg.version)
 print("entry points:", [(ep.name, ep.value) for ep in eps])
 assert [(ep.name, ep.value) for ep in eps] == [("hcu", "hcu_sglang:register")]
+diffusion_eps = [ep for ep in pkg.entry_points if ep.group == "sglang.multimodal_gen.plugins"]
+assert [(ep.name, ep.value) for ep in diffusion_eps] == [("hcu", "hcu_sglang.multimodal_gen:register")]
 PYCODE
 ```
+
+社区 v0.5.22 的 diffusion worker 在平台初始化后调用独立插件入口，并向
+diffusion 自有 HookRegistry 应用 multimodal hooks。SRT 入口在检测到该机制时
+不重复注册这些 hooks；没有独立入口的旧 DAS 运行时保留原 SRT 注册方式。
+入口元数据改变后须重新安装包，单改 PYTHONPATH 不会新增 entry point。
+
+Wan 的 `sla_attn` 默认沿用插件的 `sla_skip_linear=true`：不创建 `proj_l`
+或特征映射，只运行社区稀疏 attention。显式传入
+`--attention-backend-config sla_topk=0.25 sla_skip_linear=false` 保留线性分支，
+其新增投影参数按社区初始零值物化。该跳过能力限定于 HCU Wan 的普通 SLA，
+不改变其他模型或 SageSLA 的计算。
 
 wheel 的包应来自 `$SITE/hcu_sglang`，editable 应来自 `$PLUGIN/hcu_sglang`；官方应来自指定 OFFICIAL。再检查实际服务用户的设备权限：
 

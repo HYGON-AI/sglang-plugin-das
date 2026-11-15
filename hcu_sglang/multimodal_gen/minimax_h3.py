@@ -63,8 +63,11 @@ def around_apply_rope_qk(original, q, k, cos_sin_cache, positions):
     return q, k
 
 
-def register_hooks() -> None:
+def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    if registry is not None:
+        HookRegistry = registry
 
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk",
