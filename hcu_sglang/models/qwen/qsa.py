@@ -19,7 +19,6 @@ def around_pending_ring_slots(
     is_extend,
 ):
     if req_pool_indices is None and is_hcu():
-        token_to_batch_idx.long()[: logical_positions.numel()]
         if logical_positions.numel() == 0:
             return logical_positions.new_empty((0,), dtype=torch.long)
         raise RuntimeError(

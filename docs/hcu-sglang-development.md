@@ -2682,3 +2682,20 @@ worktree均未改动，容器未重启。当前环境无浏览器/Playwright，�
 与smoke是合入前的历史证据，不能外推为本次同步后组合的GPU / Graph / 模型
 精度或SLA已验证。本轮不重启Docker、不启动模型、不发送推理请求；仅完成
 本地解决、离线验证与评审交接，尚未push。
+
+
+## 2026-11-16：PR #68 QSA 空 rank 守卫冗余计算清理
+
+用途：处理 review r4583365330，删除 `around_pending_ring_slots` 中结果未使用的
+`token_to_batch_idx.long()` 转换与切片表达式。该表达式是迁移空 rank 防护时
+保留的多余计算；此前静态迁移记录所述“先执行原 rows 转换”不再保留。
+HCU 缺请求映射时，零 logical tokens 直接返回同设备的 long 空张量，非空输入
+继续显式报错；其它情况原样委托 original，由原函数完成索引转换和截断。
+没有补入截断赋值，也未改动官方 SGLang、adapter 或其它优化路径。
+
+本轮通过5项针对性 CPU 张量检查：空输入不求值 token_to_batch_idx、非空缺
+映射报错、非 HCU 原样回退、正常 extend 与 decode 委托原函数完成转换和截断；
+同时复现删除前多余求值。检查从实际源码抽取函数，未实际加载 Hook 或运行GPU。
+7项既有PD trace tuning CPU测试通过，并执行L0和导览重建/快照检查。
+本次仅一行运行时代码清理，未重跑全量CPU discovery、GPU、Graph、模型精度、
+smoke或SLA；未重启容器或改变在用服务源码，生成页未做浏览器渲染复验。
