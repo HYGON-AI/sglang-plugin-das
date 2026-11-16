@@ -2451,3 +2451,11 @@ M31_DIAG_DECODE=1 时记录首三次各阶段的 DSpark worker、MoE dispatch/co
 
 Python 3.12 通过四个实际社区方法绑定、重复注册和记录次数检查。完整 8 卡日志由
 后续诊断试次产生。
+
+## 2026-11-16 MiniMax M3.1 Flash HiSparse
+
+参考 `daishiqiang123/sglang-das@ff83aa2ba7f1` 上 MiniMax HiSparse 的 FlashMLA verify8、host KV 和页规划实现。目标是 `v0.5.23-minimax3.1@297e54fd10`、插件基线 `4630d8f` 和 adapter-das `20d18cc`。将 JIT 源和运行时处理打包进插件，通过 `HCU_PLUGIN_MINIMAX_M31_HISPARSE=1` 启用。Plain PD Prefill 负责生成并传输真实 KV。
+
+Decode 验证 PD、page-128、static DSpark verify8、FP8 KV、FlashMLA 和主机槽容量。插件协调器按页管理主机 KV 到四头 hot slot 的换入，DSpark 在 verify 前登记 scratch 并在接受 token 后提交主机 KV。常规配置沿用普通 MiniMax 注册路径。Fake PD 只用于合成容量和性能验证。
+
+DTK 26.10 容器通过 CPU 页规划检查，覆盖逻辑页去重、verify 尾 token 和空请求行。运行时注册检查、gfx938 JIT 和 Graph 检查、配对服务、性能以及 EvalScope 需要实跑；本记录不将源仓结果计作本次验证。

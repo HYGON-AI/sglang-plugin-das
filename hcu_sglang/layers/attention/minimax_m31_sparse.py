@@ -26,7 +26,7 @@ def _announce(phase):
     LOG.info("MiniMax M3.1 native gfx938 FlashMLA %s active", phase)
 
 
-def _supported(p, decode=False):
+def _supported(p, decode=False, hisparse=False):
     return (
         p["disable_index_value"]
         and p["score_type"] == "max"
@@ -45,7 +45,7 @@ def _supported(p, decode=False):
         and p["idx_k_cache"].dtype in (torch.bfloat16, torch.float8_e4m3fn)
         and p.get("loc_mapping") is None
         and p.get("dense_main_attn_fn") is None
-        and p.get("hisparse_swap_in_fn") is None
+        and (hisparse or p.get("hisparse_swap_in_fn") is None)
         and p.get("indexer_cp") is None
         and (decode or p["seqlens_cpu"] is not None)
         and native.flash_mla_gfx938_available()
@@ -101,8 +101,13 @@ def _prefill(original, *args, **kwargs):
 
 
 def _decode(original, *args, **kwargs):
+    from hcu_sglang.models.minimax_m31_hisparse import verify_context
+
+    context = verify_context.get()
     p = _args(original, args, kwargs)
-    if not _supported(p, decode=True):
+    if not _supported(p, decode=True, hisparse=context is not None):
+        if context is not None:
+            raise ValueError("MiniMax HiSparse requires the native FlashMLA MSA128 contract")
         return original(*args, **kwargs)
 
     _announce("decode")
@@ -124,10 +129,32 @@ def _decode(original, *args, **kwargs):
             p["topk_out"].copy_(topk)
     k, v = p["k_cache"].view(-1, 4, 128), p["v_cache"].view(-1, 4, 128)
     q = _query(p["q"], k, p["q_scale"])
-    return None, native.flash_mla_sparse_decode_main(
-        q, k, v, topk, table, p["seq_lens"], 128, native.new_flash_mla_decode_metadata(),
+    main_args = dict(
+        q=q, k_cache=k, v_cache=v, topk_idx=topk, page_table=table,
+        seq_lens=p["seq_lens"], block_size_k=128, sched_meta=native.new_flash_mla_decode_metadata(),
         sm_scale=p["sm_scale"], q_scale=p["q_scale"], k_scale=p["k_scale"], v_scale=p["v_scale"],
         verify_group_size=group,
+    )
+    if context is None:
+        return None, native.flash_mla_sparse_decode_main(**main_args)
+
+    verify, layer_id = context
+    if group != verify.width:
+        raise ValueError("MiniMax HiSparse requires DSpark verify8")
+
+    def hot_indices(selected, lengths):
+        return verify.swap(slots, layer_id, selected, lengths)
+
+    if verify.query_chunk_size < group:
+        from hcu_sglang.layers.attention.minimax_hisparse import flash_mla_chunked_verify
+
+        return None, flash_mla_chunked_verify(
+            query_chunk_size=verify.query_chunk_size,
+            hot_indices_fn=hot_indices,
+            **main_args,
+        )
+    return None, native.flash_mla_sparse_decode_main(
+        **main_args, hot_indices=hot_indices(topk, p["seq_lens"])
     )
 
 
