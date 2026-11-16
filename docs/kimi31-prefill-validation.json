@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-16",
+  "scope": "Local delivery of retained measured prefill optimizations; no service restart or fresh GPU benchmark.",
+  "sglang_unchanged_commit": "ce0d5d18abfc3c15d8d526453c4f00b24f45e4c6",
+  "checks": {
+    "l0": {
+      "exit_code": 0,
+      "tail": "{\n  \"status\": \"passed\",\n  \"python_files\": 701,\n  \"skills\": 8,\n  \"errors\": []\n}\n"
+    },
+    "guide": {
+      "exit_code": 0,
+      "tail": "Guide is up to date\n"
+    },
+    "diagnostics": {
+      "exit_code": 0,
+      "tail": "test_dump_retains_state_and_marks_input_timing (test_kimi31_diagnostics.Kimi31DiagnosticsTests.test_dump_retains_state_and_marks_input_timing) ... skipped 'requires torch'\ntest_finite_module_is_transparent_and_install_is_idempotent (test_kimi31_diagnostics.Kimi31DiagnosticsTests.test_finite_module_is_transparent_and_install_is_idempotent) ... skipped 'requires torch'\ntest_logits_allow_masked_negative_infinity_but_reject_nan_and_posinf (test_kimi31_diagnostics.Kimi31DiagnosticsTests.test_logits_allow_masked_negative_infinity_but_reject_nan_and_posinf) ... skipped 'requires torch'\ntest_nonfinite_input_stops_before_module_and_preserves_input (test_kimi31_diagnostics.Kimi31DiagnosticsTests.test_nonfinite_input_stops_before_module_and_preserves_input) ... skipped 'requires torch'\ntest_nonfinite_output_reports_producer (test_kimi31_diagnostics.Kimi31DiagnosticsTests.test_nonfinite_output_reports_producer) ... skipped 'requires torch'\ntest_nonfinite_probabilities_never_reach_multinomial (test_kimi31_diagnostics.Kimi31DiagnosticsTests.test_nonfinite_probabilities_never_reach_multinomial) ... skipped 'requires torch'\n\n----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK (skipped=6)\n"
+    }
+  },
+  "source_manifest_sha256_verified": true,
+  "changed_python_ast_parse": "passed",
+  "git_diff_cached_check": "passed",
+  "validation_method": "Clean index export excludes unrelated dirty files and ignored AppleDouble metadata.",
+  "not_executed": [
+    "fresh GPU/graph/service benchmark of these local commits",
+    "browser visual review of regenerated documentation guide"
+  ],
+  "native_gemm_artifacts": "Native binary libraries remain external; complete file SHA256 manifests committed.",
+  "full_unittest_baseline_comparison": {
+    "head_exit_code": 1,
+    "head_tail": "---------------------------------------------------------------------\nRan 210 tests in 10.172s\n\nFAILED (failures=81, errors=13, skipped=24)\n",
+    "current_failures": 94,
+    "head_failures": 94,
+    "new_failures": [],
+    "resolved_failures": []
+  },
+  "full_unittest_result": {
+    "current": "216 tests; failures=81, errors=13, skipped=30",
+    "original_HEAD": "210 tests; failures=81, errors=13, skipped=24",
+    "new_failure_ids": [],
+    "note": "Same failure/error identifiers before and after; missing Torch and historical source/AST contract mismatches remain. All six new diagnostic tests skipped without Torch."
+  }
+}

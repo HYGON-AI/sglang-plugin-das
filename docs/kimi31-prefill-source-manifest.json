@@ -1,0 +1,18 @@
+{
+  "scope": "Exact retained32-GPU source; existing unrelated KDA edits excluded.",
+  "sglang_commit": "ce0d5d18abfc3c15d8d526453c4f00b24f45e4c6",
+  "files": [
+    {
+      "path": "hcu_sglang/kimi31_day0.py",
+      "sha256": "2280fa3af992d7670dd9b7a78630e965525366369393987821dc280b9d14683d"
+    },
+    {
+      "path": "hcu_sglang/kimi31_diagnostics.py",
+      "sha256": "97ab25cfb294fc0dcc9219d13211ba341d5db46c779aab7949826f6782d8edef"
+    },
+    {
+      "path": "tests/test_kimi31_diagnostics.py",
+      "sha256": "ddb9215ca7c23ccbcd6ada56ab31e30c8180d05820cc69af6be0975c130c7cfa"
+    }
+  ]
+}

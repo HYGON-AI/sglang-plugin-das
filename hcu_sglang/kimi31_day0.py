@@ -25,7 +25,30 @@ def _init_nccl_gather(original, self, max_tokens, *, enabled=True, skip_entry_sy
     return original(self, max_tokens, enabled=False, skip_entry_sync=skip_entry_sync)
 
 
+def _warm_blas_before_load(self):
+    import torch
+    import logging
+    import os
+    budget_gib = float(os.environ.get("KIMI_DEVICE_BUDGET_GIB", "96"))
+    total = torch.cuda.get_device_properties(self.gpu_id).total_memory
+    torch.cuda.set_per_process_memory_fraction(min(1., budget_gib * (1 << 30) / total), self.gpu_id)
+    logging.getLogger(__name__).info("Kimi device budget %.2f GiB; physical %.2f GiB; Torch allocator cap applied", budget_gib, total / (1 << 30))
+    with torch.inference_mode():
+        x = torch.ones((16, 16), device=f"cuda:{self.gpu_id}", dtype=torch.bfloat16)
+        torch.mm(x, x)
+        out = torch.empty((16, 16), device=x.device, dtype=torch.float32)
+        torch.mm(x, x, out=out, out_dtype=torch.float32)
+        torch.cuda.synchronize(self.gpu_id)
+        del x, out
+        torch.cuda.empty_cache()
+    logging.getLogger(__name__).info("Kimi early BLAS handle warmup complete before weight allocation")
+
+
 def register_hooks():
+    HookRegistry.register(
+        "sglang.srt.model_executor.model_runner.ModelRunner.load_model",
+        _warm_blas_before_load, HookType.BEFORE,
+    )
     HookRegistry.register(
         "sglang.kernels.ops.moe.moe_route_radix.covered",
         around_moe_route_radix_covered,
@@ -41,6 +64,9 @@ def register_hooks():
     server_args.register()
     registry.register_hooks()
     registry.install_quantization_method()
+
+    from hcu_sglang.kimi31_diagnostics import register_hooks as register_diagnostics
+    register_diagnostics()
 
     backend = "sglang.srt.layers.attention.dsa_backend.DeepseekSparseAttnBackend"
     for name in ("flash_mla_sparse_fwd", "flash_mla_with_kvcache", "get_mla_metadata"):
