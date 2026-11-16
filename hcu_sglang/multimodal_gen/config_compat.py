@@ -22,9 +22,11 @@ def after_wan_full_vae_path(result: Any, config, *args, **kwargs) -> Any:
 
 
 def patch_ltx_seed_metadata() -> None:
-    from hcu_sglang.compat.aiter import install_aiter_compat
+    # Lazy shim (see profiling.py): register() must not require a vendor
+    # install or import it eagerly during JIT builds.
+    from hcu_sglang.compat.aiter import bootstrap_aiter_compat
 
-    install_aiter_compat()
+    bootstrap_aiter_compat()
     from sglang.multimodal_gen.configs.sample.ltx_2 import (
         LTX2SamplingParams,
         LTX23SamplingParams,
@@ -57,8 +59,11 @@ def around_ltx_attention_forward(original, attention, *args, **kwargs):
         attention_impl.forward = original_forward
 
 
-def register_hooks() -> None:
+def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    if registry is not None:
+        HookRegistry = registry
 
     patch_ltx_seed_metadata()
     HookRegistry.register(

@@ -9,8 +9,6 @@ def register() -> None:
     from sglang.multimodal_gen.runtime.platforms import current_platform
     from sglang.multimodal_gen.runtime.platforms.plugins import HookRegistry
 
-    from hcu_sglang.multimodal_gen import attention, minimax_h3, qknorm_rope
-
     rocm_targets = {
         "sglang.multimodal_gen.runtime.platforms.rocm.RocmPlatform.get_attn_backend_cls_str",
         "sglang.multimodal_gen.runtime.layers.attention.backends.aiter.AITerImpl.forward_varlen",
@@ -26,6 +24,26 @@ def register() -> None:
                 return
             HookRegistry.register(target, hook, hook_type)
 
-    attention.register_hooks(registry=DiffusionRegistry)
-    minimax_h3.register_hooks(registry=DiffusionRegistry)
-    qknorm_rope.register_hooks(registry=DiffusionRegistry)
+    from importlib import import_module
+
+    for name in (
+        "wan_sla", "loader.integration", "platform", "config_compat",
+        "profiling", "attention", "minimax_h3", "qknorm_rope",
+    ):
+        import_module(f"hcu_sglang.multimodal_gen.{name}").register_hooks(
+            DiffusionRegistry
+        )
+
+
+def register_legacy():
+    # Hosts without the diffusion plugins module (older trees) still get
+    # every module registered against the process-global SRT registry.
+    from importlib import import_module
+    from importlib.util import find_spec
+
+    if find_spec("sglang.multimodal_gen.runtime.platforms.plugins") is None:
+        for name in (
+            "wan_sla", "loader.integration", "platform", "config_compat",
+            "profiling", "attention", "minimax_h3", "qknorm_rope",
+        ):
+            import_module(f"hcu_sglang.multimodal_gen.{name}").register_hooks(None)

@@ -34,7 +34,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
 
         self.srt = ModuleType('sglang.srt.plugins.hook_registry')
         self.srt.HookRegistry = SrtRegistry
-        self.srt.HookType = type('HookType', (), {'AROUND': object(), 'AFTER': object()})
+        self.srt.HookType = type('HookType', (), {'AROUND': object(), 'AFTER': object(), 'REPLACE': object()})
         self.diffusion = ModuleType('sglang.multimodal_gen.runtime.platforms.plugins')
         self.diffusion.HookRegistry = DiffusionRegistry
         self.platforms = ModuleType('sglang.multimodal_gen.runtime.platforms')
@@ -50,28 +50,45 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_diffusion_callback_uses_only_its_owned_registry(self):
         multimodal_gen.register()
         self.assertEqual(self.srt_calls, [])
-        self.assertEqual(len(self.diffusion_calls), 19)
+        self.assertEqual(len(self.diffusion_calls), 36)
         targets = {call[0] for call in self.diffusion_calls}
         self.assertEqual(targets, {
-            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk',
-            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm',
-            'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTModel.post_load_weights',
-            'sglang.multimodal_gen.runtime.server_args.server_args.ServerArgs._adjust_attention_backend',
             'sglang.kernels.ops.diffusion.rope.qknorm_rope_jit.can_use_fused_inplace_qknorm_rope',
-            'sglang.multimodal_gen.runtime.platforms.rocm.RocmPlatform.get_attn_backend_cls_str',
+            'sglang.multimodal_gen.configs.pipeline_configs.ltx_2.LTX2PipelineConfig.supports_dynamic_batching',
+            'sglang.multimodal_gen.configs.pipeline_configs.wan.Wan2_2_T2V_A14B_Config.__post_init__',
+            'sglang.multimodal_gen.configs.pipeline_configs.wan.Wan2_2_TI2V_5B_Config.__post_init__',
+            'sglang.multimodal_gen.configs.pipeline_configs.wan.WanI2V480PConfig.__post_init__',
+            'sglang.multimodal_gen.configs.sample.sampling_params.SamplingParams.add_cli_args',
+            'sglang.multimodal_gen.configs.sample.sampling_params.SamplingParams.from_pretrained',
+            'sglang.multimodal_gen.configs.sample.sampling_params.SamplingParams.from_user_sampling_params_args',
             'sglang.multimodal_gen.runtime.layers.attention.backends.aiter.AITerImpl.forward_varlen',
+            'sglang.multimodal_gen.runtime.layers.attention.backends.sparse_linear_attn.SparseLinearAttentionImpl.forward',
+            'sglang.multimodal_gen.runtime.layers.attention.backends.sparse_linear_attn._initialize_linear_attention',
+            'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.__init__',
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
-            'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.vit_utils.apply_rotary_pos_emb_qk',
+            'sglang.multimodal_gen.runtime.loader.component_loaders.transformer_loader.TransformerLoader.load_state_dict_model',
             'sglang.multimodal_gen.runtime.loader.component_loaders.transformer_loader.inspect_minimax_h3_safetensors',
             'sglang.multimodal_gen.runtime.loader.component_loaders.transformer_loader.resolve_transformer_quant_load_spec',
+            'sglang.multimodal_gen.runtime.loader.fsdp_load.load_model_from_full_model_state_dict',
+            'sglang.multimodal_gen.runtime.models.dits.ltx_2.LTX2Attention.forward',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3Attention.__init__',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTBlock.__init__',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTBlock.forward',
+            'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTModel.post_load_weights',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3FinalLayer.__init__',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3FinalLayer.forward',
-            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_scale_shift',
+            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm',
+            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_gate',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_rmsnorm_scale_shift',
+            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_scale_shift',
+            'sglang.multimodal_gen.runtime.models.dits.wanvideo.WanTransformer3DModel.__init__',
+            'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.vit_utils.apply_rotary_pos_emb_qk',
+            'sglang.multimodal_gen.runtime.pipelines_core.executors.pipeline_executor.PipelineExecutor.profile_execution',
+            'sglang.multimodal_gen.runtime.platforms.cuda.CudaPlatformBase.get_attn_backend_cls_str',
+            'sglang.multimodal_gen.runtime.platforms.rocm.RocmPlatform.get_attn_backend_cls_str',
+            'sglang.multimodal_gen.runtime.platforms.rocm_platform_plugin',
+            'sglang.multimodal_gen.runtime.server_args.server_args.ServerArgs._adjust_attention_backend',
         })
         self.assertTrue(all(callable(call[1]) for call in self.diffusion_calls))
 
@@ -112,7 +129,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
             targets,
         )
-        self.assertEqual(len(targets), 17)
+        self.assertEqual(len(targets), 34)
         self.assertEqual(self.srt_calls, [])
 
     def test_registry_reset_allows_registration_again(self):
@@ -120,7 +137,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
         self.diffusion.HookRegistry._hooks.clear()
         self.diffusion_calls.clear()
         multimodal_gen.register()
-        self.assertEqual(len(self.diffusion_calls), 19)
+        self.assertEqual(len(self.diffusion_calls), 36)
 
     def test_foreign_hooks_on_the_same_target_are_preserved(self):
         target = 'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk'
