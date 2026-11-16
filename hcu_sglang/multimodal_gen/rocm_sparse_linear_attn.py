@@ -76,8 +76,19 @@ class RocmSparseLinearAttentionImpl(AttentionImpl, nn.Module):
     ) -> None:
         del causal, softmax_scale, num_kv_heads, prefix, extra_impl_args
         nn.Module.__init__(self)
+        from hcu_sglang.multimodal_gen.wan_sla import (
+            _local_blocks,
+            _skip_linear,
+            _wan_init,
+        )
+
+        if _wan_init.get():
+            local_blocks = _local_blocks.get()
+            skip_linear_branch = _skip_linear.get()
         if local_blocks < 0:
             raise ValueError(f"local_blocks must be non-negative, got {local_blocks}")
+        if feature_map not in ("elu", "relu", "softmax"):
+            raise ValueError(f"Unknown feature map: {feature_map}")
 
         self.num_heads = num_heads
         self.head_size = head_size
@@ -89,6 +100,8 @@ class RocmSparseLinearAttentionImpl(AttentionImpl, nn.Module):
         self.use_fp8 = use_fp8
         self.compute_dtype = torch.bfloat16 if use_bf16 else torch.float16
 
+        if self.skip_linear_branch:
+            return
         self.proj_l = nn.Linear(head_size, head_size, dtype=torch.float32)
         set_weight_attrs(self.proj_l.weight, {"missing_param_init": "zeros"})
         if self.proj_l.bias is not None:

@@ -66,13 +66,6 @@ def register() -> None:
     from hcu_sglang.models import glm4_moe
     from hcu_sglang.models import minimax_m2
     from hcu_sglang.models import utils as model_utils
-    from hcu_sglang.multimodal_gen import attention as multimodal_attention
-    from hcu_sglang.multimodal_gen import config_compat as multimodal_config
-    from hcu_sglang.multimodal_gen import minimax_h3
-    from hcu_sglang.multimodal_gen import platform as multimodal_platform
-    from hcu_sglang.multimodal_gen import profiling
-    from hcu_sglang.multimodal_gen import qknorm_rope
-    from hcu_sglang.multimodal_gen import wan_sla
     from hcu_sglang.models.deepseek import register_hooks as register_deepseek
     from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_5, qwen3_moe
 
@@ -197,13 +190,9 @@ def register() -> None:
     hunyuan.register_hooks()
     glm4_moe.register_hooks()
     minimax_m2.register_hooks()
-    multimodal_platform.register_hooks()
-    multimodal_config.register_hooks()
-    profiling.register_hooks()
-    multimodal_attention.register_hooks()
-    minimax_h3.register_hooks()
-    qknorm_rope.register_hooks()
-    wan_sla.register_hooks()
+    from hcu_sglang.multimodal_gen import register_legacy
+
+    register_legacy()
     register_deepseek()
     model_utils.register_hooks()
     qwen2.register()

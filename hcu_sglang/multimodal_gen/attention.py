@@ -11,6 +11,21 @@ import torch
 from hcu_sglang.utils.detection import is_hcu
 
 
+def around_cuda_backend_selection(
+    original: Callable[..., str], cls, selected_backend, head_size: int, dtype
+) -> str:
+    if is_hcu() and getattr(selected_backend, "name", None) == "SLA_ATTN":
+        if dtype not in (torch.float16, torch.bfloat16):
+            raise ValueError("HCU SLA attention requires fp16 or bf16 inputs.")
+        if head_size not in (64, 128):
+            raise ValueError("HCU SLA attention supports head sizes 64 and 128.")
+        return (
+            "hcu_sglang.multimodal_gen.rocm_sparse_linear_attn."
+            "RocmSparseLinearAttentionBackend"
+        )
+    return original(cls, selected_backend, head_size, dtype)
+
+
 def around_rocm_backend_selection(
     original: Callable[..., str], cls, selected_backend, head_size: int, dtype
 ) -> str:
@@ -117,9 +132,18 @@ def around_minimal_a2a_forward(
     return original(attention_op, query, key, value, *args, **kwargs)
 
 
-def register_hooks() -> None:
+def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    if registry is not None:
+        HookRegistry = registry
+
+    HookRegistry.register(
+        "sglang.multimodal_gen.runtime.platforms.cuda."
+        "CudaPlatformBase.get_attn_backend_cls_str",
+        around_cuda_backend_selection,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.platforms.rocm."
         "RocmPlatform.get_attn_backend_cls_str",

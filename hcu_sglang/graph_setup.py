@@ -218,7 +218,7 @@ def capture_cuda_graphs(
     # cuda-graph capture: prefill before decode, so both coalesce onto the
     # eager buffer allocated above. (capture_prefill_graph routes prefill
     # to the eager runner when the prefill graph is disabled.)
-    prefill = capture_prefill_graph(
+    prefill = N.capture_prefill_graph(
         model_runner=model_runner, eager_runner=eager_runner
     )
 
@@ -490,7 +490,8 @@ def around_capture_cuda_graphs(original, *args, **kwargs):
 
 
 def around_capture_prefill_graph(original, *args, **kwargs):
-    if not is_hcu():
+    adapter_guard = getattr(original, "_hcu_prefill_bcg_gate", None)
+    if not is_hcu() or (callable(adapter_guard) and adapter_guard()):
         return original(*args, **kwargs)
     return capture_prefill_graph(*args, **kwargs)
 

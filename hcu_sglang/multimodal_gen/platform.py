@@ -47,8 +47,11 @@ def around_rocm_platform_plugin(
     return original()
 
 
-def register_hooks() -> None:
+def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    if registry is not None:
+        HookRegistry = registry
 
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.platforms.rocm_platform_plugin",
