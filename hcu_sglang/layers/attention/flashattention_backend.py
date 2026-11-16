@@ -91,6 +91,7 @@ def around_init(original_fn, backend, *args, **kwargs):
         and len(architectures) == 1
         and architectures[0] in (
             "Qwen3_5ForConditionalGeneration",
+            "Qwen3_5MoeForConditionalGeneration",
             "Qwen3_5ForCausalLM",
             "Qwen3_5ForCausalLMMTP",
         )

@@ -4028,6 +4028,9 @@ custom-op定向130项通过，CPU契约38项通过。两仓L0及导览freshness�
 2 errors、13 skipped，失败/错误用例集合一致：主机缺torch，以及现有
 arg_utils测试替身缺field_names。保留全量非GREEN结论，不以定向或模型通过
 替代未通过的全量项目。导览未新增浏览器渲染/交互截图证据。
+
+
+
 ## Qwen3.6-35B-A3B on the 0.5.22 plugin and adapter branches (2026-11-16)
 
 The Qwen4 PLE module imported the optional mapped-host adapter provider while
@@ -4308,6 +4311,8 @@ rows=513/span=1024 由0.208ms降至0.149ms、rows=1025/span=1024 由0.298ms降�
 服务源码。CPU discovery 结果与改动前一致（139 tests，1 failure + 2 errors
 来自 `sglang.srt.arg_groups.arg_utils` 缺 `field_names`，属既有环境缺失）；
 L0 通过，导览已重建并通过快照检查，生成页未做浏览器渲染复验。尚未push。
+
+
 
 
 

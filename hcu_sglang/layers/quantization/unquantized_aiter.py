@@ -116,7 +116,7 @@ def around_forward_cuda(
         topk_weights=topk_weights,
         topk_ids=topk_ids,
         moe_config=moe_config,
-        inplace=True,
+        inplace=config.inplace,
         w1_scale=None,
         w2_scale=None,
         activation="silu" if config.activation == "silu" else "gelu",

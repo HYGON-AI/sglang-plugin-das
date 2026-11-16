@@ -57,7 +57,8 @@ def around_qwen4_fa3_fp8_fallback(original, view):
             and envs.SGLANG_KV_LAYOUT_HCU_FA.get()
             and _model_arch(view) in (
                 "Qwen4ExpForConditionalGeneration", "Qwen4ExpForCausalLMMTP",
-                "Qwen3_5ForConditionalGeneration", "Qwen3_5ForCausalLM")):
+                "Qwen3_5ForConditionalGeneration", "Qwen3_5ForCausalLM",
+                "Qwen3_5MoeForConditionalGeneration")):
         logger.info("HCU FA keeps fp8_e5m2 KV with BF16 attention")
         return {}
     return original(view)
