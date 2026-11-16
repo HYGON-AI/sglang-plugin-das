@@ -176,7 +176,11 @@ def initialized_backend(monkeypatch):
 
 
 @pytest.mark.parametrize("architecture", [
-    "Qwen3_5ForConditionalGeneration", "Qwen3_5ForCausalLM", "Qwen3_5ForCausalLMMTP"])
+    "Qwen3_5ForConditionalGeneration",
+    "Qwen3_5ForCausalLM",
+    "Qwen3_5ForCausalLMMTP",
+    "Qwen3_5MoeForConditionalGeneration",
+])
 @pytest.mark.parametrize("is_prefill", [False, True])
 @pytest.mark.parametrize("scale", [None, 1.0, 0.75])
 def test_initialized_qwen35_page64_query_contract(initialized_backend, architecture, is_prefill, scale):
@@ -204,7 +208,7 @@ def test_initialized_qwen35_page64_query_contract(initialized_backend, architect
     ("Qwen3_5ForConditionalGeneration", 16),
     ("Qwen3_5ForConditionalGeneration", 128),
     ("Qwen3_5ForCausalLMMTP", 16),
-    ("Qwen3_5MoeForConditionalGeneration", 64),
+    ("Qwen3_5MoeForConditionalGeneration", 16),
     ("UnknownForCausalLM", 64),
     (None, 64),
 ])

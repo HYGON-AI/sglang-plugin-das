@@ -12,7 +12,7 @@ def test_qwen4_e5m2_hcu_fa_matches_math_with_live_graph_inputs(query_len):
     pages = (max_len + page - 1) // page
     q = torch.randn(batch * query_len, heads, dim, device="cuda", dtype=torch.bfloat16)
     k = torch.randn(batch * pages, kv_heads, page, dim, device="cuda").to(torch.float8_e5m2)
-    v = torch.randn(batch * pages, kv_heads, dim, page, device="cuda").to(torch.float8_e5m2)
+    v = torch.randn(batch * pages, kv_heads, page, dim, device="cuda").to(torch.float8_e5m2)
     table = torch.randperm(batch * pages, device="cuda").reshape(batch, pages).int()
     lengths = torch.tensor([137, max_len], device="cuda", dtype=torch.int32)
     cu_q = torch.arange(batch + 1, device="cuda", dtype=torch.int32) * query_len
@@ -28,7 +28,7 @@ def test_qwen4_e5m2_hcu_fa_matches_math_with_live_graph_inputs(query_len):
         for b in range(batch):
             n = int(lengths[b])
             keys = k.float()[table[b].long()].permute(0, 2, 1, 3).reshape(-1, kv_heads, dim)[:n]
-            values = v.float()[table[b].long()].permute(0, 3, 1, 2).reshape(-1, kv_heads, dim)[:n]
+            values = v.float()[table[b].long()].permute(0, 2, 1, 3).reshape(-1, kv_heads, dim)[:n]
             keys, values = (x.repeat_interleave(heads // kv_heads, dim=1) for x in (keys, values))
             logits = torch.einsum("qhd,khd->hqk", q.reshape(batch, query_len, heads, dim)[b].float(), keys) * dim**-0.5
             visible = torch.arange(n, device="cuda")[None, :] <= n-query_len+torch.arange(query_len, device="cuda")[:, None]

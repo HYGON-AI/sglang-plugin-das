@@ -82,6 +82,24 @@ class GraphSetupCpuTests(unittest.TestCase):
             self.assertEqual(events,['eager','budget','prefill']+(['decode'] if decode else [])+['finalize']+(['sync','empty'] if decode else []))
             self.assertIs(out.eager_runner,eager)
 
+    def test_prefill_around_preserves_active_adapter_driver_gate(self):
+        from hcu_sglang import graph_setup as O
+        from unittest.mock import Mock
+        adapter = Mock(return_value="eager")
+        runner, eager = object(), object()
+        with patch.object(O, "is_hcu", return_value=True), patch.object(
+            O, "capture_prefill_graph", return_value="plugin"
+        ) as plugin:
+            for active, expected in ((True, "eager"), (False, "plugin")):
+                adapter._hcu_prefill_bcg_gate = lambda: active
+                self.assertEqual(O.around_capture_prefill_graph(
+                    adapter, model_runner=runner, eager_runner=eager,
+                    force_for_draft_worker=True,
+                ), expected)
+            args = dict(model_runner=runner, eager_runner=eager, force_for_draft_worker=True)
+            adapter.assert_called_once_with(**args)
+            plugin.assert_called_once_with(**args)
+
     def test_public_hybrid_prefill_retains_trailing_moe_and_rejects_holes(self):
         a=S(layer_id=0);layers=[object() for _ in range(3)];lm=S(layers=layers,supports_hybrid_prefill_graph=True)
         for hole in [False,True]:

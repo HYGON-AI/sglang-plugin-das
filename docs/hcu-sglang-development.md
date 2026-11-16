@@ -2233,7 +2233,330 @@ Berlin、Tokyo、LANTERN-8306、12，均为 stop。请求后健康检查 HTTP 20
 原始 JSON 和服务日志在验证目录 logs/nmz107/attempt-8。两项修复均位于 plugin。
 
 
+## 2026-11-12 扩散加载 utils 接口分阶段迁移
 
+本轮按用户要求从 `utils.py` 开始逐接口迁移，不改动其他加载策略。
+来源为 DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`；本地官方
+基线为 v0.5.22 `baa9befa381511cd4d56f83980951e5a45fffc6d`。另核对
+官方最新稳定版 v0.5.23 `297e54fd105e974cdf401e5b4d20253a22c16f90` 与
+main `c7f3e2bdfd348d396f17f776f067f5765fa2bc52`，均无 DAS 的
+`iter_hf_to_custom_state_dict` 和流式 state-dict 分支。
+
+实现位于 `hcu_sglang/multimodal_gen/loader/utils.py`：
+
+- `iter_hf_to_custom_state_dict` 按来源函数完整 AST 原样迁入，保留来源许可、
+  注释与 docstring，不在本次改变映射、合并、重复键或不完整分片语义。
+- 其他接口按名称转交已安装的 SGLang `runtime.loader.utils`，返回原函数对象，
+  包括私有辅助接口；不复制一份官方实现，不改写官方模块。
+- 官方不存在的属性继续报 `AttributeError`。`_resolve_missing_param_init`
+  属于后续 `fsdp_load.py` 接口范围，本轮不新增或伪造。
+- `load_safetensors_state_dict` 在本地官方 v0.5.22 存在，但最新 v0.5.23
+  和 main 均已没有该接口。插件按已安装版本暴露存在的接口；部署版本缺少
+  它时继续报属性缺失，不从其他仓库加载或补造旧实现。
+
+来源和 AST 哈希见 `plans/streaming-loader-utils-source.json`。功能回归位于
+`tests/runtime/multimodal_loader_utils.py`，覆盖真实 CPU 张量、惰性消费、乱序
+Q/K/V 合并、合法目标键回退、重复精度项透传，以及与官方全量转换的对照。
+
+本阶段为插件自有辅助接口就绪，未注册加载器 Hook，未切换现有 DAS
+`fsdp_load.py` 消费者。因此 DAS 旧 helper 暂保留，待消费者迁移后在同一步
+删除旧定义；此时删除会直接破坏现有 `from ...utils import ...`。不把本阶段
+记作整个流式功能已生效或 Wan2.2 启动已通过。
+
+验证：在现有容器的 Python 3.10 / PyTorch 2.11.0 环境，以
+`HCU_ADAPTER_HOST=none` 关闭设备桥初始化，并在 Python 启动后显式将官方
+`sglang/python` 放到搜索路径首位。实际 `utils.__file__` 确认为官方仓路径，
+运行 `tests/runtime/multimodal_loader_utils.py -v`：10/10 通过。
+这是 CPU/接口验证；没有启动模型、启用完整流式加载或执行 GPU 推理。
+另外将已固定提交的 v0.5.23 和 main 的 `utils.py` 源文件分别装入同一
+CPU 依赖环境，按其真实属性存在性重复同一组测试，各 10/10 通过，共 30 项。
+这不等于安装并验证了两个完整新版 SGLang 环境。跨版本检查中首先发现测试
+错误地要求每个版本都提供旧 checkpoint 接口，已改为同时验证“存在则同对象、
+不存在则属性缺失”，未给实现增加伪造接口或兼容副本。
+
+`ci/l0_gate.py` 通过；迁移执行台账、运行时 closure 与离线导览均已重建并
+通过 freshness 检查，`git diff --check` 通过。手工决策只变更 utils 一项；
+生成执行台账还刷新了仓库中此前已变更但未同步至生成快照的其他决策，
+不代表本次新增了其他模块的迁移或验证。
+
+
+## 2026-11-12 流式 state-dict 装载函数迁移
+
+接续 utils 接口阶段，在同一聚焦分支迁移 DAS
+`runtime/loader/fsdp_load.py:load_model_from_streaming_state_dict` 至
+`hcu_sglang/multimodal_gen/loader/fsdp_load.py`。来源仍固定为
+`15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`，来源函数及缺失参数 resolver
+的完整 AST 保持一致；来源许可、注释、docstring 保留。证据与有意依赖替换见
+`plans/streaming-state-dict-source.json`。
+
+接口与依赖：
+
+- 新装载函数直接使用已迁入插件的 `iter_hf_to_custom_state_dict`，不从 DAS
+  源目录动态加载任何实现，不复制官方完整 fsdp 模块。
+- 官方 `_make_param_like`、`_maybe_dequantize_fp8`、dtype 日志格式化，以及
+  `rank_local_checkpoint.QUANTIZED_DTYPES` 直接复用。
+- 旧 DAS `_get_param_for_weight_loading` 以官方公开
+  `rank_local_checkpoint.get_param_for_weight_loading` 替代。官方 helper
+  读取真实 Module/Parameter 的字典；历史 DAS helper 使用 getattr。本轮覆盖
+  实际参数对象与 FSDP 包装前的 weight_loader 元数据，不为仅依赖动态属性的
+  人工对象声称兼容。
+- `_resolve_missing_param_init` 在安装版本提供同名接口时使用原对象；否则
+  使用原样迁入的 DAS helper，保留 `local_attn.proj_l.` 零初始化策略。该规则
+  不写回官方普通加载路径；后续普通路径的迁移单独处理。
+- 其他原生 fsdp 接口按名称暴露原对象，不修改其签名。
+
+CPU 回归 `tests/runtime/streaming_state_dict.py` 已执行 15/15 通过，覆盖
+真实 meta Linear 参数物化、插件 iterator 实际消费、官方全量加载结果对照、
+合并顺序、目标 dtype、参数专属 loader、FSDP 前元数据、缺失/多余键、量化
+重复项及 FP8 反量化。实际官方来源为本地 v0.5.22，Python 3.10、Torch 2.11.0，
+`HCU_ADAPTER_HOST=none`；未 mock 被验证的加载与参数装载边界。
+
+另以 `tests/runtime/streaming_state_dict_distributed_cpu.py` 验证两 rank
+Gloo/DTensor 的真实 Shard(0) 分片、CPU 放置和异常拒绝，1/1 通过。
+该 lane 不是 HCU FSDP/TP 或 GPU offload 性能验收。
+另在当前已安装 DAS 树运行同一 15 项 CPU 测试，15/15 通过，并断言插件
+resolver 与安装树已有 resolver 是同一对象。因此本轮同时覆盖官方基线的
+自有 resolver 分支和当前安装树的原接口复用分支。
+
+L0 通过（703 个 Python 文件）；执行台账、closure、导览重建及 freshness
+检查通过，`git diff --check` 通过。原官方仓和 DAS 仓均未修改。
+
+父 `maybe_load_fsdp_model` 的选择/接线还未迁移，因而本阶段不注册生产 Hook，
+不删除仍被旧父 loader 调用的 DAS 定义；后续切换父链路时一起删除旧生产者
+和旧 iterator。本阶段不修复原启动报错、不启动 Wan2.2 服务。
+
+
+## 2026-11-12 流式加载选择策略与生产接线迁移
+
+接续前两步，将 TP/SP 条件与加载选择迁入
+`hcu_sglang/multimodal_gen/loader/integration.py`，来源仍为 DAS
+`15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`。接线与边界见
+`plans/streaming-loader-integration.json`。
+
+生产入口仍为既有 `hcu` entry point，不新增环境键、官方配置字段或函数参数。
+`TransformerLoader.load_state_dict_model` 的 AROUND Hook 从原有 server_args
+读取 TP/SP 条件，在单次加载作用域记录目标模型类；`full-state` 装载函数的
+AROUND Hook 仅对匹配类选择插件流式实现。状态使用 ContextVar，并以 finally
+恢复，避免跨模型、嵌套加载和异常后的状态泄漏。官方中间类及其方法签名不变。
+
+原生 rank-local 切片已经成功时继续使用原路径；checkpoint mapping、direct
+GPU weight loading、host spill 与 bitsandbytes 特殊处理也交回有效原函数，
+不丢弃其专属参数。选择插件流式时仍保留原函数外层的模型构造、FSDP 处理、
+post_load_weights、冻结和卸载生命周期，不复制 maybe_load_fsdp_model 整段。
+
+DAS 的清理范围只包含三处旧扩展：caller 的 selector/传参、底层参数/流式分支
+及旧装载函数、utils 的旧 iterator；流式专用私有参数解析副本和量化常量一并
+清理。其余普通加载与其他模型差异未动。对固定来源进行 AST 变换核验，三个
+文件均只包含计划中的移除，普通分支的初始化与后处理保持不变。
+
+新 Hook 在顶层 register 的早期登记，并纳入当前目标合同。当前安装树仍有
+既有的 SRT current_dsa 注册异常；本轮不吞掉这些错误，也不将局部 Hook 成功
+描述为全量插件合同通过。服务日志已确认 parent/worker 中两项新 Hook 实际
+apply，Wan attention_type=sla 与 sla_topk=0.25 已被识别。
+
+验证：`tests/runtime/streaming_loader_integration.py` 在当前 DAS 树 11/11
+通过。官方 v0.5.22 基线下，utils、装载函数、接线与两 rank CPU DTensor 的
+组合回归共 37/37 通过。覆盖插件启停、单卡原路径、TP/SP 选择、原生优化优先、
+缓存导入别名刷新、实际元权重物化及失败后恢复。TP/SP 条件单测不等于真实
+HCU 多卡验收；本轮未重新运行 HCU 多卡流式加载或性能测试。
+
+按用户配置进行真实 Wan2.2 单卡复测：DiT 常驻、text encoder/VAE CPU offload、
+SLA 0.25、720p 一步服务预热。原 unexpected keyword argument 已不再出现，
+六个组件全部加载完成，其中两组 DiT 各报告 26.62 GB，SLA 参数已识别。
+预热在 text_encoding 的组件上卡阶段 OOM：text encoder 的整组件 CPU offload
+在使用时仍会执行 module.to(device)，当时两个 DiT 常驻后可用显存只有
+7.25 GB，后续申请 192 MiB 失败；PyTorch allocated 60.90 GiB、reserved but
+unallocated 2.81 GiB。框架自动缩短帧数重试后仍失败，服务已自行退出。
+未发送额外生成请求，没有报告服务 ready 或生成通过。
+
+完整日志已归档于本次模型适配实验目录的 wan22-migrated 运行记录。
+新加载 Hook 在真实 parent/worker 中均已 apply，原 TypeError 与回退段错误
+没有重现。仍有此前的 SRT 适配警告，本轮未处理；不把单卡原路径验证外推成
+真实 HCU 多卡流式路径已验收。
+
+L0、导览与迁移台账 freshness、git diff --check 均通过。用户随后要求提供
+DiT 也 offload 的启动命令，该配置尚未执行，不能沿用本轮结果宣称已通过。
+
+
+### 2026-11-13：按 0.5.22 release 基线整理
+
+本次插件改动基于 `release/sglang_v0.5.22`（`9258cef`），只迁移流式加载
+实现、注册、四项测试模块及三项 loader 台账。保留 release 原有功能，
+不引入 main 的其他功能或全仓 runtime closure 工具与测试。配套 SGLang
+基于 `v0.5.22.plugin`（`15c7204b7a`），adapter 基于其
+`release/sglang_v0.5.22`（`766879b`）。此前 main 基线结果仅为历史证据，
+不外推为本次 release 的 GPU、模型、性能或全量门禁通过。
+
+本次 release 基线实际验证：四个 loader 模块共 37 项通过，覆盖
+CPU 张量与两 rank Gloo；上游导入探测需要设备可见，不是隐藏 GPU
+验证。L0、执行台账与导览快照检查通过。全量 unittest 候选与干净
+release 基线均为 132 项，1 failure、2 errors、13 skipped，失败/错误
+用例集合相同；两项错误为主机缺少 torch，一项为既有模拟 arg_utils
+缺少 field_names。未重跑真实模型、GPU Graph、多卡和性能验收；
+导览未执行浏览器渲染、交互及窄屏截图检查。
+
+
+### 2026-11-13：社区 diffusion 入口与 Wan SLA 跳过
+
+本轮目标改为社区 SGLang v0.5.22（`baa9befa381511cd4d56f83980951e5a45fffc6d`），
+配套插件以 `768b2e6`、adapter 以 `3fbbc89` 加本轮工作区改动运行；官方源码保持干净。
+用户明确批准将 RoPE 原地计算放入 adapter 的 sgl_kernel，以及由 plugin 实现
+Wan SLA 跳过线性分支。本条记录不沿用此前 DAS 框架的生成成功结果。
+
+- 新增 `sglang.multimodal_gen.plugins` 正式入口。八个 multimodal 注册模块接收
+  可选 registry，由 diffusion worker 在平台初始化后注册和 apply；SRT 入口仅在
+  旧框架没有该独立机制时沿原路径注册，避免同一目标在两份 registry 中重复包装。
+- Wan 构造期间沿用已有 `sla_topk`、`sla_skip_linear` 解析，限定普通
+  `SparseLinearAttentionImpl`；默认跳过时不创建 `proj_l` 和特征映射，不执行
+  线性 attention。forward 复用社区 get_block_map 与 _attention，不修改稀疏算法。
+- 显式关闭跳过时保留社区线性分支，并将新增投影参数声明为零初始化；非 Wan、
+  非 HCU 和 SageSLA 不进入这项新跳过逻辑。更新目标合同、安装说明和回归。
+
+实际验证：24 个 diffusion Hook 目标全部 apply。正式回归 7/7 通过（六项 CPU
+契约、一项 head size 64 的真实 GPU/Graph 对拍），覆盖真实
+  entry-point 加载、registry 所有权、meta 构造无参数、跳过计算、关闭后计算、
+  非目标模型/平台及构造失败后的上下文恢复。独立 GPU 探针在 BF16、40 heads、
+  head size 64、513 tokens 下 eager 及三轮变输入 Graph 与社区零投影完整 SLA
+  输出逐元素一致。该结果不外推至 Wan 的 head size 128。
+
+独立探针另记录两项社区稀疏 kernel 限制：129 tokens、topk=0.25 时，
+  `int(ceil(129/64)*0.25)` 为零；head size 128 默认 kernel 需要 81920 bytes
+  shared memory，超过本机 65536 bytes。保留失败日志，本轮未修改这些算法或
+  launch 配置，不能声称普通 CUDA SLA 在本机 Wan 形状下已通过 GPU 验收。
+
+真实单卡、DiT/text encoder/VAE CPU offload、720p、17 帧、一步请求已执行。
+两个 WanTransformer3DModel、UMT5EncoderModel 和 VAE 均按 sgl-diffusion 实现
+加载，无 native fallback；原 proj_l 缺失初始化报错消失。文本编码完成后，
+去噪在社区 `scale_residual_norm_cutedsl.fused_norm_scale_shift` 失败：
+TVM FFI 要求 CUDA Tensor，收到 HIP Tensor。请求失败、无视频输出，服务已停止。
+这项 CuTeDSL 兼容问题与稀疏 kernel shared-memory 限制均留待后续处理。
+
+adapter RoPE 的 25 项 GPU/接口回归通过，另有 CPU 41 passed、22 GPU skipped；
+kernel 在阻断 SGLang/vLLM 导入后仍可独立执行。原地 RoPE 保留 restore-safe
+  autotune，稳态不分配临时 GPU 张量；BF16/40 heads/head size 128 的四种 token
+  规模中，相对先前社区 out-of-place kernel 加写回的 ABI 版本约快 1.58–1.69 倍。
+性能为独立算子结果，不能描述为模型加速。
+
+两仓 L0 通过。插件全量主机 unittest 为 132 项，1 failure、2 errors、13 skipped，
+与前一 release 基线记录相同（缺 torch 和 field_names 测试替身缺项）。容器全量
+  unittest 为 135 项，2 failures、2 errors、13 skipped，另涉及隐藏 GPU 的 SRT
+导入、启动时已加载 torch 与 embedded 来源隔离；本轮不修改这些无关用例。
+目标测试通过不等于全量门禁通过，暂未提交或 push 本轮改动。证据按
+`inplace-rope-sla` 实验目录归档，包含源码摘要、patch、原始失败与成功日志。
+导览重建与 freshness 单独检查；未执行浏览器渲染、交互或窄屏截图验收。
+
+## CUDA 语义下的厂商 SLA 接入（2026-11-14）
+
+本轮按用户确认，将 HCU 的 CUDA `SLA_ATTN` 选择接到已有
+`RocmSparseLinearAttentionBackend`。Hook 位于实际定义 classmethod 的
+`CudaPlatformBase.get_attn_backend_cls_str`，保留类和实例调用的绑定语义。
+全局仍为 CUDA 平台，其他后端与非 HCU 请求交给传入的 original。
+支持 head size 64/128、FP16/BF16；依赖厂商 FlashAttention 的
+`sparse_attn_with_sla`，底层为 HIP `fwd_sparse`，不是 NVIDIA CUDA 二进制。
+
+Wan 构造上下文将既有 `sla_local_blocks` 和 `sla_skip_linear` 配置传到厂商
+实现。跳过线性分支时不创建 `proj_l`；关闭跳过时保留零初始化和缺失参数
+初始化标记。无需修改社区源码、模型接口或全局平台身份。
+
+新增 `tests/runtime/vendor_sla_cuda.py` 覆盖真实选择器/构造链、其他 CUDA
+后端、无投影分支、D128 独立 FP64 稠密参考和输入不变性、变更输入的 Graph
+重放。稠密参考仅对应 topk=1；topk=0.25 检查有限值和形状，不代表稀疏
+掩码语义或生成质量验收。实际执行结果及单步模型状态保存在本轮项目记录。
+
+本轮两个 runtime 文件各 7 项测试通过（含 GPU/Graph）；L0 通过、导览 freshness
+通过。真实单卡一步越过首个 SLA，原 shared-memory 报错消失；请求在后续
+`self_attn_residual_norm.forward_cuda` 调用另一个 CuTeDSL 算子
+`fused_scale_residual_norm_scale_shift` 时设备类型错误，最终 failed，无视频。
+服务已停止；本轮未修改 residual 算子，未 commit/push。浏览器渲染未验证。
+
+
+## 2026-11-15：社区 Wan2.2 组合端到端验证
+
+保持社区 SGLang v0.5.22 `baa9befa381511cd4d56f83980951e5a45fffc6d`
+源码不变；plugin 基于 release/sglang_v0.5.22 的 `9258cef`，adapter 基于
+同名 release 分支的 `766879b`，沿用各自功能分支及本轮改动组合部署。
+本轮仅整理验证记录后推送用户 fork，不更新未验证的上游运行时代码。
+
+已验证正式 diffusion 入口、CUDA SLA 选择、无 proj_l 的 Wan 构造、
+adapter 原地 RoPE、norm/residual norm CUDA dispatch。BW1000/gfx936
+四卡 FSDP+Ulysses4、DiT常驻、text encoder/VAE offload、vendor SLA
+0.25、720p/81帧/16fps/40步、CFG4/6：此前10条与官方提示词队列前37条
+均完成去噪、VAE解码及MP4保存，无 native loader fallback。
+37条视频全部解码验证为81帧，七项 VBench custom_input 评分各37条。
+用户人工查看视频认为语义基本正确；部分首帧彩噪/块状伪影仍存在，
+不宣称与参照平台逐位一致、全模型画质通过或官方完整VBench成绩。
+
+torch.compile 独立测试完成2步、4步冷预热与40步请求，实际DiT模式为default。
+40步API推理927.98秒，eager同prompt/seed为943.72秒；卡组不同且n=1，
+仅记录执行结果，不确定编译的性能收益。测试输出未混入37条评分样本。
+模型日志、源文件快照及评分明细保存在本机项目记录，不将视频或测试日志纳入Git。
+历史条目中“未提交”和失败状态保留为对应阶段记录，不覆盖本轮端到端结果。
+
+
+本次推送前复验：两个 SLA runtime 文件开启 `HCU_PLUGIN_RUN_GPU_TESTS=1`
+后各7项通过（共14项，无skip，包含GPU与变输入Graph）；adapter对应算子与
+custom-op定向130项通过，CPU契约38项通过。两仓L0及导览freshness通过。
+主机全量unittest当前分支和干净`768b2e6`归档各132项，均为1 failure、
+2 errors、13 skipped，失败/错误用例集合一致：主机缺torch，以及现有
+arg_utils测试替身缺field_names。保留全量非GREEN结论，不以定向或模型通过
+替代未通过的全量项目。导览未新增浏览器渲染/交互截图证据。
+## Qwen3.6-35B-A3B on the 0.5.22 plugin and adapter branches (2026-11-16)
+
+The Qwen4 PLE module imported the optional mapped-host adapter provider while
+registering global hooks. On adapter revision 2701b07 the provider is absent, so
+global registration stopped before completing even for Qwen3.6. Load the
+provider at the PLE operations that use it, with no fallback for a missing
+provider when those operations are requested. The target contract also records
+the already registered DecodePreallocQueue._send_kv_metadata hook, independently
+verified in the current disaggregation implementation.
+
+On bw46, with official revision baa9bef and the adapter revision above, the
+pre-change loader applied 615 hooks then logged a missing-provider error.
+After the change the real loader registered and applied 650 hooks and exposed
+all required resolution seams. The PLE execution path itself was not exercised.
+
+### Preserve the adapter's Breakable Prefill driver gate
+
+On Qwen3.6-35B-A3B TP2 the community configuration resolved Prefill to
+Breakable, while the image baseline used eager Prefill. The plugin graph
+lifecycle called its own private prefill implementation and bypassed the
+adapter's driver gate, causing HCU workers to fail inside the NVIDIA
+`cuda-python` stream capture probe. Call the public capture seam and honor an
+active adapter gate on the effective original. There is no change to Full
+Decode/Verify Graph capture or to plugin prefill implementations for other
+backends. Deploy with the adapter revision that advertises the callable gate.
+
+### Honor Qwen shared-expert ownership in the AITER W16A16 route
+
+The Qwen MoE constructs its runner with `inplace=False` when the shared expert
+reads the router input after the routed experts. The W16A16 AITER hook used
+`inplace=True` unconditionally. The vendor ASM route writes the combined routed
+output to that input; the Qwen shared gate then reads overwritten activations.
+Forward the runner contract instead. This retains the in-place route for callers
+that allow it, along with the AITER kernel and all original startup flags.
+
+bw46 isolation: disabling five optimization flags restored deterministic output;
+restoring W16A16 and fused TopK reproduced the failure; disabling only fused
+TopK did not recover. The new input-ownership test fails on the original
+forward and passes after the fix. See the original-script integration and
+1024/200 performance results in the run's validation artifacts.
+
+
+## 2026-11-16 Qwen3.6-35B-A3B-W8A8 的 E5M2 KV
+
+Qwen3.6-35B-A3B-W8A8 的目标模型以 `Qwen3_5MoeForConditionalGeneration`
+加载，EAGLE draft 以 `Qwen3_5ForCausalLMMTP` 加载。在 gfx936、BF16 query、
+page 64、FA3 和 HCU KV layout 的既有组合内，将目标模型加入 E5M2 配置例外
+及 paged MHA query 门控，复用插件的 BF16 query 与 E5M2 KV 的 HCU 路径。
+现有显式 K/V scale 检查继续生效。
+
+原始 E4M3 脚本在 DAS 基线的变长 Prefill 与 target verify Graph capture
+分别碰到 FA 和 paged attention 的限制。本次服务验证按用户指定设置 E5M2。
+基于 plugin `fcbbc81`、adapter `d4f8afe` 与社区源码 `baa9bef`。
+配置解析和真实 Hook 分发检查覆盖 MoE page 64、关闭 HCU KV layout、
+page 16、Prefill/Decode query 及显式 scale。
+
+Python 和 HCU 验证共 107 项通过，其中 3 项对拍 page 64、head dim 256 的 E5M2 KV，覆盖 query 长度 1、4、12 的 Graph 重放及变化的输入。
 
 ## 2026-11-14：DeepEP W4A8 contiguous 非 512 对齐宽度
 
@@ -2328,3 +2651,34 @@ TP行分工门禁：7项专用回归通过，L0检查614个文件通过，导览
 本次是分支整合与离线检查；独立 worktree 不替换当前运行服务的源码根目录，未重启服务或在新组合上生成模型请求。此前 clean SGLang + plugin 28861d1 + adapter 2e723cc 的 2026-11-16 短测为旧证据，不外推到同步后的新提交：8项文本视觉 smoke 和16项短/长 QA 正常，MTP 71.93%–73.64%；64K C26/N52 的 TPOT 30.274ms、128K C30/N60 的 TTFT 21.910s、256K C14/N28 的 TTFT 22.188s 未达对应 SLA。更早大样本通过记录使用旧版本及不同预热，不能改写为本次同步后通过。新组合的 Graph、生成、精度、MTP、长稳及性能仍 pending；离线检查结果见本节后续验证记录。
 
 本次实际验证：L0（618个Python文件、8个skill）和导览重建/一致性通过；7项PD trace tuning定向CPU测试通过。固定官方SGLang源码、HCU_ADAPTER_HOST=none且隐藏GPU的全套unittest执行142项，126通过、13跳过、2项断言失败、1项导入错误。两项失败（CLI stub缺field_names，冷导入被镜像bootstrap提前载入Torch）在最新upstream 81315b2的独立worktree中各自复现；MRoPE导入触发官方SGLang GPU架构探测，在隐藏GPU时No CUDA GPUs are available，上游相同导入也复现。没有修改这些既存测试/加载行为，未将全套记为通过。配套adapter定向CPU测试79通过、16跳过，L0通过但有31项提示。GPU/native/Graph及同步后模型验收未执行，导览浏览器渲染未验。完整日志在外部实验目录pd-disag/codex-work/upstream-pr-20261116/logs。
+
+
+## 2026-11-16：PR #68 同步已合入的 Qwen3.6 与扩散加载改动
+
+用途：解决 PD prefill 优化 PR #68（来源 `3109080`）与目标分支
+`release/sglang_v0.5.22@8b730e0` 的合入冲突，保留两个已合入 PR：
+Qwen3.6 / graph / PLE 懒加载修复（#69，`74f8232`）和扩散流式加载与
+Wan2.2 SLA（#65，`8b730e0`）。独立评审分支为
+`fix/pr68-upstream-conflicts-v0522`，不替换现有服务的源码 worktree。
+
+实际文本冲突只有本开发记录与生成页 `architecture.html`。保留上游完整
+开发记录，再保留 PR #68 的全部新增记录；导览由构建工具重新生成。
+`hcu_sglang/__init__.py` 与当前目标合同自动合并后另行核对：保留上游
+`register_legacy()` 聚合与流式加载入口，同时保留本 PR 的 sampling 注册
+及全部 QSA / PD / 空 rank 合同。其他运行时文件无手工冲突修补；上游专属
+改动与原优化专属改动按文件核对，不删减双方功能。
+
+本轮实际验证：L0 629个Python文件、8个skills通过；导览重建与快照检查通过；
+7项PD trace tuning CPU定向测试通过。全量CPU unittest执行142项：126通过、
+13跳过、2失败、1导入错误。CLI stub缺field_names、镜像冷导入预加载Torch
+两项失败，以及隐藏GPU时MRoPE导入触发官方GPU属性查询的错误，均在最新上游
+8b730e0的独立worktree、相同环境下复现，未将全量测试记为通过。58个双方各自
+修改的文件逐字节保留；公共注册入口按AST核对为上游入口加原PR的sampling
+两节点，目标合同为双方集合的精确并集。运行中的三个源码根目录及此前评审
+worktree均未改动，容器未重启。当前环境无浏览器/Playwright，生成页未做实际
+浏览器渲染复验；构建快照和已有导览契约测试不等同于视觉验收。
+
+此前 `3109080` / adapter `5be2e09` / 官方SGLang `baa9bef` 的256K/C5 trace
+与smoke是合入前的历史证据，不能外推为本次同步后组合的GPU / Graph / 模型
+精度或SLA已验证。本轮不重启Docker、不启动模型、不发送推理请求；仅完成
+本地解决、离线验证与评审交接，尚未push。

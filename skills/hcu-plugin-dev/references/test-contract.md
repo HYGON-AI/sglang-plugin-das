@@ -202,3 +202,14 @@ LoRA 名称登记须发生在请求的最终 extra_key 确定之后，并与树�
 新增 owned crate 时成对检查 backend 预检和实际 loader，不让源码已随插件交付的后端因官方 manifest 缺失而错误回退。保留有效 original 的能力/自定义限制、显式 workspace、cache/build mode 和 features；用独立模块名区分旧 binding。验证来自 wheel 的 Cargo.lock/header/源码完整性和真实编译加载，不能用模拟 tuple 代替 Rust 生产事件。store/remove 必须携带同一 namespace，测试后消费 eviction 返回的索引并核对数量，不能忽略 destructor 的 ownership 报错。
 
 改变 token 的编码范围时，Rust 与 C++/Python 输入转换须一起更新。覆盖 u32 边界、int64 最大值、负数拒绝、普通/bigram、逐页混合宽窄编码及 prior 链，用独立 hashlib oracle 与两种真实编译后端对照。普通 token 的历史哈希需保持一致；CPU binding 通过不外推为 GPU、L3 或完整模型验证。
+
+
+### Diffusion 插件的 registry 所有权
+
+社区 diffusion 的 `sglang.multimodal_gen.plugins` 与 SRT 使用独立 HookRegistry。
+只向 SRT 注册不能证明 diffusion worker 会 apply。新增 diffusion 能力时测试真实
+entry-point 发现、平台初始化之后的 apply、旧 SRT 路径的重复包装隔离和实际参数
+构造。跳过可选分支须验证 meta 构造不再产生该分支参数，以及关闭开关后仍运行
+原计算；缺失权重的 zeros 初始化不等于跳过计算。组件 GPU 测试沿用显式 opt-in，
+按真实 head size/块大小确认 shared-memory 与 top-k 非零条件；小形状通过不能
+外推到模型形状。见开发迁移记录中的社区 diffusion 与 Wan SLA 验证。
