@@ -8,6 +8,7 @@ from typing import Any, Callable
 from hcu_sglang.utils.detection import is_hcu
 
 logger = logging.getLogger(__name__)
+_ROTARY_UNSET = object()
 
 
 def after_adjust_attention_backend(result: Any, server_args: Any) -> Any:
@@ -48,7 +49,12 @@ def after_post_load_weights(result: Any, model: Any) -> Any:
     return result
 
 
-def around_apply_rope_qk(original, q, k, cos_sin_cache, positions):
+# anchor-baseline(③): _apply_rope_qk — main@5792cf6e requires rotary_emb; the legacy fork uses five positional arguments.
+def around_apply_rope_qk(
+    original, q, k, cos_sin_cache, positions, *, rotary_emb=_ROTARY_UNSET
+):
+    if rotary_emb is not _ROTARY_UNSET:
+        return original(q, k, cos_sin_cache, positions, rotary_emb=rotary_emb)
     if not is_hcu() or not q.is_cuda:
         return original(q, k, cos_sin_cache, positions)
     import torch
@@ -63,8 +69,11 @@ def around_apply_rope_qk(original, q, k, cos_sin_cache, positions):
     return q, k
 
 
-def register_hooks() -> None:
+def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    if registry is not None:
+        HookRegistry = registry
 
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk",

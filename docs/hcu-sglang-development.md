@@ -2874,3 +2874,18 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 - `_inflight_held_since` 采用首次访问惰性初始化，未在 `init_disaggregation` 中预置；与 `no-getattr-defensive` 风格建议不一致，保留原 patch 写法。
 
 **与健康探针改动的关系**：同目录 `修改方案.md` 的改动 A/B/C 处理 `health_generate` 超时不下发 abort、以及 scheduler 忙时丢弃探针 abort 的问题，本次 patch 不包含；本次只处理 inflight 队列的 rank 一致性与假 sender 回收。两者互补，不能互相替代。
+
+## 2026-11-14 MiniMax-H3-Image 原生 HCU 验收
+
+基线为社区 `5792cf6e5e11`、plugin 起点 `534f9bea10c3`、adapter 起点
+`a17152d268d4`。本仓转发原生 keyword-only `rotary_emb`，区分未传与显式
+None，保留旧调用；新增 `hcu_diffusion` 入口向实际 worker 的独立 registry
+注册原有五个 targets，SRT 入口不变。adapter 负责平台与公共算子接口。
+
+新增注册/RoPE 七项回归通过；gfx936 两卡 native TP2/BF16、2048×2048、
+六步文生图及参考图编辑通过，已查看红壶改蓝壶的实际图片。社区源码未改动。
+全量 CPU 对照当前244项、起点237项，均为82 failures/6 errors/17 skipped，
+失败标识相同；L0 与导览 freshness 通过，不宣称全仓或全部模型全绿。
+整模型 Graph、其他架构与多参考图未验证；原验收的导览视觉 QA 未完成。
+模型配方、性能与支持范围以 adapter-das 的 `docs/image-dtk2610.md` §8 为准；
+详细步骤、原图哈希、逐轮日志留在部署目录的 `artifacts/minimax-h3-image-20261114`。

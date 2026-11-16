@@ -189,3 +189,12 @@ RuntimeError: Paged KV cache block size must be divisible by 64 at gfx936 platfo
 | 模型启动失败、乱码、hang | 转 [故障诊断](troubleshooting.md)，不反复重装掩盖错误 |
 
 新增独立插件见 [最小案例](first-plugin.md)，开发本仓能力见 [开发指南](plugins.md)。
+
+## MiniMax-H3 的 diffusion 入口
+
+安装本仓及 adapter 后显式设置 `SGLANG_PLUGINS=hcu_diffusion`。社区
+`5792cf6e5e11` 的图片 worker 使用独立入口组 `sglang.multimodal_gen.plugins`；
+分别核验主进程与 worker 的 entry point、diffusion registry 和已应用 targets。
+原有 SRT `hcu` 入口保持不变，安装成功不等于模型验收通过。
+已验证范围见 [开发记录](hcu-sglang-development.md#2026-11-14-minimax-h3-image-原生-hcu-验收)；
+完整部署参数与回退统一见 adapter-das 的 `docs/image-dtk2610.md` §8。
