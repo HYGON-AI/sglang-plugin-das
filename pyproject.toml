@@ -14,6 +14,7 @@ license = {file = "LICENSE"}
 hcu = "hcu_sglang:register"
 
 [project.entry-points."sglang.multimodal_gen.plugins"]
+hcu = "hcu_sglang.multimodal_gen:register"
 hcu_diffusion = "hcu_sglang.multimodal_gen:register"
 
 [project.scripts]

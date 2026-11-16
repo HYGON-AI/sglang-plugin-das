@@ -2875,6 +2875,128 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 
 **与健康探针改动的关系**：同目录 `修改方案.md` 的改动 A/B/C 处理 `health_generate` 超时不下发 abort、以及 scheduler 忙时丢弃探针 abort 的问题，本次 patch 不包含；本次只处理 inflight 队列的 rank 一致性与假 sender 回收。两者互补，不能互相替代。
 
+## 2026-11-13 MiniMax-H3 INT8：SGLang 0.5.22 适配与验证
+
+用途：接入 MiniMax-H3 的 Channel INT8 完整/压缩 AdaLN 配方，保留官方模型与
+请求流程，通过 Diffusion entry point 注册 HCU 扩展。对应 adapter 提供专用
+partial RoPE，plugin 提供 FA2 packed-varlen、量化加载和 AdaLN 消费者 Hook。
+
+### 代码与组合边界
+
+- 官方 SGLang 固定为 v0.5.22 `baa9befa381511cd4d56f83980951e5a45fffc6d`。
+- 设备实测候选基于 adapter release `87f91522113f35e0f361747c644b29389e3d0d75`
+  与 plugin release `b45972b1e10c85a92de09a6f6e5d277161cd041e`。
+- 本次提交已迁到官方 main 分支；H3 运行时文件与设备实测候选保持相同，
+  上游并入部分另作 CPU/结构回归，不把历史设备结果冒充合并后完整镜像重测。
+- 量化 inspector 与 load-plan 都接入真实消费者，沿当前 original 保留非 HCU、
+  非 H3、其他格式的有效基线；非法本格式、FSDP 与 AdaLN cache 冲突保持拒绝。
+- 完整/压缩 AdaLN 保留旧配方的独立 RMSNorm 舍入顺序。ContextVar 隔离量化上下文，
+  包括嵌套和异常恢复；不覆盖整个 DiT 类。
+- FA2 子类继承官方 dense 实现并补齐真实 packed-varlen；H3 的 fa 别名在官方
+  保存组件快照前规范为 fa2，保留框架匹配校验。
+- DiT/VAE RoPE 优先旧 native 符号，缺失时使用 adapter 公共接口；仅覆盖
+  head128/rotary96、head64/rotary48，其他几何保留当前 original。
+- Diffusion 使用自己的 HookRegistry，SRT 入口保留原调用约定。设备实测候选的
+  18 个 Diffusion Hook 真实 import/apply 通过，不仅是注册表存在。
+
+### 已有设备与模型证据（2026-11-09 至 2026-11-13）
+
+实测为单卡 gfx938，用户型号口径 BW1100，工具标识 BW1102。官方模型源码未改。
+所有生成设置 `FLASH_ATTENTION_FAST_SOFTMAX=1`，默认 LT 路径；Text Encoder
+layerwise-offload、VAE offload，DiT offload 关闭。新旧编码统一 medium。
+
+- T2VA、FL2VA 仅首帧/仅尾帧/首尾帧，以及 Ref2VA 图片搭配 32k 音频、视频、
+  video_audio、混合关键帧、48k 音频重采样，覆盖新旧代码及完整/压缩 AdaLN，
+  共 36 条短程请求 completed 并通过完整音视频解码。短测不替代条件遵循验收。
+- T2VA 三种环境、两种 AdaLN，每组一次完整预热和三次正式采样，合计 18 次
+  正式请求、6 次预热；相同物理卡、prompt、seed1101，1344x768、24fps、124 帧。
+  旧 API50、新 API49，实际均为 49 次去噪。
+
+| AdaLN | 旧代码+旧 DTK | 新代码+旧 DTK | 新代码+新 DTK |
+|---|---:|---:|---:|
+| 压缩 | 791.856 s | 778.919 s | 779.885 s |
+| 完整 | 762.342 s | 749.331 s | 750.874 s |
+
+表为 Server Total 中位数。旧 DTK 环境换新代码分别缩短 1.63%/1.71%；不同时间窗
+各三次采样，不作统计显著性断言。旧环境为 DTK26.04/Python3.10，新增环境为
+DTK26.10/Python3.12，环境比较也包含配套 Torch/依赖变化。
+
+两种 AdaLN 的新代码+旧 DTK 各三次正式 MP4 与对应旧代码样本 SHA256 完全一致，
+仅覆盖该固定 T2VA 样本。新 DTK 输出仍存在数值差异；单样本 VBench 已作六维对照，
+不能据此声明所有任务、音画同步与质量容差均验收通过。用户已确认可进入 PR 评审。
+全局关闭 LT 未恢复旧输出，本提交不修改 LT 调优表或强制特定 GEMM 算法。
+
+### 依赖、回退及证据
+
+已测 vendor Torch2.11/Triton3.6，按 `--no-deps` 隔离构建；adapter release 的
+Torch2.13/Triton3.7 元数据不是本次已验证矩阵，不修改全局依赖来掩盖差异。
+DTK26.10 的参考音频路径另补隔离 torchaudio2.11 CPU 包，48k->32k 实际请求通过；
+未混拷旧 DTK 二进制。使用时保留与所选 Torch 匹配的 torchaudio 依赖。
+
+非 HCU 回退原函数；H3 专用 RoPE 的 adapter kill switch 回到 Torch 诊断路径。
+该诊断慢路径不计为性能优化。FA2 的其他模型影响面以单独回归和适用上游能力为限。
+完整生成、GPU/Graph 与历史冷导入的不同 lane 分开记录；组合 adapter 自动启动会
+提前导入 Torch，已有两项 plugin 独立冷导入断言与该组合不兼容，不删断言凑通过。
+
+原始设备证据由任务独立归档保存，不把模型、MP4 和 trace 放入源码仓库。归档：
+
+- 功能短测：`function-alignment-20261112`、`function-alignment-20261112-r3`、
+  `function-alignment-20261112-r4-tail-only`，含实际请求、任务状态和解码记录。
+- 三环境性能：`performance-t2va-20261113-review.tar.gz`，SHA256
+  `9177f9372a94801c07fc13c9e3c46b6e1561c9cc7dfc78f19e85711af04ac869`；
+  `performance-t2va-old-dtk-20261113-review.tar.gz`，SHA256
+  `ae773c6d183a461b7f8dc91e9bf36be6d22274dbebdfc5d189eb4bc2258cefa2`。
+- 当前 PR 的 CPU、打包、结构和文档验证结果随评审说明提供；尚未重跑的组合不标通过。
+
+
+release 候选提交检查（2026-11-13，迁 main 前）：两仓 L0、diff 检查、tier/导览快照通过；adapter
+CPU pytest 为45项通过，plugin H3 为42项通过。测试路径统一读取 OFFICIAL 环境变量，
+避免真实消费者合同因源码不在仓库姊妹目录而被跳过；当前目标合同同步18个 Diffusion
+目标中的11个新增项。未改变模型运行时代码。
+
+完全隐藏 GPU 的原始 plugin 全仓 CPU 命令仍因官方模块导入期查询硬件而受阻，
+干净上游基线也存在该环境限制。单独 CPU import-probe lane 显式提供已知 gfx938
+架构字符串与(9,3)能力值、保持可见GPU数为0，186项为173通过、13跳过、无失败。
+该 lane 只证明 CPU 契约，不是设备数值或完整镜像重测，原始失败日志保留。
+
+### 官方 main 评审候选复核
+
+本次仅迁入 H3 改动，adapter main 基线 `1bd61073e0265ff04fa01f063f5f995f67e0b5ee`，
+plugin main 基线 `534f9bea10c34e04e9fcc4a1d27e4601d71cfce5`。未合入 release 的其他分叉提交。
+
+迁移后两仓 L0、diff 检查、无依赖 wheel 构建及 tier/导览快照通过；adapter CPU 45 项、
+plugin H3 CPU 42 项通过。相同 CPU import-probe 条件下，干净 main 全仓 237 项，
+81 failures、6 errors、17 skipped；H3 候选全仓 279 项，80 failures、6 errors、17 skipped。
+逐条比对失败标识无新增项；CLI 假模块补齐 field_names 后减少一项既有失败。
+其余为既有源码/AST 哈希合同、缺少来源目录和隐藏 GPU 的导入限制等，未修改无关实现凑绿。
+全仓不记为通过；日志及失败标识对照另行归档。
+
+迁 main 后未重跑完整镜像 GPU/Graph/生成性能；上面的设备结果属于 release 来源候选。
+本次导览重建及快照已检查，浏览器工具受阻，实际渲染、交互及窄屏截图未复验。
+
+### 2026-11-15 PR 测试范围精简
+
+按评审范围移除与 H3 无关的 CLI 假模块 field_names 修改，保留 H3 专项测试、
+调制来源记录和 Hook 目标合同。此前 CLI 少一项失败的统计仅属于当时提交，
+不作为当前全仓通过结论。adapter 的大体积 native JSON 改由独立证据归档保存。
+两仓运行时 Python 源码与已实测候选逐文件哈希一致；未修改 H3 适配实现。
+main 来源候选已在单卡 gfx938 完成压缩/完整 AdaLN 的 T2VA 两步生成，
+两条任务 completed、音视频完整解码通过。未重跑完整步数与 FL2VA/Ref2VA。
+
+精简后：两仓 L0、diff 和导览快照通过；adapter CPU 42 项、plugin H3 42 项通过。
+全仓 CPU import-probe 为279项、81 failures、6 errors、17 skipped，与干净 main 的失败标识一致，无新增项。
+
+### 2026-11-15 plugin 运行时评审范围
+
+为精简评审，将新增的七个 H3 测试脚本、旧 AdaLN 参考文件和来源记录移出源码 PR，
+共1163行；独立归档保留原文件和哈希。tests 仅保留新增 Hook 所需的11行目标合同登记。
+这些材料不参与模型推理；hcu_sglang 的515个 Python 文件和打包配置与T2VA实测版本一致。
+此前42项H3测试是独立验证结果，不能解释为当前PR仍携带测试脚本。
+
+本次复核：L0、diff、导览快照通过；独立保留的42项H3测试使用精简后运行时通过。
+当前仓内全仓CPU import-probe为237项、81 failures、6 errors、17 skipped，
+失败标识与干净main一致；不将移出测试导致的用例数减少解释为修复或全仓通过。
+
 ## 2026-11-14 MiniMax-H3-Image 原生 HCU 验收
 
 基线为社区 `5792cf6e5e11`、plugin 起点 `534f9bea10c3`、adapter 起点
@@ -2889,3 +3011,15 @@ None，保留旧调用；新增 `hcu_diffusion` 入口向实际 worker 的独立
 整模型 Graph、其他架构与多参考图未验证；原验收的导览视觉 QA 未完成。
 模型配方、性能与支持范围以 adapter-das 的 `docs/image-dtk2610.md` §8 为准；
 详细步骤、原图哈希、逐轮日志留在部署目录的 `artifacts/minimax-h3-image-20261114`。
+
+## 2026-11-16 H3 主分支同步与入口兼容
+
+同步主仓 H3 INT8/完整与压缩 AdaLN 支持，保留原生图片的 keyword-only
+rotary 状态与独立 QK-Norm/RoPE 目标。Diffusion 同时保留 `hcu` 和
+`hcu_diffusion` 入口；两个名称同时加载时按 target/type/callable 去重，
+不清除其他 Hook，registry reset 后允许重新注册，注册错误仍向上传播。
+ROCm/AITER 后端选择 Hook 仅向实际 ROCm 平台注册，HCU OOT 不加载这两个
+无关目标，保持当前 vendor 缺失能力的真实状态，不修改 SRT 注册路径。
+新增双入口与其他 Hook 共存的旧实现失败反例，注册与 rotary 专项、
+结构/导览及当前组合模型的实际结果随本 PR 验证说明提供；历史 INT8
+设备结果仍只属于其原版本，不将同步主分支视为重新验收所有配方。

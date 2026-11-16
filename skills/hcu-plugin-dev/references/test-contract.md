@@ -209,3 +209,9 @@ LoRA 名称登记须发生在请求的最终 extra_key 确定之后，并与树�
 保留旧接口；回归覆盖两种平台、对象身份和原生异常。diffusion 的独立 registry、
 平台与真实 worker 分别取证，不以 SRT 注册结果替代。涉及 TP 配置时复制实际
 rank/并行度并验证真实 group；局部接口、数值/Graph 与实际图片语义分别验收。
+
+同一 diffusion callback 的入口别名须避免重复包装同一个 target/type/callable，
+同时保留其他 Hook；覆盖双入口加载、registry reset 后重注册和注册异常传播。
+不得以永久模块标志跳过 reset 后的注册。入口和部署约定见安装指南。
+平台专用目标按已初始化的实际平台注册，分别覆盖 ROCm 与 OOT；不能通过
+补造 vendor 属性让无关后端的 import/apply 看似成功。
