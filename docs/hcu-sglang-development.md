@@ -2257,3 +2257,18 @@ adapter's driver gate, causing HCU workers to fail inside the NVIDIA
 active adapter gate on the effective original. There is no change to Full
 Decode/Verify Graph capture or to plugin prefill implementations for other
 backends. Deploy with the adapter revision that advertises the callable gate.
+
+### Honor Qwen shared-expert ownership in the AITER W16A16 route
+
+The Qwen MoE constructs its runner with `inplace=False` when the shared expert
+reads the router input after the routed experts. The W16A16 AITER hook used
+`inplace=True` unconditionally. The vendor ASM route writes the combined routed
+output to that input; the Qwen shared gate then reads overwritten activations.
+Forward the runner contract instead. This retains the in-place route for callers
+that allow it, along with the AITER kernel and all original startup flags.
+
+bw46 isolation: disabling five optimization flags restored deterministic output;
+restoring W16A16 and fused TopK reproduced the failure; disabling only fused
+TopK did not recover. The new input-ownership test fails on the original
+forward and passes after the fix. See the original-script integration and
+1024/200 performance results in the run's validation artifacts.
