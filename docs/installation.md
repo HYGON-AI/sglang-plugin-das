@@ -25,6 +25,7 @@
 | distribution / pip 安装与卸载名 | `hcu-sglang-plugin` |
 | Python 包 / 模块启动名 | `hcu_sglang` |
 | `sglang.srt.plugins` 入口 | `hcu = hcu_sglang:register` |
+| `sglang.multimodal_gen.plugins` 入口（H3 候选） | `hcu = hcu_sglang.multimodal_gen:register` |
 | 启用白名单 | `SGLANG_PLUGINS=hcu` |
 | 服务入口 | `python3 -m hcu_sglang` 或 `hcu-sglang-serve` |
 
@@ -189,3 +190,12 @@ RuntimeError: Paged KV cache block size must be divisible by 64 at gfx936 platfo
 | 模型启动失败、乱码、hang | 转 [故障诊断](troubleshooting.md)，不反复重装掩盖错误 |
 
 新增独立插件见 [最小案例](first-plugin.md)，开发本仓能力见 [开发指南](plugins.md)。
+
+
+## MiniMax-H3 Diffusion 候选入口（2026-11-09）
+
+此段是进行中的 H3 升级候选，不构成设备数值、模型或性能验收。官方 0.5.22 的 Diffusion 使用独立入口组和独立 HookRegistry；SRT register/apply 合同不能替代 Diffusion 合同。Diffusion 入口仅初始化 lazy AITER 兼容，注册 attention 与 H3 的 18 项目标，不导入全部 SRT 插件。两种入口名称均为 hcu，分别受官方 SGLANG_PLUGINS 白名单控制。
+
+安装修改后的 wheel 后核对 importlib.metadata 中的 sglang.multimodal_gen.plugins 入口；已有旧 wheel 不会随源码修改自动更新。使用官方 `sglang serve --model-type diffusion`，不要使用本仓面向 SRT 的模块启动器代替它。H3 当前配方显式设置 `SGLANG_DIFFUSION_PLATFORM_OVERRIDE=rocm` 选择实际 HIP 后端，避免原有 amdsmi 探测在 HCU 上失败后落到 CPU；既有平台检测 Hook 在平台初始化之后应用，不能承担初始化前的选择。该配方尚待真实父子进程验证，不宣称自动平台发现已修复。
+
+新旧正式比较均须设置 `FLASH_ATTENTION_FAST_SOFTMAX=1`，同时保留 Cookbook 中的量化、offload、SDPA 和 VAE streaming 选项。本文不以入口存在或 CPU 合同通过宣称模型验收完成。安装对应 Skill、输入与交付边界仍按本文开头执行。
