@@ -2246,3 +2246,14 @@ On bw46, with official revision baa9bef and the adapter revision above, the
 pre-change loader applied 615 hooks then logged a missing-provider error.
 After the change the real loader registered and applied 650 hooks and exposed
 all required resolution seams. The PLE execution path itself was not exercised.
+
+### Preserve the adapter's Breakable Prefill driver gate
+
+On Qwen3.6-35B-A3B TP2 the community configuration resolved Prefill to
+Breakable, while the image baseline used eager Prefill. The plugin graph
+lifecycle called its own private prefill implementation and bypassed the
+adapter's driver gate, causing HCU workers to fail inside the NVIDIA
+`cuda-python` stream capture probe. Call the public capture seam and honor an
+active adapter gate on the effective original. There is no change to Full
+Decode/Verify Graph capture or to plugin prefill implementations for other
+backends. Deploy with the adapter revision that advertises the callable gate.
