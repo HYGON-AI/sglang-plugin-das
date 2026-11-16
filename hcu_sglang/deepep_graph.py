@@ -190,3 +190,28 @@ def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     HookRegistry.register("sglang.srt.model_executor.runner_utils.deepep_adapter.DeepEPCudaGraphRunnerAdapter", DeepEPCudaGraphRunnerAdapter, HookType.REPLACE)
     HookRegistry.register("sglang.srt.model_executor.runner.decode_cuda_graph_runner.DecodeCudaGraphRunner.capture_one_shape", around_capture, HookType.AROUND)
+
+
+def _record_native_capture_layout(original, runner, *args, **kwargs):
+    # Keep the pinned SGLang capture body and snapshot the layout after it
+    # actually runs the vendor dispatcher. Replay bypasses Python dispatch.
+    result = original(runner, *args, **kwargs)
+    runner.deepep_adapter.capture_end()
+    return result
+
+
+def register_minimax_hooks():
+    if not is_hcu():
+        return
+    from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    HookRegistry.register(
+        "sglang.srt.model_executor.runner_utils.deepep_adapter.DeepEPCudaGraphRunnerAdapter",
+        DeepEPCudaGraphRunnerAdapter,
+        HookType.REPLACE,
+    )
+    HookRegistry.register(
+        "sglang.srt.model_executor.runner.decode_cuda_graph_runner.DecodeCudaGraphRunner.capture_one_shape",
+        _record_native_capture_layout,
+        HookType.AROUND,
+    )

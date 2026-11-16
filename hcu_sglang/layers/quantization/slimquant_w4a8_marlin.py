@@ -27,7 +27,6 @@ import triton.language as tl
 from torch.nn.parameter import Parameter
 
 
-from sglang.srt.environ import envs
 from sglang.srt.layers.linear import LinearBase
 from sglang.srt.layers.moe import (
     MoeRunner,
@@ -169,7 +168,7 @@ def _ensure_aiter_w4a8_marlin_available() -> None:
 
 def _aiter_w4a8_config_kwargs(**kwargs):
     """Force moe_c when SGLANG_FORCE_AITER_MOE_C=1 (tuned gfx936 configs)."""
-    if _is_hcu and envs.SGLANG_FORCE_AITER_MOE_C.get():
+    if _is_hcu and get_bool_env_var("SGLANG_FORCE_AITER_MOE_C"):
         from aiter.moe import MoeSolutionType
 
         kwargs["spec_sol_type"] = MoeSolutionType.MOE_C
@@ -908,7 +907,7 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
                 return SlimQuantW4A8Int8MarlinMoEMethod(self)
             dspark_backend_override = get_dspark_w4a8_tpmoe_backend_override()
             if dspark_backend_override is None:
-                requested_backend = envs.SGLANG_W4A8_TPMOE_BACKEND.get()
+                requested_backend = os.getenv(W4A8_TPMOE_BACKEND_ENV, W4A8_TPMOE_BACKEND_AUTO)
                 env_name = W4A8_TPMOE_BACKEND_ENV
             else:
                 requested_backend = dspark_backend_override
@@ -1251,6 +1250,10 @@ class SlimQuantW4A8Int8MarlinMoEMethod:
                     layer.w2_weight_scale.data * scale_mul,
                     requires_grad=False,
                 )
+                if get_bool_env_var("HCU_PLUGIN_MINIMAX_M31_DEEPEP"):
+                    from hcu_sglang.layers.moe.minimax_m31_moe import configure_dispatcher
+
+                    configure_dispatcher(layer)
             else:
                 # mxfp4_to_int4.py packs (even_k << 4) | odd_k with two's
                 # complement nibbles and stores scale/16 (the legacy lightop

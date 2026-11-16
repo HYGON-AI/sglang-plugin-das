@@ -2379,3 +2379,75 @@ push 到 origin 仍未执行，等用户明确确认。
 含义：27B 上逐位一致只说明该模型上这层转换无副作用，**不等于插件对所有模型都是 no-op**。
 
 未 commit、未 push。
+
+## 2026-11-11 MiniMax M3.1 Flash 混合量化入口验证
+
+在 `proj/minimax-m3.1-chenyue`（基线 `6830f4ee`）增加 `hcu_minimax_m31` 入口，沿用 `hcu_sglang.layers.quantization.registry` 的两个量化 Hook。只有在 `SGLANG_PLUGINS` 显式选择该入口且未同时选择 `hcu` 时才注册。设置 `HCU_PLUGIN_MINIMAX_M31_QUANT=0` 可保留入口发现并关闭 Hook 注册。
+
+- 环境为 `nmz16` 的 DTK 26.10 / Python 3.12 容器。SGLang 基线为 `v0.5.23-minimax3.1`（`297e54fd10`）。现有 Cargo 1.75 无法解析 resolver 3，本轮通过 `SGLANG_BUILD_RUST_EXTS=none` 安装 Python 部分。Adapter `ee305e5` 已 editable 安装，插件用 `--no-deps --no-build-isolation --target` 隔离安装。
+- 对照运行分别使用 `SGLANG_PLUGINS=hcu_minimax_m31` 和开关值 `1`、`0`，以及未匹配任何入口的白名单。读取目标 checkpoint 的 `compression_config`，断言实际框架 loader 的 Hook 状态和量化配置查找结果。启用时 `slimquant_w4a8` 解析到插件注册，显式 `w4a8_int8` 选择可解析为 `slimquant_w4a8_marlin`。另外两组保持社区版查找结果。三组均保留原有 FP8 配置类。
+- 三组对照均通过。证据和可重放脚本位于 `artifacts/minimax-m31-20261111.uPB0D0/`。复跑时在 `PYTHONPATH` 中加入隔离安装目录，设 `HCU_ADAPTER_HOST=none`，向 `verify_m31.py` 传入模型的 `config.json`。
+- 全量 `hcu` 入口在该社区版本遇到缺失的 `sglang.kernels.ops.attention.dsa.index_buf_accessor`。本次最小入口验证未加载 checkpoint 权重或执行算子，adapter 启用组合、模型服务和数值仍待验证。
+
+## 2026-11-12 MiniMax M3.1 v0.5.23 CLI 接入
+
+固定社区版本 0.5.23。使用其 CLI 扩展入口登记 SlimQuant Marlin，保留已有量化 Hook。复现：加载插件后解析 --quantization slimquant_w4a8_marlin，旧版在 argparse 阶段拒绝该选项。整模型验证另行记录。
+
+## 2026-11-12 MiniMax DSpark 与 DeepEP 解析接入
+
+社区 v0.5.23 在 DP attention 下拒绝 DeepEP。仅对 HIP 的 MiniMax M3.1 SlimQuant 组合扩展原解析函数的后端集合，保留 static verify、LM head 和其余校验。基线 Decode eager 栈确认此模型曾运行 DeepEP low latency 与 DSpark verify，GPU/Graph 仍需验证。
+
+## 2026-11-12 MiniMax gfx938 FlashMLA 适配
+
+从基线 1109 的 flash_mla_gfx938.py 抽取已执行的 MSA128 provider。在 v0.5.23 MiniMax 稀疏接口绑定 Prefill 与 Decode 的页表、有效长度、Top16 和 FP8 scale。容器的 DTK 26.10 / CPython 3.12 wheel 已构建并通过入口导入。GPU 数值与 graph 验证另行记录。
+
+## 2026-11-12 MiniMax Zigzag query-sharded Prefill
+
+社区 v0.5.23 的 MiniMaxSparseAttnBackend 未在 sparse extend 聚合 CP KV。插件沿用社区 Zigzag 复原顺序，合并 K/V 和索引 KV 后单次 gather，写完整缓存，再按前后两段的实际查询长度调用 sparse provider。当前 KV 传输用投影 BF16，旧基线的 FP8 KV 交换待复测。
+
+## 2026-11-12 MiniMax DeepEP dispatcher
+
+复用插件已有 DeepEP normal/low-latency 实现，显式接入专用入口。与 adapter 的 vendor 低延迟 shim 互斥启用，保留插件的 INT8 dispatch 与原有 W4A8 HIPC 路由。独立探测确认 Python 3.12 的 DeepEP、LightOp 和 DeepGEMM 可以导入。
+
+## 2026-11-12 MiniMax 专用入口的 W4A8 选择
+
+8 卡完成通信初始化后，构造 MoE 时发现专用入口依赖全量插件的环境注册。使用同名环境键及原 auto 默认读取 MoE backend，保持独立入口行为。
+
+## 2026-11-12 MiniMax profiler 接入
+
+复用基线 profiler 的满批计数与逐 rank 标记。仅在 profiling 进程注册，在当前 worker 的正式插件入口加载，Prefill BS4，Decode 满 BS64 跳过 10 步并保留第 11–20 步。实际 trace 与输出完成率另行核验。
+
+## 2026-11-12 MiniMax FP8 index cache
+
+基线 index dot 模式使用 E4M3FN index K。复用社区 KV 容量估算与分配共享的 dtype 选择点，使两处一致。只在插件 FlashMLA 路由显式选 dot 且为 HIP E4M3FN 时启用。
+
+## 2026-11-12 DeepEP dispatcher 构造参数兼容
+
+Prefill 八卡成功选择 SlimQuant Marlin 后，社区 MaybeTboDeepEPDispatcher 传入 runner_backend。插件 dispatcher 接收并向 normal/low latency 实现透传，保留缺省值与原全局选择。
+
+## 2026-11-12 MiniMax hook 合同
+
+把专用入口的 DSpark、稀疏 Prefill/Decode 与 KV dtype 目标登记在当前 hook 合同，保留量化和 DeepEP 已登记的目标。
+
+## 2026-11-12 MiniMax 评测脚本
+
+归档独立启动、ABI wheel 构建、trace 校验、配对复跑和性能 CSV 汇总。复用旧版冻结输入与原生客户端，三轮配对中位数逐 BS 检查 5% 阈值，性能计时和 profiler 分开执行。
+
+## 2026-11-12 MiniMax router GEMV
+
+旧 Prefill/Decode 日志确认 gfx938 小 M router 路径实际命中。抽取旧版纯 Triton GEMV，保留 BF16 shape、设备、FP32 输出及原实现回退。M=64 的 LightOp 可选接口在现有 Python 3.12 包中未发现，使用 Triton。
+
+## 2026-11-12 MiniMax W4A8 DeepEP HIPC 核心
+
+旧 trace 的 normal contiguous 和 low-latency masked GEMM 在社区 v0.5.23 的 DeepEPMoE.run_moe_core 缺失。复用现有 DeepEP scatter/gather、原 HIPC 权重布局和原 scale/16 契约。仅 MiniMax 显式入口激活，CPython 3.12 LightOp 缺少 INT8 OAI 扩展时复用基线 Triton 激活。
+
+### 2026-11-14 MiniMax-M3.1 Decode warmup diagnosis
+
+基于固定社区版本的调用栈，关闭重叠调度仍会在预热时卡住。DP0 卡在序列长度回传的
+hipMemcpyWithStream，其余 rank 卡在下一轮 DP 元数据同步。探针仅在设置
+M31_DIAG_DECODE=1 时记录首三次各阶段的 DSpark worker、MoE dispatch/combine、
+模型 forward、graph 选择和 draft KV 写入边界。只读取形状和已有 CPU 元数据。
+社区源码只读，正式 trace 和性能复跑保持默认设置。
+
+Python 3.12 通过四个实际社区方法绑定、重复注册和记录次数检查。完整 8 卡日志由
+后续诊断试次产生。

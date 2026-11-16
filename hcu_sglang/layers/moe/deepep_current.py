@@ -707,6 +707,7 @@ class _DeepEPDispatcherImplBase:
         hidden_size: int,
         params_dtype: torch.dtype,
         deepep_mode: DeepEPMode,
+        runner_backend=None,
     ):
         if not use_deepep:
             raise ImportError(
@@ -727,6 +728,7 @@ class _DeepEPDispatcherImplBase:
         self.hidden_size = hidden_size
         self.params_dtype = params_dtype
         self.deepep_mode = deepep_mode
+        self.runner_backend = runner_backend
 
         self.params_bytes = 2
         # A large value will lead to large memory occupation, thus users should change it accordingly
@@ -927,7 +929,7 @@ class _DeepEPDispatcherImplNormal(_DeepEPDispatcherImplBase):
             else:
                 hidden_states = per_token_quant_int8(hidden_states)
         else:
-            backend = get_moe_runner_backend()
+            backend = self.runner_backend or get_moe_runner_backend()
             # BF16 dispatch is needed when:
             #   - cutlass backend (uses different kernel)
             #   - deep_gemm backend with SGLANG_DEEPEP_BF16_DISPATCH enabled
@@ -1508,12 +1510,14 @@ class DeepEPDispatcher(BaseDispatcher):
         deepep_mode: DeepEPMode = DeepEPMode.AUTO,
         async_finish: bool = False,
         return_recv_hook: bool = False,
+        runner_backend=None,
     ):
         super().__init__()
 
         self.deepep_mode = deepep_mode
 
         common_kwargs = dict(
+            runner_backend=runner_backend,
             group=group,
             router_topk=router_topk,
             permute_fusion=permute_fusion,
