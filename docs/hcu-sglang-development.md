@@ -3964,3 +3964,7 @@ NEXTN steps=4 adaptive、decode graph 批次 1..40、`--disable-radix-cache`。
 
 - 未在真实 HCU 设备上运行模型；fp8 descale tile 与 lightop 回退缺少实机/整模型验证。
 - 未运行 GitHub CI。
+
+## HY3 INT8：专家分发类型
+
+普通分发按 token 准备 INT8 与缩放值，低延迟分发显式选择 INT8，并通过 Adapter 保存的原生入口传递类型。BF16/FP8 的既有路径保留。修改位于 `deepep_current.py` 和公共 `deepep_fp8.py`，复用 `tests/runtime/deepep_current.py`；依赖配套 Adapter INT8 引用修复。这里不修改通信内核，主仓同步后的完整组合验证另记。
