@@ -134,6 +134,7 @@
     "sglang.srt.disaggregation.decode.DecodePreallocQueue._init_kv_manager",
     "sglang.srt.disaggregation.decode.DecodePreallocQueue._match_prefix_and_lock",
     "sglang.srt.disaggregation.decode.DecodePreallocQueue._pre_alloc",
+    "sglang.srt.disaggregation.decode.DecodePreallocQueue._send_kv_metadata",
     "sglang.srt.disaggregation.decode.DecodePreallocQueue.pop_preallocated",
     "sglang.srt.disaggregation.decode.DecodeReqToTokenPool.__init__",
     "sglang.srt.disaggregation.decode.DecodeRequest",

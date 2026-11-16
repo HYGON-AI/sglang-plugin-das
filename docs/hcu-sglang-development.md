@@ -2231,3 +2231,18 @@ GenerationBatchResult 有此可选字段。插件在读取时处理缺省，保�
 Berlin、Tokyo、LANTERN-8306、12，均为 stop。请求后健康检查 HTTP 200。
 官方仓库与验证副本的 10,592 个 tracked 文件哈希一致。此结果覆盖本次短问答；
 原始 JSON 和服务日志在验证目录 logs/nmz107/attempt-8。两项修复均位于 plugin。
+
+## Qwen3.6-35B-A3B on the 0.5.22 plugin and adapter branches (2026-11-16)
+
+The Qwen4 PLE module imported the optional mapped-host adapter provider while
+registering global hooks. On adapter revision 2701b07 the provider is absent, so
+global registration stopped before completing even for Qwen3.6. Load the
+provider at the PLE operations that use it, with no fallback for a missing
+provider when those operations are requested. The target contract also records
+the already registered DecodePreallocQueue._send_kv_metadata hook, independently
+verified in the current disaggregation implementation.
+
+On bw46, with official revision baa9bef and the adapter revision above, the
+pre-change loader applied 615 hooks then logged a missing-provider error.
+After the change the real loader registered and applied 650 hooks and exposed
+all required resolution seams. The PLE execution path itself was not exercised.

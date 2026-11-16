@@ -13,7 +13,6 @@ from sglang.srt.models import qwen4_exp as N
 from sglang.srt.layers.quantization.compressed_tensors.utils import check_equal_or_regex_match, should_ignore_layer
 from sglang.srt.distributed import get_tp_group
 from sglang.srt.layers.dp_attention import get_dp_global_num_tokens, is_dp_gatherv_active
-from hcu_adapter.mapped_host_dtk import _hip_runtime, _device_ptr_for_host_tensor, _wrap_mapped_host_as_cuda_tensor
 
 globals().update({name: value for name, value in vars(N).items() if not name.startswith("__")})
 get_attention_dp_size = lambda: get_parallel().attn_dp_size
@@ -206,6 +205,8 @@ def _try_host_register(tensor: torch.Tensor) -> bool:
     nbytes = tensor.numel() * tensor.element_size()
     ptr = int(tensor.data_ptr())
     device = torch.cuda.current_device() if torch.cuda.is_initialized() else -1
+    from hcu_adapter.mapped_host_dtk import _hip_runtime
+
     hip = _hip_runtime()
     register = getattr(torch.cuda.cudart(), "cudaHostRegister", None)
     for flags in _HOST_REGISTER_FLAGS:
@@ -463,6 +464,8 @@ class Qwen4ExpPinnedHostEmbedding(VocabParallelEmbedding):
             )
         if (not released_source_weight) and cpu_weight is not source_weight:
             del embedding.weight
+        from hcu_adapter.mapped_host_dtk import _device_ptr_for_host_tensor
+
         self._kernel_weight_ptr = None
         self._kernel_scale_ptr = None
         self._device_weight_view = None
@@ -496,6 +499,8 @@ class Qwen4ExpPinnedHostEmbedding(VocabParallelEmbedding):
             return
         # hostRegister is a host-side map; skipping it during CUDA graph
         # capture leaves the pageable D2H path inside the graph.
+        from hcu_adapter.mapped_host_dtk import _device_ptr_for_host_tensor
+
         logger.info(
             "PLE hostRegister begin dtype=%s nbytes=%.2fGB device=%s",
             self.weight.dtype,
@@ -543,6 +548,11 @@ class Qwen4ExpPinnedHostEmbedding(VocabParallelEmbedding):
             return
         if not torch.cuda.is_available():
             return
+        from hcu_adapter.mapped_host_dtk import (
+            _device_ptr_for_host_tensor,
+            _wrap_mapped_host_as_cuda_tensor,
+        )
+
         ptr = self._kernel_weight_ptr or _device_ptr_for_host_tensor(self.weight)
         try:
             device = torch.device(f"cuda:{torch.cuda.current_device()}")
@@ -594,6 +604,11 @@ class Qwen4ExpPinnedHostEmbedding(VocabParallelEmbedding):
             return
         if self.weight_scale.device.type != "cpu" or not self.weight_scale.is_pinned():
             return
+        from hcu_adapter.mapped_host_dtk import (
+            _device_ptr_for_host_tensor,
+            _wrap_mapped_host_as_cuda_tensor,
+        )
+
         try:
             scale_ptr = self._kernel_scale_ptr or _device_ptr_for_host_tensor(
                 self.weight_scale
