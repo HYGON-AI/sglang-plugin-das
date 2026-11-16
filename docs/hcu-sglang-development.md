@@ -2272,3 +2272,20 @@ restoring W16A16 and fused TopK reproduced the failure; disabling only fused
 TopK did not recover. The new input-ownership test fails on the original
 forward and passes after the fix. See the original-script integration and
 1024/200 performance results in the run's validation artifacts.
+
+
+## 2026-11-16 Qwen3.6-35B-A3B-W8A8 的 E5M2 KV
+
+Qwen3.6-35B-A3B-W8A8 的目标模型以 `Qwen3_5MoeForConditionalGeneration`
+加载，EAGLE draft 以 `Qwen3_5ForCausalLMMTP` 加载。在 gfx936、BF16 query、
+page 64、FA3 和 HCU KV layout 的既有组合内，将目标模型加入 E5M2 配置例外
+及 paged MHA query 门控，复用插件的 BF16 query 与 E5M2 KV 的 HCU 路径。
+现有显式 K/V scale 检查继续生效。
+
+原始 E4M3 脚本在 DAS 基线的变长 Prefill 与 target verify Graph capture
+分别碰到 FA 和 paged attention 的限制。本次服务验证按用户指定设置 E5M2。
+基于 plugin `fcbbc81`、adapter `d4f8afe` 与社区源码 `baa9bef`。
+配置解析和真实 Hook 分发检查覆盖 MoE page 64、关闭 HCU KV layout、
+page 16、Prefill/Decode query 及显式 scale。
+
+Python 和 HCU 验证共 107 项通过，其中 3 项对拍 page 64、head dim 256 的 E5M2 KV，覆盖 query 长度 1、4、12 的 Graph 重放及变化的输入。

@@ -26,6 +26,8 @@ TARGET = "sglang.srt.arg_groups.overrides._attention_backend_fa3_fp8_fallback"
     (True, "gfx936", "Qwen3_5ForConditionalGeneration", 64, "bfloat16", True, "fa3", "fp8_e5m2", "fa3"),
     (True, "gfx936", "Qwen3_5ForConditionalGeneration", 64, "auto", True, "fa3", "fp8_e5m2", "fa3"),
     (True, "gfx936", "Qwen3_5ForCausalLM", 64, "auto", True, "fa3", "fp8_e5m2", "fa3"),
+    (True, "gfx936", "Qwen3_5MoeForConditionalGeneration", 64, "bfloat16", True, "fa3", "fp8_e5m2", "fa3"),
+    (True, "gfx936", "Qwen3_5MoeForConditionalGeneration", 64, "bfloat16", False, "fa3", "fp8_e5m2", "triton"),
     (True, "gfx936", "Qwen3_5ForConditionalGeneration", 64, "float16", True, "fa3", "fp8_e5m2", "triton"),
     (True, "gfx938", "Qwen3_5ForConditionalGeneration", 64, "auto", True, "fa3", "fp8_e5m2", "triton"),
 ])
