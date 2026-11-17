@@ -3018,3 +3018,30 @@ main 来源候选已在单卡 gfx938 完成压缩/完整 AdaLN 的 T2VA 两步�
 本次复核：L0、diff、导览快照通过；独立保留的42项H3测试使用精简后运行时通过。
 当前仓内全仓CPU import-probe为237项、81 failures、6 errors、17 skipped，
 失败标识与干净main一致；不将移出测试导致的用例数减少解释为修复或全仓通过。
+
+## 2026-11-14 MiniMax-H3-Image 原生 HCU 验收
+
+基线为社区 `5792cf6e5e11`、plugin 起点 `534f9bea10c3`、adapter 起点
+`a17152d268d4`。本仓转发原生 keyword-only `rotary_emb`，区分未传与显式
+None，保留旧调用；新增 `hcu_diffusion` 入口向实际 worker 的独立 registry
+注册原有五个 targets，SRT 入口不变。adapter 负责平台与公共算子接口。
+
+新增注册/RoPE 七项回归通过；gfx936 两卡 native TP2/BF16、2048×2048、
+六步文生图及参考图编辑通过，已查看红壶改蓝壶的实际图片。社区源码未改动。
+全量 CPU 对照当前244项、起点237项，均为82 failures/6 errors/17 skipped，
+失败标识相同；L0 与导览 freshness 通过，不宣称全仓或全部模型全绿。
+整模型 Graph、其他架构与多参考图未验证；原验收的导览视觉 QA 未完成。
+模型配方、性能与支持范围以 adapter-das 的 `docs/image-dtk2610.md` §8 为准；
+详细步骤、原图哈希、逐轮日志留在部署目录的 `artifacts/minimax-h3-image-20261114`。
+
+## 2026-11-16 H3 主分支同步与入口兼容
+
+同步主仓 H3 INT8/完整与压缩 AdaLN 支持，保留原生图片的 keyword-only
+rotary 状态与独立 QK-Norm/RoPE 目标。Diffusion 同时保留 `hcu` 和
+`hcu_diffusion` 入口；两个名称同时加载时按 target/type/callable 去重，
+不清除其他 Hook，registry reset 后允许重新注册，注册错误仍向上传播。
+ROCm/AITER 后端选择 Hook 仅向实际 ROCm 平台注册，HCU OOT 不加载这两个
+无关目标，保持当前 vendor 缺失能力的真实状态，不修改 SRT 注册路径。
+新增双入口与其他 Hook 共存的旧实现失败反例，注册与 rotary 专项、
+结构/导览及当前组合模型的实际结果随本 PR 验证说明提供；历史 INT8
+设备结果仍只属于其原版本，不将同步主分支视为重新验收所有配方。
