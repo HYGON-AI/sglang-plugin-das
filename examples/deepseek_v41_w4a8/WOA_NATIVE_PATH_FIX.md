@@ -73,7 +73,7 @@ P/D 拆分，P 为 a12r4n16、D 为 a14r4n13，容器 `sglang_deepseek_V4.1_LC_a
 
 ## 文件与复现
 
-- 本地新 trace：`D:/git/dcu_sglang/sglang_plugin/doc/prof/20261116-woa-native-prefill32k/1794823528.1714485-TP-4-EP-4.trace.json.gz`。
+- 本地新 trace：`doc/prof/20261116-woa-native-prefill32k/1794823528.1714485-TP-4-EP-4.trace.json.gz`。
 - 新 trace SHA256：`866469038411c3d51905d1936a0ca5c4f1eb0ebe75281e9b33fca864d71bd1c7`。
 - 全部 8 rank：`/home/plugin_adapt/redevelop-20261114-node-switch/prefill32k-megamoe-compare01/woa-model08-profile01/traces`。
 - native SO SHA256：`fb8e5d71b6c36a3d33d62d6b6aadf253e2c05a284d3e9aa068b6a1a2d389b169`；源码/输入/环境、native 映射与完整配置均在本次 evidence ZIP。

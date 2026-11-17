@@ -2407,3 +2407,18 @@ HCU CP 容量断言改用已有 CPU 长度/interleave 元数据；原生 produce
 同组20/20；无prof384请求零错误，吞吐中位 55206.683 token/s（相对P18 +0.166%，累计相对P09 +5.311%），单条 644.027ms。两独立窗口全8rank×5step：目标sum/item/scalar/sync全0。CPU140+3、真实HCU70+1和Graph3通过；有效metadata零容差。
 
 本次只确认截图目标调用域，无全模型所有step空泡消除或完整新数据集授予；其他准入/CPU协议间隙见报告原值。运行policy58为87b451...，backend041c17...；原P18负链和native1–4 fixture失败保留。CPU wheel18042f8d，独立资格包60e4cd6f。
+
+
+## 2026-11-17：PR #61 CI 合规与可移植测试修复
+
+- 为已有 Hygon Copyright 的 async_indices.py 和 cache_index_views.py 补充与根 LICENSE 一致的 Apache-2.0 SPDX；两文件执行 AST 完全不变。
+- compressed_w4a8 的 public consumer 回归改为读取 tests/fixtures/deepseek_v41_w4a8_quantization.json，固定真实模型 quantization_config 快照，不再依赖本机 /models 挂载。配置来源完整 config SHA256 为 10c6c3843b70f6d8bd8c0a1b23f112f004f729f0e05e469e88131f35cb151ced；fixture SHA256 为 7372cc44c29659b2b13c0685bdc16c6f97dc066ef694d9125fbf4914baa7d2cb。
+- channelwise_int8 从当前 sglang 包的搜索路径定位 DSpark Markov 源码，去除固定 Python 版本和系统 site-packages 前缀；原消费者断言、数值和 GPU opt-in 不变，不用 skip 掩盖缺模型。
+- 三份 Prefill 修复报告使用相对证据路径，保留原始 trace 名称与 SHA；architecture.html 由 build_guide 生成，不手工改内嵌 catalog。
+- 本次仅改变许可证标注、测试输入/定位和文档，不改变运行时数学、设备行为、服务配置或历史精度/性能证据。CI 同版本扫描、路径回归和检查实际结果由本次修复 artifact 保存，不能以旧模型测试冒作新运行。
+- 其余版权归属提示保留供维护者复核；已有第三方 LICENSE/ORIGIN 及原内核字节不改写。
+
+
+本次实际结果：L0、导览 build/check 和差异检查通过；CI v2.0.13 同版本原生五项扫描在隔离 Git tree 上均为 0 blocker，原合规阻断 2→0，保留第三方归属/生成 catalog 的 38 项非阻断提示供人工复核。未创建提交、修改分支引用或暂存区；线上 Actions 要在后续提交推送后才能给出最终状态。
+
+两个现有 runtime 文件实际运行共 14 项：13 个 CPU 用例通过，1 个 GPU 用例保持原 opt-in 跳过。另 4 项缺模型挂载/包路径迁移回归执行完整原/新测试方法，确认原版失败、修复版通过；fixture 与真实 quantization_config 逐值同、运行时两文件 AST 同。该 DTK 环境的 provider 导入需要真实设备元数据；隐藏设备的两次入口都在用例前失败并完整保留，不能称为 GPU-free 导入通过。成功入口显式关闭 GPU 数值测试，路径回归结束 torch.cuda.is_initialized=False。已有 torch/library.py 退出 weakref 清理告警保留，实际测试断言与子进程退出码均成功，不归于本次 SPDX/路径修复。没有新增模型、精度、性能或 profiler 任务。

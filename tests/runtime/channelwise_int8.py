@@ -53,7 +53,7 @@ class TestSpecialInt8(CustomTestCase):
         with self.assertRaises(ValueError):missing.quant_method.process_weights_after_loading(missing)
 
     def test_actual_markov_consumer(self):
-        src=pathlib.Path('/usr/local/lib/python3.12/site-packages/sglang/srt/models/deepseek_v4_dspark.py').read_text()
+        src=(pathlib.Path(importlib.util.find_spec('sglang').submodule_search_locations[0])/'srt/models/deepseek_v4_dspark.py').read_text(encoding='utf-8')
         tree=ast.parse(src);cls=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='DSparkV4MarkovHead')
         names={'project_bias','step_bias'}
         methods=[n for n in cls.body if isinstance(n,ast.FunctionDef) and n.name in names]

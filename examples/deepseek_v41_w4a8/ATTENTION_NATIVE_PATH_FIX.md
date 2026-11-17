@@ -69,9 +69,9 @@ TP4包络相对修改前缩短48.88%。 当前863.002ms仍高于DAS历史506.012
 
 ## 文件和回退
 
-- 新TP4 trace：`D:\git\dcu_sglang\sglang_plugin\doc\prof\20261116-flashmla-paged-kernel-prefill32k\1794816376.5560822-TP-4-EP-4.trace.json.gz`，SHA256 `66c951b1869d7d7cbd91723733ea02e749a2bd7a2c43e1ee521217f8be6a907e`，可直接拖入Perfetto。
+- 新TP4 trace：`doc/prof/20261116-flashmla-paged-kernel-prefill32k/1794816376.5560822-TP-4-EP-4.trace.json.gz`，SHA256 `66c951b1869d7d7cbd91723733ea02e749a2bd7a2c43e1ee521217f8be6a907e`，可直接拖入Perfetto。
 - 全部8rank位于节点`/home/plugin_adapt/redevelop-20261114-node-switch/prefill32k-megamoe-compare01/flashmla-model07-profile01/traces`；本地`capture-metadata.json`记录完整清单。
-- 本地完整核验：`D:\git\dcu_sglang\sglang_plugin\doc\prof\20261116-flashmla-paged-kernel-prefill32k\local-proof01.json`。
+- 本地完整核验：`doc/prof/20261116-flashmla-paged-kernel-prefill32k/local-proof01.json`。
 - 原始证据ZIP：`flashmla-model07-evidence01.zip`，SHA256 `648667350225c4c570c2de904ee8cc1c724776e9a37811a43c972e4e66ba4bf0`，124成员。
 - P recipe前后SHA：`391e8a19b354f06f83fb523d2b99e1f7797aaaa089f1cae388c1b47686d72029`→`d512c681dfae0656bb03fb0c4b8aa203a37b376f180341099c45cb19abaa6809`。Python runtime源与测试前相同。
 - 若需回退，仅P端改回`SGLANG_HACK_FLASHMLA_BACKEND=torch`，按实际owner确认后重启P；不对已加载SO热替换，不动D。旧P06脚本和prof保持完整。

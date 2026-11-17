@@ -59,8 +59,8 @@
 
 ## 证据
 
-- 原生trace：`D:\git\dcu_sglang\sglang_plugin\work\deepseek-v41-w4a8\20261114-node-switch\prefill32k-megamoe-compare01\flashmla-model06-trace-local01\1794801469.1026533-TP-4-EP-4.trace.json.gz`，SHA256 `31df9c648674e057836576c33a6f011a5b62e466362d05584dc98cebf33de0f3`。
+- 原生trace：`work/deepseek-v41-w4a8/20261114-node-switch/prefill32k-megamoe-compare01/flashmla-model06-trace-local01/1794801469.1026533-TP-4-EP-4.trace.json.gz`，SHA256 `31df9c648674e057836576c33a6f011a5b62e466362d05584dc98cebf33de0f3`。
 - 整模型证据ZIP SHA256：`45e13e703b723c82888b3f5b9493667a1e4295a90f1d7ee21c9264994138d71f`，138成员；本地逐成员/20原始回答/384计时与完整IDs/8rank来源核验通过。
-- 本地核验：`D:\git\dcu_sglang\sglang_plugin\work\deepseek-v41-w4a8\20261114-node-switch\prefill32k-megamoe-compare01\flashmla-model06-local01\local-proof01.json`；原生kernel摘要：`D:\git\dcu_sglang\sglang_plugin\work\deepseek-v41-w4a8\20261114-node-switch\prefill32k-megamoe-compare01\flashmla-model06-local01\trace-summary01.json`。
+- 本地核验：`work/deepseek-v41-w4a8/20261114-node-switch/prefill32k-megamoe-compare01/flashmla-model06-local01/local-proof01.json`；原生kernel摘要：`work/deepseek-v41-w4a8/20261114-node-switch/prefill32k-megamoe-compare01/flashmla-model06-local01/trace-summary01.json`。
 - 原生17项和公开64项证据父包：`118c49014d97b70df3c224eaca24c403f857fb3d5561fd8d00ee1fc9c1800fbc`。
 - 先前Triton报告和失败用例保留。原公开width2/65断言、首启动端口占用拒绝等不被后续通过覆盖。

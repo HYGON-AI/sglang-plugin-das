@@ -86,7 +86,7 @@ class CompressedW4A8Tests(unittest.TestCase):
     def test_actual_config_public_consumer_and_hook_registration(self):
         import json
         from pathlib import Path
-        raw = json.loads(Path("/models/DeepSeek-V4.1-Flash-1017-Channel-INT4-w4a8-wo_a-markov_head-lm_head/config.json").read_bytes())["quantization_config"]
+        raw = json.loads((Path(__file__).resolve().parents[1] / "fixtures" / "deepseek_v41_w4a8_quantization.json").read_bytes())
         HookRegistry.reset()
         C.register_hooks()
         HookRegistry.apply_hooks()
