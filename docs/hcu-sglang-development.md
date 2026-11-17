@@ -1676,9 +1676,9 @@ GPU 三项回归通过；CPU 离线 117 项测试通过（13 skip）；导览生
 
 按本轮合规审查，给 [CPU 方法副本](../hcu_sglang/mem_cache/cpu_cache_methods.py) 原样恢复 Tensorcast 的 SPDX 与 SGLang 版权两行，并补入 [第三方清单](../THIRD_PARTY_NOTICES.md)。方法正文未改动；[逐定义合同](../tests/contracts/cpu_cache_sources.json) 继续固定 20 个来源定义，不把局部抽取描述为整文件等价。
 
-[运行时来源合同](../tests/contracts/runtime_owned_sources.json) 新增 extracted_files 与 adapter_files：前者固定 CPU 方法目标 SHA、七个来源文件 SHA 并引用逐定义合同；后者登记 CPU Hook、模型 registry 和五个 entries 文件的目标 SHA、所接来源 SHA，明确为本仓原创接线，不伪装成来源整文件副本。原 files 的可逆差异语义保留。两份来源合同同时保存来源原始头部行供离线检查。
+运行时来源合同 新增 extracted_files 与 adapter_files：前者固定 CPU 方法目标 SHA、七个来源文件 SHA 并引用逐定义合同；后者登记 CPU Hook、模型 registry 和五个 entries 文件的目标 SHA、所接来源 SHA，明确为本仓原创接线，不伪装成来源整文件副本。原 files 的可逆差异语义保留。两份来源合同同时保存来源原始头部行供离线检查。
 
-[L0](../ci/l0_gate.py) 按来源注册表检查：来源路径、SHA256、原始头部与 source_declaration 必须齐全；有声明时逐字保留，只有一种声明时保留该声明；无声明时明确登记“来源无声明”，不补造归属。抽取副本逐来源登记，原创接线仅核验来源记录，不强制复制来源头。新增 [门禁回归](../tests/test_l0_migration_headers.py) 覆盖无声明、部分声明、元数据缺失、正文伪造头部、替换原版权、空文件绕过和原创适配边界；扩展 [来源测试](../tests/test_runtime_owned_sources.py) 核验新登记与去重。
+[L0](../ci/l0_gate.py) 按来源注册表检查：来源路径、SHA256、原始头部与 source_declaration 必须齐全；有声明时逐字保留，只有一种声明时保留该声明；无声明时明确登记“来源无声明”，不补造归属。抽取副本逐来源登记，原创接线仅核验来源记录，不强制复制来源头。新增 门禁回归 覆盖无声明、部分声明、元数据缺失、正文伪造头部、替换原版权、空文件绕过和原创适配边界；扩展 来源测试 核验新登记与去重。
 
 本轮验证结果随后追加。当前仍未完成 StorageAttachment 初始化、Mamba 正式 linker 接线和其余 104 条审查；本节许可修复不改变运行时完成状态。未执行 GPU、完整模型、性能、wheel 或浏览器视觉验收；不删除快照，不 commit/push。
 
@@ -1709,7 +1709,7 @@ GPU 三项回归通过；CPU 离线 117 项测试通过（13 skip）；导览生
 
 ## 2026-11-05 CP LayerSplit 四份完整文件审查
 
-回读固定 DAS HEAD，核对 CP LayerSplit 包入口、deepseek_v4_layout、pool_base、transfer 四份现有 owned 文件。逐字节反转声明的 import 差异后均恢复来源 SHA，计算正文没有其他变化；来源没有声明时仅登记“来源无声明”。完整映射和静态调用方见 [本批审查](../plans/hcu-kv-cpu-review-20261105.json) 与 [来源合同](../tests/contracts/runtime_owned_sources.json)。V4 sizing 和 CP pool 调用 layout、CP pool 继承 base；公开 setup-state 适配及 owned protocol/Mooncake 使用 transfer。
+回读固定 DAS HEAD，核对 CP LayerSplit 包入口、deepseek_v4_layout、pool_base、transfer 四份现有 owned 文件。逐字节反转声明的 import 差异后均恢复来源 SHA，计算正文没有其他变化；来源没有声明时仅登记“来源无声明”。完整映射和静态调用方见 [本批审查](../plans/hcu-kv-cpu-review-20261105.json) 与 来源合同。V4 sizing 和 CP pool 调用 layout、CP pool 继承 base；公开 setup-state 适配及 owned protocol/Mooncake 使用 transfer。
 
 本批只将上述四个文件处置为 implemented，不标记 validated/verified。prefill/decode 仍有两处 Source transfer import，保留为独立 PD 接线缺口；CPU 数值、真实 CP/PD、多进程、GPU、模型和性能未验证。104 条任务仍在进行，未 commit/push。
 
@@ -1746,7 +1746,7 @@ CPU-first 逐文件复核新增六条 implemented：token_major、multimodal_cac
 
 ### 2026-11-05 page-plan 原文恢复与 CPU 证据边界
 
-固定 DAS HEAD 的 layer_split.py 仅含 MainKVPagePlan、_build_unique_physical_pages、build_main_kv_page_plan 三个定义。本轮在 [既有 owned 模块](../hcu_sglang/mem_cache/dsa_cache_layer_split.py) 恢复来源 docstring 与完整声明，三个定义含 decorator 逐字相同；未修改 page-plan 算法。来源 SHA256 为 1c253a2104e15179f8585d35c17f70c3bcc41cabaf1dad041d9aa61ea23efa30。在 [定义合同](../tests/contracts/runtime_reviewed_definitions.json) 增加第九组，并在 [来源合同](../tests/contracts/runtime_owned_sources.json) 明确仅覆盖这三个定义；其余 LayerSplit pool 不据此关闭。正式 dsa 注册、DSA utils 与 GLM CP 调用链已静态审查。[本批审查](../plans/hcu-kv-cpu-review-20261105.json) 和 [迁移处置](../plans/sglang-das-decisions.json) 登记本条 implemented，累计 12 条，104 条中其余 92 条未因本批工作闭合，不晋升 validated/verified。
+固定 DAS HEAD 的 layer_split.py 仅含 MainKVPagePlan、_build_unique_physical_pages、build_main_kv_page_plan 三个定义。本轮在 [既有 owned 模块](../hcu_sglang/mem_cache/dsa_cache_layer_split.py) 恢复来源 docstring 与完整声明，三个定义含 decorator 逐字相同；未修改 page-plan 算法。来源 SHA256 为 1c253a2104e15179f8585d35c17f70c3bcc41cabaf1dad041d9aa61ea23efa30。在 定义合同 增加第九组，并在 来源合同 明确仅覆盖这三个定义；其余 LayerSplit pool 不据此关闭。正式 dsa 注册、DSA utils 与 GLM CP 调用链已静态审查。[本批审查](../plans/hcu-kv-cpu-review-20261105.json) 和 [迁移处置](../plans/sglang-das-decisions.json) 登记本条 implemented，累计 12 条，104 条中其余 92 条未因本批工作闭合，不晋升 validated/verified。
 
 容器 Python 3.10.12、Torch 2.11.0，HIP/ROCR/CUDA_VISIBLE_DEVICES 均为 -1。完整模块测试 dsa_plan_fix 尚未加载：首次导入触发 GPU 属性探测，加入显式硬件夹具后仍在 fp8_utils 的 capability 比较报 TypeError；两次均退出 1，不能计通过。改用固定源码显式 namespace，来源与 owned 各 7 例：空批、history/current 去重与 dummy 过滤、重复 request、非法 page、负 length、请求行不足、表容量越界；包含 dataclass 对象身份断言。合计 14 例通过，进程退出 0、4.217 秒，CUDA 未初始化。日志及脚本为 artifacts/kv-cpu-20261105/page-plan-mha-cpu-diagnostic*；完整导入失败日志 page-plan-runtime* 保留。此结果不代表真实模块/Hook/CP consumer 执行。
 
@@ -1759,7 +1759,7 @@ page-plan 批实际门禁（宿主 Python 3.10.19）：execution build/check、g
 
 ### 2026-11-05 cleanup 与 CP utils 完整副本审查
 
-[cleanup](../hcu_sglang/mem_cache/cleanup.py) 与 [CP utils](../hcu_sglang/mem_cache/cp_cache_layer_split/utils.py) 均与固定 DAS 来源逐字节相同，无反向替换；SHA256 分别为 a3a347d73b6cdf1e48f4ef446d6b7ec51f14f17afac969d4abdf42731c3c0b3c、ebc80c484f4abbb729a3c32853e14c63b38e1b0c14689a72f28ac8a1679ecec8。两来源无声明，只在 [来源合同](../tests/contracts/runtime_owned_sources.json) 登记“来源无声明”，不补造归属。现有 common/PD prefill 与 CP pool_base/layout 调用方已审查；PD 正式注册路径为顶层 disaggregation → disagg.integration → prefill.register_hooks。回读共享处置表发现这两条原已 implemented，因此本轮仅增强审查/来源合同和 CPU 证据，不重复算状态晋升。本批审查共覆盖 14 条 implemented，104 条中另 90 条未因本批审查闭合；均不晋升 validated/verified。
+[cleanup](../hcu_sglang/mem_cache/cleanup.py) 与 [CP utils](../hcu_sglang/mem_cache/cp_cache_layer_split/utils.py) 均与固定 DAS 来源逐字节相同，无反向替换；SHA256 分别为 a3a347d73b6cdf1e48f4ef446d6b7ec51f14f17afac969d4abdf42731c3c0b3c、ebc80c484f4abbb729a3c32853e14c63b38e1b0c14689a72f28ac8a1679ecec8。两来源无声明，只在 来源合同 登记“来源无声明”，不补造归属。现有 common/PD prefill 与 CP pool_base/layout 调用方已审查；PD 正式注册路径为顶层 disaggregation → disagg.integration → prefill.register_hooks。回读共享处置表发现这两条原已 implemented，因此本轮仅增强审查/来源合同和 CPU 证据，不重复算状态晋升。本批审查共覆盖 14 条 implemented，104 条中另 90 条未因本批审查闭合；均不晋升 validated/verified。
 
 新增原创 [CPU 回归](../tests/runtime/cleanup_cp_utils_cpu.py)，按 H1 添加版权与 SPDX。容器源码模式、SGLANG_PLUGINS 为空、三组 GPU 可见开关均 -1，真实导入 owned cleanup、CP utils 与 pool_base；9 项测试通过，测试 0.055 秒、进程 9.397 秒，退出 0，CUDA 未初始化。覆盖完成结果对象身份及只释放一次、未知副作用隔离、显式无副作用失败重试、非 abort 回退、重入释放隔离、独立子步骤，以及 0..20 层/1..8 分片的连续不重叠覆盖、宽度均衡、owner 映射、真实 pool_base 全局偏移与非法输入；配置开关测试明确使用 parallel-state fixture。完整命令与日志：artifacts/kv-cpu-20261105/cleanup-cp-utils-runtime-results.json、cleanup-cp-utils-runtime.log。
 
