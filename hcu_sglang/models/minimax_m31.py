@@ -30,6 +30,11 @@ def register() -> None:
 
         minimax_m31_sparse.register_hooks()
 
+    if os.getenv("HCU_PLUGIN_MINIMAX_M31_HISPARSE") == "1":
+        from hcu_sglang.models import minimax_m31_hisparse
+
+        minimax_m31_hisparse.register_hooks()
+
     if os.getenv("HCU_PREFILL_CP", "0") == "1":
         from hcu_sglang.layers.attention import minimax_m31_cp
 
