@@ -1856,7 +1856,7 @@ MHA继承官方setter而覆盖_store_kv_layer，已有HCU页布局接线；DAS c
 
 `qwen3_5.py` 的三处差异在本配置下判定为 no-op：`Qwen3_5GatedDeltaNet.forward` 的 `forward_mode`→`logical_forward_mode` 只在 DP relabel 时不同（`attn_dp_size=1` 两值相同）；`refreshes_rope_cos_sin` 在 DAS 全树没有读取方，仅 `qwen3_5.py` 与 `interns2_mobius.py` 两处赋值；`_refreshes_rope_cos_sin` 只被那处赋值调用。未验证 DP relabel 与 PP>1 的 stage 行为。
 
-同时清除插件侧的空钩子：`hcu_sglang/models/qwen/qwen3_5.py` 的 AROUND 直接 `return original(...)`，四个 import 均未使用，DAS 的 qwen3_5 也没有接 fused RMSNorm+RoPE。已从 [插件入口](../hcu_sglang/__init__.py) 移除该模块的导入与 `register()`，并从目标合同删除该字符串，新增 [回归](../tests/test_qwen3_5_hook_removed.py) 断言入口不再引用该模块、全插件没有模块注册该目标、合同不再声明它。源文件本体尚未删除，等用户确认后再删，避免违反“删文件先问用户”。
+同时清除插件侧的空钩子：`hcu_sglang/models/qwen/qwen3_5.py` 的 AROUND 直接 `return original(...)`，四个 import 均未使用，DAS 的 qwen3_5 也没有接 fused RMSNorm+RoPE。已从 [插件入口](../hcu_sglang/__init__.py) 移除该模块的导入与 `register()`，并从目标合同删除该字符串，新增 回归 断言入口不再引用该模块、全插件没有模块注册该目标、合同不再声明它。源文件本体尚未删除，等用户确认后再删，避免违反“删文件先问用户”。
 
 清单分母变化：triage 257 → 370，closure 同步为 370，当前分布 implemented 73 / in_progress 23 / pending 155 / separate_component 114 / upstream 5。其中 in_progress 从 14 增至 23、upstream 从 4 增至 5，是因为 10 个 models 文件原本已有 decision 但未被旧清单计数，不是本批新增实现。
 
