@@ -2,6 +2,7 @@
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/env.sh"
+export SGLANG_HACK_FLASHMLA_BACKEND=kernel
 : "${PREFILL_EXPERT_LOCATION:?set PREFILL_EXPERT_LOCATION}"
 set -o pipefail
 ulimit -c 0

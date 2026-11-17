@@ -793,6 +793,8 @@ class PrefillBootstrapQueue:
         collective then fails.  Probe resources without side effects and admit
         only the common FIFO prefix before performing any allocation.
         """
+        from hcu_sglang.disagg.bootstrap_vote import all_reduce_bootstrap_vote
+
         ready = [True] * len(self.queue)
         metadata_credits = self.req_to_metadata_buffer_idx_allocator.available_size()
         pool = getattr(getattr(self, "metadata_buffers", None), "pd_hidden_pool", None)
@@ -827,15 +829,19 @@ class PrefillBootstrapQueue:
             hidden_row_credits -= hidden_cost
 
         ready_tensor = torch.tensor(ready, dtype=torch.uint8, device="cpu")
-        torch.distributed.all_reduce(
+        all_reduce_bootstrap_vote(
             ready_tensor,
             op=torch.distributed.ReduceOp.MIN,
             group=self.scheduler.attn_tp_cpu_group,
+            peer_group=self.scheduler.attn_cp_cpu_group,
+            hcu=_is_hcu,
         )
-        torch.distributed.all_reduce(
+        all_reduce_bootstrap_vote(
             ready_tensor,
             op=torch.distributed.ReduceOp.MIN,
             group=self.scheduler.attn_cp_cpu_group,
+            peer_group=self.scheduler.attn_tp_cpu_group,
+            hcu=_is_hcu,
         )
 
         # Only the rank hosting the bootstrap server hears decode's
@@ -855,15 +861,19 @@ class PrefillBootstrapQueue:
             dtype=torch.int64,
             device="cpu",
         )
-        torch.distributed.all_reduce(
+        all_reduce_bootstrap_vote(
             prefix_tensor,
             op=torch.distributed.ReduceOp.MAX,
             group=self.scheduler.attn_tp_cpu_group,
+            peer_group=self.scheduler.attn_cp_cpu_group,
+            hcu=_is_hcu,
         )
-        torch.distributed.all_reduce(
+        all_reduce_bootstrap_vote(
             prefix_tensor,
             op=torch.distributed.ReduceOp.MAX,
             group=self.scheduler.attn_cp_cpu_group,
+            peer_group=self.scheduler.attn_tp_cpu_group,
+            hcu=_is_hcu,
         )
         for req, value in zip(self.queue, prefix_tensor.tolist()):
             if value > 0:
@@ -2908,6 +2918,19 @@ class SchedulerDisaggregationPrefillMixin:
                 final_rooms = self._disagg_final_chunk_rooms = set()
             final_rooms.add(req.bootstrap_room)
 
+        page_indices_for_send = kv_to_page_indices
+        if is_hcu() and getattr(req.disagg_kv_sender.kv_mgr, "cp_cache_layer_split", False):
+            from sglang.srt.disaggregation.mooncake.conn import MooncakeKVSender
+            from hcu_sglang.mem_cache.cp_cache_layer_split.deepseek_v4_pool import (
+                CpCacheLayerSplitDeepSeekV4TokenToKVPool,
+            )
+            if isinstance(req.disagg_kv_sender, MooncakeKVSender) and isinstance(
+                self.token_to_kv_pool_allocator.get_kvcache(),
+                CpCacheLayerSplitDeepSeekV4TokenToKVPool,
+            ):
+                from hcu_sglang.disagg.async_indices import defer_page_indices
+                page_indices_for_send = defer_page_indices
+
         page_size = self.token_to_kv_pool_allocator.page_size
         start_idx = req.start_send_idx
         transfer_input_len = len(req.origin_input_ids)
@@ -2995,24 +3018,23 @@ class SchedulerDisaggregationPrefillMixin:
                         window_kv_indices_full
                     )
                 )
-                return kv_to_page_indices(window_kv_indices_swa, page_size)
+                return page_indices_for_send(window_kv_indices_swa, page_size)
 
             def _full_kv_pages_payload():
                 kv_indices_full = self.req_to_token_pool.req_to_token[
                     req.kv.req_pool_idx, :seq_len
                 ]
-                return kv_to_page_indices(kv_indices_full, page_size)
+                return page_indices_for_send(kv_indices_full, page_size)
 
             def _dsa_pages_payload():
                 # Decode already holds the indexer rows of the prefix it cached
                 # (decode_prefix_len, page-aligned), and its rows for a prefix
                 # still being restored point at no page yet: send only the
                 # suffix, positionally matching decode's _dsa_pages_payload.
-                return suffix_page_indices(
-                    self.req_to_token_pool.req_to_token,
-                    req.kv.req_pool_idx,
-                    req.disagg_decode_prefix_len,
-                    seq_len,
+                return page_indices_for_send(
+                    self.req_to_token_pool.req_to_token[
+                        req.kv.req_pool_idx, req.disagg_decode_prefix_len:seq_len
+                    ],
                     page_size,
                 )
 
@@ -3139,7 +3161,7 @@ class SchedulerDisaggregationPrefillMixin:
                     raw_kv_indices
                 )
             )
-            page_indices = kv_to_page_indices(kv_indices, page_size)
+            page_indices = page_indices_for_send(kv_indices, page_size)
             segment_is_last = last_chunk and is_final_segment
             send_hidden_chunk = (
                 streaming_pd_hidden and has_current_pd_hidden and is_final_segment

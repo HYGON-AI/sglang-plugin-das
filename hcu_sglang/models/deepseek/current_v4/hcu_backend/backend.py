@@ -194,7 +194,13 @@ def _dense_fp4_mqa_logits(q_fp4: Tuple[torch.Tensor, torch.Tensor], kv_fp4: Tupl
     from deep_gemm import fp8_fp4_mqa_logits as fn
     return fn(q_fp4, kv_fp4, weights, ks, ke, False, max_seqlen_k)
 
-def _hcu_dense_fp4_mqa_logits(q: Tuple[torch.Tensor, Optional[torch.Tensor]], kv_fp4: Tuple[torch.Tensor, torch.Tensor], weights: torch.Tensor, ks: torch.Tensor, ke: torch.Tensor, max_seqlen_k: int, *, candidate_blocks: Optional[List[torch.Tensor]]=None, candidate_query_lens: Optional[List[int]]=None) -> torch.Tensor:
+def _hcu_dense_fp4_mqa_logits(q: Tuple[torch.Tensor, Optional[torch.Tensor]], kv_fp4: Tuple[torch.Tensor, torch.Tensor], weights: torch.Tensor, ks: torch.Tensor, ke: torch.Tensor, max_seqlen_k: int, *, candidate_blocks: Optional[List[torch.Tensor]]=None, candidate_query_lens: Optional[List[int]]=None, output=None, output_operation=None) -> torch.Tensor:
+    if output is not None:
+        if candidate_blocks is not None:
+            _log_lightop_candidate_fp4_indexer_once()
+        else:
+            _log_lightop_dense_fp4_indexer_once()
+        return output_operation(q, kv_fp4, weights, ks, ke, False, max_seqlen_k, candidate_blocks, candidate_query_lens if candidate_blocks is not None else None, output)
     from lightop.attention import fp8_fp4_mqa_logits as fn
     if candidate_blocks is not None:
         _log_lightop_candidate_fp4_indexer_once()
@@ -884,6 +890,13 @@ class DeepseekV4AttnBackend(AttentionBackend, C4IndexerBackendMixin, CompressorB
                 self._dsv4_lightop_kvcache_op = lightop_kvcache
                 gather_backend = 'LightOp'
             logger.info('Enabled DSV4 %s FP8 KV gather/upconvert for BF16 FlashMLA prefill/decode forwards', gather_backend)
+        self._dense_mqa_workspace = None
+        if _is_hcu and self.is_dsv41 and self.low_ratios and not self.is_draft_runner and self.enable_decoder_swa_bounded_replay and get_parallel().attn_cp_size > 1 and get_disagg().disaggregation_mode == 'prefill':
+            from hcu_sglang.models.deepseek.current_v4.hcu_backend.dense_mqa_out import make_dense_mqa_output_workspace
+            from sglang.srt.runtime_context import get_schedule
+            self._dense_mqa_workspace = make_dense_mqa_output_workspace(self.device, get_schedule().mem_fraction_static)
+            if self._dense_mqa_workspace is not None:
+                logger.info('Prepared reusable dense MQA logits output: %s bytes', self._dense_mqa_workspace.capacity_bytes)
 
     def _move_to_device(self, x: List[int]) -> torch.Tensor:
         pin_tensor = torch.tensor(x, dtype=torch.int32, pin_memory=True)
@@ -1504,12 +1517,14 @@ class DeepseekV4AttnBackend(AttentionBackend, C4IndexerBackendMixin, CompressorB
         if cp_active:
             if _is_hcu:
                 assert forward_batch.extend_start_loc is not None
+                num_local_queries = sum(interleave_rows_per_request(_as_int_list(extend_seq_lens_cpu), get_parallel().attn_cp_rank, get_parallel().attn_cp_size))
+                assert num_qo_tokens >= num_local_queries, f'DSV4 sparse prefill requires the rank-local query rows: allocated {num_qo_tokens}, but CP-local offsets cover {num_local_queries}.'
                 (query_lens, real_query_lens, query_pos) = build_cp_sparse_query_metadata(extend_seq_lens=extend_seq_lens.to(torch.int32), extend_start_loc=forward_batch.extend_start_loc.to(torch.int32), query_positions=query_pos.to(torch.int32).contiguous(), cp_size=get_parallel().attn_cp_size, cp_rank=get_parallel().attn_cp_rank)
             else:
                 query_lens = torch.tensor(interleave_rows_per_request(_as_int_list(extend_seq_lens_cpu), get_parallel().attn_cp_rank, get_parallel().attn_cp_size), dtype=torch.int32, device=extend_seq_lens.device)
         else:
             query_lens = extend_seq_lens.to(torch.int32)
-        if cp_active:
+        if cp_active and not _is_hcu:
             num_local_queries = int(query_lens.sum())
             assert num_qo_tokens >= num_local_queries, f'DSV4 sparse prefill requires the rank-local query rows: allocated {num_qo_tokens}, but CP-local offsets cover {num_local_queries}.'
         return SparsePrefillChunkCache.build(seq_lens=forward_batch.seq_lens.to(torch.int32), extend_seq_lens=extend_seq_lens.to(torch.int32), query_lens=query_lens, query_pos=query_pos, real_query_seq_lens=real_query_lens, req_pool_indices=forward_batch.req_pool_indices.to(torch.int32), req_to_token=self.req_to_token, full_to_swa=self.token_to_kv_pool.full_to_swa_index_mapping, swa_window_size=SWA_WINDOW, swa_page_size=self.token_to_kv_pool.get_swa_key_page_size(), num_qo_tokens=num_qo_tokens, max_seq_len=max(seq_lens_cpu_list), seq_lens_cpu=seq_lens_cpu_list, total_swa=total_swa, request_window_layout=request_layout)
@@ -2167,11 +2182,11 @@ class DeepseekV4AttnBackend(AttentionBackend, C4IndexerBackendMixin, CompressorB
             candidate_blocks = self._hcu_prefill_candidate_blocks(indexer, lc_per_req, q_lens_cpu)
             if forward_batch.forward_mode == ForwardMode.EXTEND and get_disagg().disaggregation_mode != 'decode':
                 from hcu_sglang.models.deepseek.current_v4.hcu_backend.mqa_logits_utils import dsv41_mqa_logits_rows_per_chunk
-                rows_per_chunk = dsv41_mqa_logits_rows_per_chunk(num_rows=num_tokens, num_cols=ceil_align(max(lc_per_req), 4), device_index=device.index)
+                rows_per_chunk = dsv41_mqa_logits_rows_per_chunk(num_rows=num_tokens, num_cols=ceil_align(max(lc_per_req), 4), device_index=device.index, reusable_workspace_bytes=self._dense_mqa_workspace.capacity_bytes if self._dense_mqa_workspace is not None else 0)
                 if rows_per_chunk is not None:
                     self._low_ratio_index_topk_chunked(indexer, q, (k_fp4.contiguous(), k_sf.contiguous()), weights, ks, ke, compress_lens, k_slots, lc_per_req, q_lens_cpu, page_indices, raw_indices, candidate_blocks, rows_per_chunk)
                     return
-            logits = _hcu_dense_fp4_mqa_logits((q.contiguous(), None), (k_fp4.contiguous(), k_sf.contiguous()), weights, ks.contiguous(), ke.contiguous(), ceil_align(max(lc_per_req), 4), candidate_blocks=candidate_blocks, candidate_query_lens=q_lens_cpu)
+            logits = _hcu_dense_fp4_mqa_logits((q.contiguous(), None), (k_fp4.contiguous(), k_sf.contiguous()), weights, ks.contiguous(), ke.contiguous(), ceil_align(max(lc_per_req), 4), candidate_blocks=candidate_blocks, candidate_query_lens=q_lens_cpu, output=self._dense_mqa_workspace.view(num_tokens, ceil_align(max(lc_per_req), 4)) if self._dense_mqa_workspace is not None else None, output_operation=self._dense_mqa_workspace.operation if self._dense_mqa_workspace is not None else None)
         else:
             num_heads = q.shape[1]
             (q_fp4, q_sf) = quantize_fp4_indexer_tensor(q.flatten(0, 1), rne=True)
@@ -2212,7 +2227,7 @@ class DeepseekV4AttnBackend(AttentionBackend, C4IndexerBackendMixin, CompressorB
                     end = min(start + step, count)
                     rows = slice(offset + start, offset + end)
                     blocks = [candidate_blocks[request][start:end]] if candidate_blocks is not None else None
-                    logits = _hcu_dense_fp4_mqa_logits((q[rows].contiguous(), None), kv, weights[rows].contiguous(), ks[rows].contiguous(), ke[rows].contiguous(), width, candidate_blocks=blocks, candidate_query_lens=[end - start] if blocks is not None else None)
+                    logits = _hcu_dense_fp4_mqa_logits((q[rows].contiguous(), None), kv, weights[rows].contiguous(), ks[rows].contiguous(), ke[rows].contiguous(), width, candidate_blocks=blocks, candidate_query_lens=[end - start] if blocks is not None else None, output=self._dense_mqa_workspace.view(end - start, width) if self._dense_mqa_workspace is not None else None, output_operation=self._dense_mqa_workspace.operation if self._dense_mqa_workspace is not None else None)
                     if publish is not None:
                         scores = logits[:, :lc]
                         lens = compress_lens[rows, None]

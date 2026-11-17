@@ -330,14 +330,18 @@ def around_check_mega_moe_compat(original, server_args):
     view = _resolving_view(server_args)
     if (
         view.moe_a2a_backend != "megamoe"
-        or envs.SGLANG_HCU_MEGA_MOE_RUNTIME.get().strip().lower() != "megamoe"
+        or envs.SGLANG_HCU_MEGA_MOE_RUNTIME.get().strip().lower() not in {"megamoe", "deep_gemm"}
     ):
         return original(server_args)
     if view.enable_two_batch_overlap or view.enable_single_batch_overlap:
         raise ValueError("HCU MegaMoE does not support two-batch or single-batch overlap")
     if view.disaggregation_mode != "prefill":
         raise ValueError("HCU standalone MegaMoE is supported for prefill disaggregation only")
-    if find_spec("megamoe") is None:
+    provider = envs.SGLANG_HCU_MEGA_MOE_RUNTIME.get().strip().lower()
+    if provider == "deep_gemm":
+        if find_spec("deepgemm") is None:
+            raise RuntimeError("HCU W4A8 MegaMoE requires the deep_gemm provider package")
+    elif find_spec("megamoe") is None:
         raise RuntimeError("HCU standalone MegaMoE requires the megamoe provider package")
 
 

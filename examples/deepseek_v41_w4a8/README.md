@@ -62,3 +62,20 @@ bash "$PLUGIN_ROOT/examples/deepseek_v41_w4a8/router.sh"
 回归源码位于 `tests/runtime/`，包括 CT 权重加载、INT8投影、CP状态/传输、Engram、masked KV、logits gather 和 overlap 契约。CPU夹具、真实算子/Graph、真实模型和最终数据集各自保留验证边界。GPU回归需要另行独占资源和显式测试开关，不能与当前整模型评测同时执行。
 
 完整说明见 [适配与验证文档](ADAPTATION.md)。维护本模型新增能力使用 [hcu-plugin-dev](../../skills/hcu-plugin-dev/SKILL.md)，排障使用 [hcu-plugin-triage](../../skills/hcu-plugin-triage/SKILL.md)。
+
+## 2026-11-16 Prefill 性能更新
+
+分阶段优化、当前配方、数值与精度边界、全部 rank prof 和剩余差距见 [plugin 性能优化记录](PERFORMANCE_OPTIMIZATION.md)，最新路径详情见 [Attention 原生路径修复](ATTENTION_NATIVE_PATH_FIX.md)。P 端在共享环境之后覆盖为 kernel；全部 8 rank 均命中 BF16 与 FP8 paged 原生路径。最新 TP4 prof 包络为863.002ms，较同负载修改前1688.308ms缩短48.88%；正式无 profiler 吞吐尚未复测，快测19/20不代替完整精度验收。上文 Torch-only/native未验描述保留初始配方范围，当前 P 端实验兼容范围以本节及新记录为准。
+
+- [P09 Prefill trace-directed optimization and validation](PREFILL_TRACE_OPT09.md)
+
+
+- [P16 Prefill step间与LayerSplit空泡修复](PREFILL_BUBBLE_FIX_P16.md)：包含所有rank两窗口prof、三轮无prof性能、sanity范围及未采用试验。
+
+
+### P18 Prefill空泡修复与当前边界
+
+[P18报告：native workspace、LayerSplit与CPU共识](PREFILL_BUBBLE_FIX_P18.md)记录七类确认修复、27项native/工作区/Graph/跨流资格，以及全8rank三窗口原始证据。same20=20/20；无prof384请求0错误、55114.928 token/s（P09+5.14%）。后19层attention GPU包络38.365ms，旧cold44秒事件消失；仍有约9–34ms控制平面间隙，不能称全部空泡消除或严格DAS性能对齐。当前运行policy fb58e6b3，最终文档另按交付policy绑定。
+
+
+- [P19 Sparse Prefill cache-builder synchronization](PREFILL_SPARSE_QUERY_SYNC_P19.md)

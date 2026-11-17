@@ -22,14 +22,15 @@ MQA_LOGITS_MAX_BYTES_ROCM = 2 ** 31 - 1
 MQA_LOGITS_ROW_ALIGN_ELEMS = 256
 
 @functools.cache
-def _dsv41_mqa_logits_budget_bytes(device_index: int, fraction: float, mem_fraction_static: Optional[float]) -> int:
+def _dsv41_mqa_logits_budget_bytes(device_index: int, fraction: float, mem_fraction_static: Optional[float], reusable_workspace_bytes: int=0) -> int:
     (free, total) = mqa_logits_free_mem_bytes(device_index, include_reusable_cache=True)
+    free = min(total, free + max(0, reusable_workspace_bytes))
     guard = int(total * MQA_LOGITS_TOTAL_MEM_FRACTION)
     if mem_fraction_static is not None:
         guard = min(guard, int(total * max(0.0, 1.0 - mem_fraction_static) * fraction))
     return max(1, min(int(free * fraction), guard))
 
-def dsv41_mqa_logits_rows_per_chunk(*, num_rows: int, num_cols: int, device_index: int) -> Optional[int]:
+def dsv41_mqa_logits_rows_per_chunk(*, num_rows: int, num_cols: int, device_index: int, reusable_workspace_bytes: int=0) -> Optional[int]:
     """Opt-in LightOp dense FP32 row budget; num_cols includes native padding.
 
     The V4.1 variable is independent of the DSA fraction. No device queries
@@ -48,7 +49,7 @@ def dsv41_mqa_logits_rows_per_chunk(*, num_rows: int, num_cols: int, device_inde
         raise ValueError(f'{name} must be finite and in (0, 1], got {raw!r}')
     if torch.cuda.is_current_stream_capturing() or not mqa_logits_needs_budget_check(num_rows=num_rows, num_cols=num_cols):
         return None
-    budget = _dsv41_mqa_logits_budget_bytes(device_index, fraction, get_schedule().mem_fraction_static)
+    budget = _dsv41_mqa_logits_budget_bytes(device_index, fraction, get_schedule().mem_fraction_static, reusable_workspace_bytes)
     return mqa_logits_rows_per_chunk(num_rows=num_rows, row_bytes=num_cols * MQA_LOGITS_BYTES_PER_ELEM, budget_bytes=budget)
 
 def mqa_logits_free_mem_fraction() -> float:

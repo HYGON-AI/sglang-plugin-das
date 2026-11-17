@@ -656,7 +656,8 @@
     "sglang.srt.speculative.spec_utils.commit_mamba_states_after_verify",
     "sglang.srt.speculative.uno_utils.sample_uno_tree_target_tokens",
     "sglang.srt.utils.common.get_cuda_graph_batch_size_alignment",
-    "uvicorn.run"
+    "uvicorn.run",
+    "sglang.srt.mem_cache.unified_cache.components.full.FullComponent.redistribute_on_node_split"
   ],
   "named_resolution_hooks": [
     "handle_a2a_moe",

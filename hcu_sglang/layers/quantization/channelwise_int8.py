@@ -53,6 +53,11 @@ def _grouped(x, w, s, groups, rank, *, output_dtype=None):
     m = x.shape[0]
     if not m or not rank:
         return torch.empty((m, groups, rank), dtype=output_dtype, device=x.device)
+    if x.is_cuda and (groups, rank, x.shape[-1]) == (8, 1024, 4096):
+        from hcu_sglang.layers.quantization.dsv41_int8_native import project, supported
+
+        if supported(x, groups, rank, output_dtype):
+            return project(x, w, s, groups, rank)
     xf = x.float()
     absmax = xf.abs().amax(dim=-1, keepdim=True).clamp_min(1e-10)
     scales = absmax / 127

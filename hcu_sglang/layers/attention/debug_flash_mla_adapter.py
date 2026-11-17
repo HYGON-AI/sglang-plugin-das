@@ -235,16 +235,38 @@ def torch_native_flash_mla_sparse_fwd(
     return out, max_logits, lse
 
 
-def flash_mla_sparse_fwd_entrypoint(*args, **kwargs):
-    from sglang.srt.environ import envs
-
-    if envs.SGLANG_HACK_FLASHMLA_BACKEND.get() in {"torch", "native", "torch_native"}:
-        return torch_native_flash_mla_sparse_fwd(*args, **kwargs)
+def kernel_flash_mla_sparse_fwd(q, kv, indices, sm_scale, d_v=512, attn_sink=None, topk_length=None):
+    width = indices.shape[-1]
+    if topk_length is not None:
+        positions = torch.arange(width, dtype=torch.int32, device=indices.device).view(1, 1, -1)
+        indices = indices.masked_fill(positions >= topk_length.view(-1, 1, 1), -1)
+    padded_width = (width + 127) // 128 * 128
+    if padded_width != width:
+        indices = torch.nn.functional.pad(indices, (0, padded_width - width), value=-1)
     try:
         from flash_mla.flash_mla_interface import flash_mla_sparse_fwd
     except ImportError:
         from flash_mla import flash_mla_sparse_fwd
-    return flash_mla_sparse_fwd(*args, **kwargs)
+    return flash_mla_sparse_fwd(q, kv, indices, sm_scale, d_v=d_v, attn_sink=attn_sink, topk_length=topk_length)
+
+
+def flash_mla_sparse_fwd_entrypoint(*args, **kwargs):
+    from sglang.srt.environ import envs
+
+    sparse_backend = os.environ.get("SGLANG_HCU_SPARSE_PREFILL_BACKEND", "")
+    if sparse_backend not in {"", "torch", "triton", "kernel"}:
+        raise ValueError(f"Unsupported sparse-prefill backend {sparse_backend!r}")
+    if sparse_backend == "triton":
+        from hcu_sglang.utils.detection import is_hcu
+        if not is_hcu():
+            raise ValueError("The triton sparse-prefill override is qualified for HCU only")
+        from hcu_sglang.layers.attention.dsv41_sparse_prefill_triton import sparse_prefill
+        return sparse_prefill(*args, **kwargs)
+    if sparse_backend == "torch":
+        return torch_native_flash_mla_sparse_fwd(*args, **kwargs)
+    if sparse_backend != "kernel" and envs.SGLANG_HACK_FLASHMLA_BACKEND.get() in {"torch", "native", "torch_native"}:
+        return torch_native_flash_mla_sparse_fwd(*args, **kwargs)
+    return kernel_flash_mla_sparse_fwd(*args, **kwargs)
 
 
 def flash_mla_with_kvcache_entrypoint(backend: str, **kwargs):

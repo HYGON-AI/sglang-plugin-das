@@ -74,6 +74,10 @@ def transfer_worker(
                     kv_chunk.wait_event.synchronize()
                 kv_chunk.wait_event = None
 
+            from hcu_sglang.disagg.async_indices import resolve_transfer_indices
+            kv_chunk.prefill_kv_indices = resolve_transfer_indices(kv_chunk.prefill_kv_indices)
+            kv_chunk.state_indices = resolve_transfer_indices(kv_chunk.state_indices)
+
             if (
                 kv_chunk.room not in self.request_status
                 or self.check_status(kv_chunk.room) == KVPoll.Failed

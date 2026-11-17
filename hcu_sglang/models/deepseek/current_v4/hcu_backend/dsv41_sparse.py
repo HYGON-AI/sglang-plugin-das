@@ -31,6 +31,11 @@ def _rope_fq4(x, freqs, rope_dim, *, compressed_kv=False, positions=None):
     if positions is not None:
         freqs = freqs[positions]
     if _is_hcu and x.is_cuda and (x.dtype == torch.bfloat16):
+        from hcu_sglang.models.deepseek.current_v4.hcu_backend.fp4_rope_native import (
+            rope_fp4_fake_quant, supported,
+        )
+        if supported(x, freqs, rope_dim):
+            return rope_fp4_fake_quant(x, freqs, rope_dim, compressed_kv)
         try:
             from sgl_kernel import rope_fp4_fake_quant as _rope_fp4_hip
             if not getattr(_rope_fq4, '_hip_logged', False):
