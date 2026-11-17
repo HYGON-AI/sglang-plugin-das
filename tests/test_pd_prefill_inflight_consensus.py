@@ -127,6 +127,21 @@ class PDBPrefillInflightConsensusContractTests(unittest.TestCase):
         self.assertIn("done_reqs.append(req)", body)
         self.assertIn("continue", body)
 
+    def test_requeued_requests_leave_the_queue_collectively(self):
+        # The optimistic slot-yield branch requeues the request instead of
+        # finishing it; the collective drop flags must include those ids or
+        # the keep-rebuild silently re-adds them to the inflight queue
+        # (they would then live in the rerun and the transfer queue at the
+        # same time, polling an attempt whose KV was already released).
+        fn = function_named(self.tree, INFLIGHT_FN)
+        yield_calls = calls_named(fn, "optimistic_release_and_requeue")
+        self.assertEqual(len(yield_calls), 1)
+        # structural fallback: the append must exist inside the function and
+        # the flags comprehension must fold requeued_ids into the drop set
+        self.assertIn("requeued_reqs.append(req)", source_of(self.lines, fn))
+        self.assertIn("requeued_ids = {id(r) for r in requeued_reqs}", self.text)
+        self.assertIn("id(r) in done_ids or id(r) in requeued_ids", self.text)
+
     def test_queue_membership_does_not_depend_on_rank_local_cleanup_state(self):
         for fn_name in (INFLIGHT_FN, "handle_bootstrap_failure"):
             with self.subTest(function=fn_name):

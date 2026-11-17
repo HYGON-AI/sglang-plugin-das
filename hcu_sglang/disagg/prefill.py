@@ -2428,6 +2428,7 @@ class SchedulerDisaggregationPrefillMixin:
         )
 
         undone_reqs: List[Req] = []
+        requeued_reqs: List[Req] = []
         # Check .poll() for the reqs in disagg_prefill_inflight_queue. If Success, respond to the client and remove it from the queue
         for req, poll in zip(self.disagg_prefill_inflight_queue, polls):
             if req.external_kv_cleanup_done and req.external_kv_response_sent:
@@ -2527,6 +2528,10 @@ class SchedulerDisaggregationPrefillMixin:
                     # slot so they can prefill, including peers still waiting
                     # for a metadata buffer in the bootstrap queue.
                     self.optimistic_release_and_requeue(req)
+                    # The requeue released the attempt's KV and re-enqueued
+                    # the request; it joins neither done_reqs nor undone_reqs
+                    # but MUST leave this queue below.
+                    requeued_reqs.append(req)
                 elif poll != KVPoll.Failed:
                     undone_reqs.append(req)
                 continue
@@ -2566,7 +2571,15 @@ class SchedulerDisaggregationPrefillMixin:
         # the poll all_reduce above and the ranks still holding it block there forever.
         queue_order = list(self.disagg_prefill_inflight_queue)
         done_ids = {id(r) for r in done_reqs}
-        flags = [int(id(r) in done_ids) for r in queue_order]
+        # A requeued request must leave the queue too, and removal has to
+        # stay collective like done: fold requeued ids into the same
+        # all-reduced drop flags so every rank drops the slot in the same
+        # pass. Without this the flag below reads 0 on every rank, the
+        # keep-rebuild re-adds the request to the inflight queue, and it
+        # then lives in the rerun and the transfer queue at the same time,
+        # the latter polling an attempt whose KV was already released.
+        requeued_ids = {id(r) for r in requeued_reqs}
+        flags = [int(id(r) in done_ids or id(r) in requeued_ids) for r in queue_order]
         flags = _all_reduce_polls(flags, self.attn_tp_cpu_group)
         flags = _all_reduce_polls(flags, self.attn_cp_cpu_group)
         keep_ids = {id(r) for r, f in zip(queue_order, flags) if not f}
