@@ -1095,16 +1095,19 @@ def dspark_decode(
     # Consume in this step: every decode graph size shares one aux output,
     # which the next target forward overwrites (resolve_aux_hidden_states_width).
     if not folded_commit:
-        self._verify_executor.commit_hidden(
-            batch=batch,
-            layout=layout,
-            hidden_strided=hidden_strided,
-            verify_window=verify_window,
-            logits_output=logits_output,
-            commit_lens=accept.commit_lens,
-            bs=bs,
-            run_compact=run_compact,
-        )
+        # The draft FC was loaded in the draft TP group. Other attention DP
+        # ranks may be idle, so its projection must use that same group.
+        with self._draft_context():
+            self._verify_executor.commit_hidden(
+                batch=batch,
+                layout=layout,
+                hidden_strided=hidden_strided,
+                verify_window=verify_window,
+                logits_output=logits_output,
+                commit_lens=accept.commit_lens,
+                bs=bs,
+                run_compact=run_compact,
+            )
     logits_output.hidden_states = None
 
     self._observers.observe_verify_step(
