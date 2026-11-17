@@ -94,7 +94,7 @@ assert parser.parse_args(['--quantization', 'fp8']).quantization == 'fp8'
 assert 'torch' not in sys.modules
 assert not any(name.endswith('slimquant_w4a8_marlin') for name in sys.modules)
 """
-        result = subprocess.run([sys.executable, '-c', code], cwd=ROOT,
+        result = subprocess.run([sys.executable, '-S', '-c', code], cwd=ROOT,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
