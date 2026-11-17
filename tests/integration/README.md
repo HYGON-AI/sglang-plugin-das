@@ -56,6 +56,10 @@ python3 -m tools.l15_model_smoke \
 except 吞成 warning——wrap 在 register 之前已生效，功能无损，但每轮跑都打噪音，应在
 adapter 仓补 catalog 条目或跳过登记。
 
+## 本分支后续默认值调整（2026-11-17）
+
+按 HY3 原配方对齐要求，本分支恢复 `SGLANG_KV_LAYOUT_HCU_FA` 默认 true。上面 10/10 历史结果仍属于默认 false 的组合，不作为新默认值的通用验收；运行上面的官方 Triton 叠加格前需显式设置 `SGLANG_KV_LAYOUT_HCU_FA=0`。当前 HY3 vendor FA 路径此前以显式 1 验证，本次另核对未设置、显式 0/1 与 KV 池选择，验证结果记录在开发迁移文档。
+
 ## L1.6（规划）
 
 特有模型 tiny 家族（bailing/dspark/hunyuan/glm4_moe/minimax_m2/qwen3_5）

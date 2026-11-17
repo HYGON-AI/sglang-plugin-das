@@ -34,9 +34,7 @@ _note_fa.counts = {}
 def _layout_enabled() -> bool:
     from sglang.srt.utils import get_bool_env_var
 
-    # default mirrors hcu_sglang.environ (single source): official layout
-    # unless the HCU FA perf-A/B path is explicitly requested.
-    return get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="false")
+    return get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="true")
 
 
 def is_native_fp8(dtype: torch.dtype) -> bool:
