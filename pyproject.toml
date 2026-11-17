@@ -32,3 +32,15 @@ hcu_sglang = ["mem_cache/cpp_utils/*.cpp", "layers/attention/linear/csrc/*", "me
 
 [tool.setuptools.exclude-package-data]
 hcu_sglang = ["**/__pycache__/*", "**/*.pyc"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # 三方弃用噪音（0.5.22 镜像栈自带，非本仓代码；0.5.22 线不动这些依赖）：
+    # 1) torch 自身 jit 内部经 compressed-tensors 配置路径触发
+    "ignore:`torch.jit.script_method` is deprecated:DeprecationWarning",
+    # 2) swig 绑定在 CPython 3.12 的 __module__ 告警（safetensors/compressed_tensors 侧）
+    "ignore:builtin type SwigPy:DeprecationWarning",
+    "ignore:builtin type swigvarlink:DeprecationWarning",
+    # 3) 镜像 pytest-asyncio 的 fixture-scope 默认值弃用
+    "ignore::DeprecationWarning:pytest_asyncio.*",
+]
