@@ -68,6 +68,7 @@ import argparse
 import sys
 import types
 module = types.ModuleType('sglang.srt.arg_groups.arg_utils')
+module.field_names = lambda cls: ()
 module.is_record = lambda cls: False
 sys.modules[module.__name__] = module
 from hcu_sglang.server_args import ensure_choices

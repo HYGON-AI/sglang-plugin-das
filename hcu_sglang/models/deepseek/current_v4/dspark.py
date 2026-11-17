@@ -1,5 +1,7 @@
 """DSpark attention bound to the current HCU MQA base."""
 from __future__ import annotations
+
+from hcu_sglang.layers.quantization import channelwise_int8
 import sglang.srt.models.deepseek_v4_dspark as upstream
 globals().update({name:value for name,value in vars(upstream).items() if not name.startswith('__')})
 from .attention import MqaAttentionBase, _is_cuda
@@ -278,7 +280,11 @@ class DSparkAttention(MqaAttentionBase):
             o.shape[1] * o.shape[2] // self.n_local_groups,
         )
         wo_a = self.wo_a.weight.view(self.n_local_groups, self.o_lora_rank, -1)
-        if self._use_fast_kernel:
+        if self.wo_a_int8:
+            o = channelwise_int8.grouped(
+                o, self.wo_a, self.n_local_groups, self.o_lora_rank
+            )
+        elif self._use_fast_kernel:
             o = _apply_wo_a_bf16_matmul(
                 o,
                 wo_a,

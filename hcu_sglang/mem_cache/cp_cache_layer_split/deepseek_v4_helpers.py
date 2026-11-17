@@ -85,6 +85,7 @@ def maybe_prefetch_cp_kv_extra(pool, layer_id: int, forward_batch=None) -> None:
             core = _get_core_attn_metadata()
             read_indices = None
             read_token_capacity = None
+            cache_full_read = False
             num_reqs = cache.num_reqs if cache is not None else None
             if cache is not None:
                 # The workspace dequantizes every compressed position before
@@ -92,6 +93,13 @@ def maybe_prefetch_cp_kv_extra(pool, layer_id: int, forward_batch=None) -> None:
                 read_indices = cache.ensure_compressed(
                     ratio, core.page_table, pool.kv_pools[ratio].page_size
                 ).flat_token_ids
+                # With explicit sparse prefill and nonempty original CP shards,
+                # every rank builds the full-history gather before this source.
+                # Tail metadata may later drop that cache, but not the KV data.
+                cache_full_read = (
+                    ratio in (1, 2)
+                    and min(forward_batch.extend_seq_lens_cpu, default=0) >= pool.cp_size
+                )
             elif metadata.late_layer_tail is not None:
                 # Tail queries can select keys anywhere in each full history.
                 # Bound their page union without materializing a chunk cache.
@@ -106,4 +114,5 @@ def maybe_prefetch_cp_kv_extra(pool, layer_id: int, forward_batch=None) -> None:
                 read_indices=read_indices,
                 num_reqs=num_reqs,
                 read_token_capacity=read_token_capacity,
+                cache_full_read=cache_full_read,
             )

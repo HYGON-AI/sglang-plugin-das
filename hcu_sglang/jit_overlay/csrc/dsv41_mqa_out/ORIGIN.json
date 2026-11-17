@@ -1,0 +1,36 @@
+{
+  "source": "LightOp",
+  "vendor_reference": "c4811f65e9724d978cfd5cb779faff8a2d7a1307",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "path": "fp8_fp4_mqa_logits.cu",
+      "original_sha256": "ee8889de7e7edeb1b0c5e0695be7b446e2c7dfb73f6c1c68c9da3d295b05dfe8",
+      "sha256": "f4e698326c9e56004daf54bb6f7e276f3842cdf5753f7afff52e151d06ab4d96",
+      "original_size": 37170,
+      "size": 38591
+    },
+    {
+      "path": "fp8_fp4_mqa_logits.h",
+      "original_sha256": "116125cd228a7ccb5578874e6fdd8b1c154d8da14f9a1ffbf6abe0358c2c67d3",
+      "sha256": "a172d253a0a3ed4af4a48110b42530ad8599e32eea092ae17a73cb9c09a3cffb",
+      "original_size": 779,
+      "size": 822
+    },
+    {
+      "path": "utils.h",
+      "original_sha256": "48031d77aeaa59adb5ce225f618789a3d4ed24d39d742ad3481ab748a8356609",
+      "sha256": "c0b0ec7e82259f7756a18a36937784e8a707a03ae514cf143c63a76d1f3df6fb",
+      "original_size": 7912,
+      "size": 7918
+    },
+    {
+      "path": "lds_even_wrap.hpp",
+      "original_sha256": "515776db700d91ebbe4718f2418ef6459b3515378385f7c6b2873ea412b5861a",
+      "sha256": "fc02899bcc5dc656883deb39a36b82da2a79f034faacc7db8e5b5768c8fd3ea9",
+      "original_size": 9208,
+      "size": 9214
+    }
+  ],
+  "scope": "Existing vendor source copied into plugin-owned isolated JIT candidate. Namespace/host output entry only; device bodies unchanged. Not built/deployed/numerically qualified yet; actual installed provider will be the comparison reference."
+}

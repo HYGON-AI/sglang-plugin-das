@@ -13,6 +13,7 @@ from sglang.srt.model_executor import forward_batch_info as N
 from sglang.srt.distributed.utils import all_gather_single
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.disagg.hidden_state import get_pd_hidden_capture_layer_ids
+from hcu_sglang.disagg.hidden_capture_consensus import agree_pd_hidden_capture_layers
 
 _is_hcu = is_hcu()
 
@@ -160,28 +161,14 @@ class ForwardBatchMethods:
             model_runner.server_args.disaggregation_mode == "prefill"
             and N.get_parallel().attn_cp_size > 1
         ):
-            gathered_capture_layers = [None] * N.get_parallel().attn_cp_size
-            N.torch.distributed.all_gather_object(
-                gathered_capture_layers,
+            pd_hidden_capture_layer_ids = agree_pd_hidden_capture_layers(
+                model_runner,
                 pd_hidden_capture_layer_ids,
-                group=N.get_parallel().attn_cp_group.cpu_group,
+                N.get_parallel().attn_cp_group.cpu_group,
+                N.get_parallel().attn_cp_size,
+                N.torch,
+                cache_consensus=_is_hcu,
             )
-            nonempty_capture_layers = [
-                [int(x) for x in layer_ids]
-                for layer_ids in gathered_capture_layers
-                if layer_ids
-            ]
-            if nonempty_capture_layers:
-                expected_capture_layers = nonempty_capture_layers[0]
-                if any(
-                    layer_ids != expected_capture_layers
-                    for layer_ids in nonempty_capture_layers[1:]
-                ):
-                    raise RuntimeError(
-                        "PD hidden capture layers disagree across prefill CP ranks: "
-                        f"{gathered_capture_layers}"
-                    )
-                pd_hidden_capture_layer_ids = expected_capture_layers
         # capture_hidden_mode=None means no override: capture the server's
         # configured maximum so lower-mode requests can share one graph.
         if capture_hidden_mode is None:

@@ -459,4 +459,6 @@ def register_hooks():
             setattr(owner, name, fn)
     from hcu_sglang.mem_cache import tree_protocol
     tree_protocol.register_hooks()
+    from hcu_sglang.mem_cache import cache_index_views
+    cache_index_views.register_hooks()
     _REGISTERED = True

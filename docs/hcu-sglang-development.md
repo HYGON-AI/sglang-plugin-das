@@ -2231,3 +2231,194 @@ GenerationBatchResult 有此可选字段。插件在读取时处理缺省，保�
 Berlin、Tokyo、LANTERN-8306、12，均为 stop。请求后健康检查 HTTP 200。
 官方仓库与验证副本的 10,592 个 tracked 文件哈希一致。此结果覆盖本次短问答；
 原始 JSON 和服务日志在验证目录 logs/nmz107/attempt-8。两项修复均位于 plugin。
+
+
+## 2026-11-13 CT W4A8 与 CP8/EP8、DP8/EP8 接线
+
+- 固定输入：plugin 9258ceff、adapter 766879be；迁移参照 DAS d9e87ae5。保留已有源码与行尾。
+- 当前 CT 的 INT4/channel 专家与 INT8/token 动态激活通过 plugin 专项路由接入已有 HIPC/DeepEP 与 prefill-only MegaMoE。三投影使用同一量化配置；DSV4.1 的 w1/w3/w2 别名按真实 checkpoint 匹配。
+- plugin 对所支持的 DSV4.1 配置保留实际 activation 参数，避免 adapter 的 W4A16 回退覆盖本专项行为；普通配置与未启用 plugin 的有效基线保持不变。
+- MegaMoE 从 canonical CT 权重转换后调用已有 builder，不能复用 DeepEP packed 布局；DeepEP 后处理沿 plugin dispatcher 检查 ABI 与 HIPC 布局，不引用官方不存在的私有全局量。
+- 验证边界：首次服务诊断实际命中 WNA16，已停止并保留负证据。新增 CPU 契约与组合服务、Graph、精度验证待执行，尚不授予模型精度通过。
+
+
+## 2026-11-13 HCU standalone MegaMoE Prefill compatibility
+
+The specified CP8/EP8 Prefill command was rejected by the official CUDA SM90/SM100 gate before model loading. The plugin adds a narrow wrapper for its own HCU standalone `megamoe` runtime, requiring the provider and Prefill disaggregation, and rejecting either overlap mode. Other backends, runtimes and platforms retain the current original implementation. Global architecture/platform detection is unchanged.
+
+Validation: four CPU contracts executed the public native check with the real HookRegistry and explicit platform/provider peers; all passed. Actual provider math, P/D readiness and HumanEval/GSM8K/MATH500 accuracy remain pending. Decode attempt02 was interrupted by container exit (Docker exit0, OOMKilled=false), with no completed load or accuracy result. No adapter source changes were made.
+
+
+## 2026-11-13 Compressed-tensors checkpoint loader orientation
+
+Decode attempt03 reproduced a native channel-scale copy failure: destination [1,1], checkpoint [2304,1]. The custom W4A8 method is outside the official name-based transpose list. Its parameter-owned loader now performs the same checkpoint transpose before delegating to the current native loader; native EP ownership and TP slicing remain delegated. Postload nibble/scale math is unchanged. CPU reproduction with real tensors and complete native loader functions covers original refusal and all gate/up/down packed weights and scales at TP1 and TP8 ranks0/7. Provider kernels, ready service and text accuracy remain pending.
+
+
+## 2026-11-13 special INT8 projections and HCU replay boundary
+
+Attempt04 exposed two migration gaps before any ready/accuracy result. HCU bounded replay must start after the final KV source, preserving the existing DAS/HIP protocol rather than importing the unavailable CUDA RowBucketGraphRunner. CPU6 already verifies that local predicate and unchanged HIP/CUDA behavior.
+
+The checkpoint explicitly stores wo_a, LM head and Markov output in channelwise INT8 with dynamic token INT8 activations. The new image has none of the seven DAS private dsv41_int8 native ops. The plugin adds a functional Torch INT8/INT32 backend instead of installing unsupported adapter ops or ignoring scales. Quantization uses the original 1e-10 floor and round-away-from-zero; scale order remains FP32 accumulator times token scale times channel scale. Grouped attention, draft attention, target/shared/owned vocab heads and the current Markov step_bias consumer preserve canonical weights/scales and original TP/padded loaders. Nonmatching methods delegate unchanged. No reference fork is imported at runtime. This backend does not claim original BLASLt optimization or performance parity. Numerical, Graph and consumer validation is pending at patch preparation; model load/accuracy are not granted by this record.
+
+
+## 2026-11-13 CP PD transfer namespace
+
+Attempt05 Prefill advanced through model loading into Scheduler.init_disaggregation, then the plugin KV-manager caller imported CP transfer descriptors from an absent upstream package. Both Prefill and Decode callers must import the existing plugin-owned configure_v4_transfer; no upstream alias/stub, adapter change or transport algorithm change is needed. A focused test executes both actual caller branches and the real descriptor producer, including draft/state identities, reordered matching and malformed buffer rejection. CPU evidence only grants these branches; actual cross-node PD/readiness and accuracy remain pending. The preceding special projection CPU5, real GPU five-shape eager/Graph with three buffer states, and actual public CT config/Markov consumers passed; these do not themselves grant model accuracy.
+
+
+## 2026-11-13 CP request-state descriptors
+
+Attempt06 completed target and draft loading on all ranks. Prefill then rejected incomplete DSPARK descriptors. The full state producer also registers PD hidden rows and draft valid-from request rows, but the descriptor producer returned an empty list for both. Give these request-scoped positional buffers stable (state type, buffer index) identities; retain every handshake and cross-rank byte-stride check. Focused CPU tests execute the original full setup_state_kv_args producer, descriptor serialization, sharded/unsharded handshake and negative metadata cases. This does not qualify actual PD transport or model accuracy. Decode independently failed during Graph capture in the installed FlashMLA scheduler kernel with no compatible kernel image; its cause is still under investigation.
+
+
+## 2026-11-13 FlashMLA native ABI isolation
+
+The installed DTK2610 FlashMLA sparse scheduler fails on gfx936 without adapter or plugin loaded. Its raw code object uses ELF ABI 4 (Code Object V6). An isolated comparison compiled the same minimal kernel as V5 and V6, extracted real ELF payloads, queried the actual agent BASE profile, and loaded them through the current HSA runtime: V5 load/freeze/symbol lookup succeeded, while V6 and the installed scheduler returned invalid-code-object. This establishes a loader compatibility problem for these inputs, not a repaired vendor package. No original binary, ELF header, global runtime or device policy was modified. A compatible source rebuild remains needed for the native kernel path. The first comparison used a compiler fatbundle as though it were ELF and assumed FULL profile; it is invalid evidence and is retained separately.
+
+The existing plugin Torch FlashMLA implementation passed nine independent packed-FP8 CPU-reference/GPU cases (batch 1/2, window 1/6, 64 heads, optional extra cache, three fixed-buffer states), with maximum absolute error 0.0009765625 and exact eager/Graph equality. The public load_plugins/attention-entrypoint lane also completed with return code zero and the same nine results. A fresh explicitly labelled diagnostic launch may set SGLANG_HACK_FLASHMLA_BACKEND=torch in its child environment only; the original p1/d1 bytes, Graph settings and other budgets remain unchanged. This is a functional diagnostic configuration, not native-kernel or model-accuracy acceptance.
+
+
+## 2026-11-14 sparse-prefill coverage and MHC compiler ABI
+
+Attempt07 completed all target/draft weight loads on both nodes. The Torch decode-attention lane advanced past the old FlashMLA scheduler failure, but Prefill separately called the native BF16 sparse-prefill primitive and hit the same incompatible vendor code object. Decode reached MHC post and failed looking up its generated TileLang kernel. The proposed plugin-only correction routes both existing HCU sparse-prefill callers through an explicit backend selector, preserving the native kernel branch and sparse-prefill setting. Its Torch implementation bounds query-chunk workspace and preserves output/max-logits/LSE, masks, lengths and sink semantics. The plugin MHC lazy compiler passes code-object-version=5 only on HCU, without changing kernel mathematics or global TileLang/runtime libraries. New private CPU and GPU/Graph lanes must pass before applying this candidate; no model or accuracy success is granted by this preparation.
+
+## 2026-11-14 Engram 注册 host 指针的 HCU 映射
+
+本次 scoped AROUND 仅在 HCU 上将已注册 host 地址通过当前已加载的 HIP runtime 查询设备地址，兼容 libgalaxyhip 与 libamdhip64 名称；非 HCU 委托现有 original_fn，映射失败严格拒绝。注册、表布局、装载与数学保持原 producer/consumer，不全局修改 is_hip。CPU 协议、真实小表 eager/Graph 与完整模型验收分别记录，本准备期尚未授予模型精度。
+
+## 2026-11-14 HCU DeepEP combine 重叠能力边界
+
+模型09的INT8 HIPC down GEMM不提供combine所需信号，官方compute_overlap_args仍生成overlap而meta缺block_m。按固定DAS参考的现有能力边界，新增窄AROUND：仅HCU的INT8/FP8或非3D masked布局返回无down/combine重叠；dispatch/shared重叠、数学、信号支持路径和非HCU原返回/异常保持。CPU重现原KeyError并通过真实预导入模型consumer和完整combine consumer验证；完整模型资格及精度另行执行，不能由CPU结果授予。
+
+## 2026-11-14 CP materialize的现有HCU实现绑定
+
+模型10双端完成Graph和ready，但首条真实PD chat的CP materialize non-v2分支仍导入官方已弃用NPU/MUSA shim。仅将该import指向本plugin已有hcu_cp_utils实现，不改算法、CP/CP-v2选择、adapter、默认flag或数学。新增public导出到完整helper的CPU反例和2D/3D/interleave/zigzag回归；8rank Gloo使用真实CPU collective和三次固定buffer状态，metadata/group facade为显式测试边界，不授予HCU/RCCL或模型精度。完整模型与精度须新的真实PD请求验证。
+
+
+## 2026-11-14：Torch FlashMLA 回退的无效 KV 槽位隔离
+
+本次只修 plugin 的分页和稀疏 prefill Torch 回退，adapter、原生 provider 和有效 KV 数值不变。
+原路径把无效索引映射到占位槽，随后只屏蔽概率；占位槽中的 NaN 仍可通过零乘法污染输出。
+现在在分数及 value 累加前屏蔽无效 K/V 操作数，保留有效位置的 NaN，不做全局数值替换。
+
+修复前 CPU 反例与私有原/新对照覆盖长度屏蔽、全无效行、sink 和多 tile。
+实际 GPU 私有对照覆盖分页/稀疏、8/64 heads、60 次 eager/Graph 变输入比较和4项有效 NaN 保留检查，全部通过。
+最终代码仅移除私有原型新增的一行说明注释，与已测原型的完整 AST 相同；保留原有许可和注释。
+新增显式 GPU 准入回归 [flashmla_masked_kv_gpu.py](../tests/runtime/flashmla_masked_kv_gpu.py)，
+在既有 adapter/plugin 环境中用 `HCU_PLUGIN_RUN_GPU_TESTS=1 SGLANG_HACK_FLASHMLA_BACKEND=torch python tests/runtime/flashmla_masked_kv_gpu.py` 执行。
+独立算子对照不代表实际 checkpoint、P/D 生成、精度或性能通过，模型根因仍需单独复验。
+
+
+## 2026-11-14：HCU logits gather 保留官方通信回退
+
+当前 native MultimemAllGatherer 在检查 multicast 能力前先分配并映射对称内存。
+真实启动诊断在该链路出现非法地址访问；其它 rank 等待 rendezvous，不能把清理栈误判为首个故障。
+插件只在 HCU 的 _build 边界返回 None，使用该原生类已有的 TP all-gather 回退；
+其它平台委托有效 original，不新增 adapter 算法、不修改驱动或全局平台语义。
+新增目标已加入当前 Hook 合同。
+
+完整 native 类和实际 HookRegistry 注册/apply 的 CPU7 合同通过，框架/设备/通信是显式夹具。
+私有 GPU35 的48项数值通过但通信组销毁超时，负结果保留；GPU36仅修正测试中 Graph 对象的释放顺序，
+相同八卡输入和阈值下48项 eager/Graph对照及正常退出通过。
+新增 [logits_gather_gpu.py](../tests/runtime/logits_gather_gpu.py) 经公开加载链回归，需显式
+`HCU_PLUGIN_RUN_GPU_TESTS=1` 和一个新的 `HCU_PLUGIN_TEST_OUTPUT_DIR`，用 torchrun 启动8个进程。
+运行时配置发布为测试元数据，通信、Graph和数值是真实设备执行；不授予 native symmetric-memory 路径或模型精度通过。
+
+
+## 2026-11-15：DeepSeek V4.1 W4A8 32K Prefill 对齐
+
+本轮以 `p_megamoe.sh` 和 `prefill_throughput.py` 的 32768 输入、1 输出、128 请求为目标。新增能力仅在 plugin；adapter 不变，不从 DAS fork 动态导入。
+
+- HCU MegaMoE `deep_gemm` 分支接通已有 provider 的 W4A8 融合 consumer；W13 权重和 scale 同步转 tile256 gate/up 布局。保留 standalone megamoe，拒绝不支持的 H/I/专家数。配置准入仅开放 prefill 且无 SBO/TBO，检查实际 deepgemm 包，兼容 adapter 的无 spec 别名模块。
+- 新增显式 `SGLANG_HCU_SPARSE_PREFILL_BACKEND=triton`，仅作用于 HCU sparse-prefill；空值保持既有选择，`torch` 明确回退。支持 BF16 Q/KV、INT32 稀疏索引与长度、FP32 sink、Dq=Dv512、单 KV head、1..64 Q heads；不支持的输入明确拒绝。paged decode 后端不变。
+- 现装 FlashMLA 在 gfx936 实际报 no kernel image，未修改二进制/伪造架构。Triton 替代通过 mask、ragged、有效/无效 NaN、空候选、eager/变输入 Graph 回归；原生 EP8 DeepGEMM W4A8 对照包含实际 clamp10，max_abs=0.0068359375。CPU 布局/分发、公开 attention 入口与 L0 分开保存，不能代替整模型精度。
+- 新脚本使用官方0.5.22与 Python3.12 provider，排除原 DAS PYTHONPATH 和 CPython3.10 LightOp overlay，保留原 BLAS 数据与预算。对齐实际服务、模型 sanity、8-rank trace 和无 profiler 性能须以该轮产物为准；旧全量精度不能移作新代码结论。
+
+证据目录：`<artifact-root>/prefill32k-megamoe-compare01`。回归入口：`tests/runtime/deepgemm_w4a8_prefill.py`、`deepgemm_prefill_admission.py`、显式 GPU 准入的 `sparse_prefill_triton_gpu.py`，以及原 `flashmla_masked_kv_gpu.py`。恢复路径：关闭 sparse-prefill 覆盖并使用 megamoe 原 runtime；已封存 application01/admission-fix01/02 原字节与失败日志。
+
+本轮后续对实际 topk640/128 做三组交替独立 kernel 计时，64-head tile 的数值检查通过且均超过2倍收益，故只将64 Q-head launch改为BLOCK_H64/warps8；其他head保持原配置。GPU kernel数学AST不变。该微测不能代替服务trace/吞吐；相应模型重载和边界回归单独记录。
+
+同型号D节点的后续交替微测显示，64-head使用BLOCK_N32/warps8进一步降低资源占用候选的耗时：topk640约16.65→6.62ms、topk128约5.08→1.99ms，选定输出FP32参考通过。仅调整该head数的launch参数，其他输入仍保持原N64/warps4；单算子计时不计入正式模型成绩。原N128超64KiB共享内存反例保留。最终模型重载/数值边界/trace/无profiler性能独立验证。
+
+
+## 2026-11-16 FlashMLA sparse Prefill native compatibility
+
+The plugin accepts an explicit SGLANG_HCU_SPARSE_PREFILL_BACKEND=kernel override, independently of the paged decode Torch selection. The default, torch and triton paths remain selectable, and native exceptions propagate. The current private gfx936 candidate changes 28 ELF code-object ABI markers from V6 to V5 without recompiling ISA; it is experimental, not a vendor rebuild. BF16/head64 numeric, mask/NaN, three Graph updates and Q4096/KV32768/topk128,640,2048 tests passed. Other architectures and paged native decode are not qualified. Full model validation is pending. Use hcu-plugin-dev with the pinned package manifest and regression artifacts; do not copy the marker-only diagnostic as an untested deployment. The original installed package is retained for rollback.
+
+The native sparse wrapper masks positions outside topk_length and pads candidate indices with -1 to a multiple of 128, matching the vendor block constraint without adding valid candidates. This preserves arbitrary-width public-entry metadata and masked-NaN semantics. CPU dispatch uses an explicit helper peer; actual padding and native execution require the public GPU lane.
+
+### 2026-11-16 native FlashMLA sparse Prefill qualification
+
+The task-private gfx936 compatibility package has passed native numeric/Graph17, public-entry64 and model sanity20/20. All eight scheduler mappings and the32K five-step trace independently identify the native FlashMLA provider; 105 sparse Prefill kernels execute. The same128 profile requests and three unprofiled128-request rounds completed. Model details, timings, exact SO hashes and rollback are in examples/deepseek_v41_w4a8/FLASHMLA_NATIVE_PREFILL.md.
+
+This is an experimental ABI-tag compatibility package, not a vendor source rebuild or general FlashMLA qualification. The original installed SO remains unchanged. Only native BF16 sparse Prefill is selected; paged decode remains Torch. Full new dataset accuracy has not been rerun. No adapter behavior is added for this plugin feature.
+
+### 2026-11-16 P-side paged attention backend
+
+Prefill reuses the paged FlashMLA interface: a decode-named helper does not imply a generation Decode request. The P example now overrides the shared Torch backend to kernel after sourcing env.sh. The shared environment and D recipe stay unchanged. The private gfx936 provider passed13 independent FP8 paged numerical/Graph cases (SWA+extra,584B KV,H64/D512); model deployment and the next trace remain pending. This is an experimental compatibility provider, not general FlashMLA or full model accuracy qualification.
+
+### 2026-11-16 P-side paged native profile completed
+
+The P-only kernel override has been deployed with the unchanged private gfx936 compatibility provider. All eight ranks in the new five-step 32K Prefill trace contain105 BF16 sparse and95 FP8 paged native calls, with zero Torch paged/cache-unpack fallback calls. Independent FP8 numerical/Graph13 cases passed; the same20-prompt model quick check scored19/20. This is not full model accuracy or new unprofiled performance qualification. See examples/deepseek_v41_w4a8/ATTENTION_NATIVE_PATH_FIX.md and the preserved all-rank capture manifest. Adapter, Python runtime, shared env and D were not changed.
+
+### 2026-11-16 plugin 性能优化记录归档
+
+新增 examples/deepseek_v41_w4a8/PERFORMANCE_OPTIMIZATION.md，记录 DeepGEMM/Triton、BF16 FlashMLA 与 FP8 paged 原生路径各阶段的改动、prof结果、正式吞吐归属、数值/Graph和精度范围；在模型示例README增加当前记录入口。最新实际TP4为863.002ms、同组快测19/20，完整数据集和无prof性能尚未复测。本次仅更新文档与生成导览，没有运行模型、压测或修改运行时配置。
+
+### 2026-11-16 grouped INT8 wo_a native candidate
+
+The plugin now selects a scoped gfx936 BF16 G8/N1024/K4096 native projection: fused quantization, hipBLASLt strided-batched INT8 GEMM with INT32 accumulation, and fused scaling. CPU, G1 and unsupported types/shapes retain the original reference path. The C ABI library is built with the current HIP toolchain, without linking old Torch binaries. Numeric14 cases including tail/rounding/stride/Graph and two streams passed exact0 tolerance against the unchanged reference. Original launch-bound failure is retained; explicit512 thread bound fixed only the independent candidate. New P model/prof validation is pending. Adapter and D configuration are unchanged.
+
+### 2026-11-16 wo_a native model/profile/performance validation completed
+
+The scoped gfx936 BF16 G8/N1024/K4096 projection has passed exact numeric14, including three Graph updates and two streams. All8 ranks in the new five-step32K trace show200 native projections,200 fused quantizations and200 fused scales each; existing BF16/FP8 FlashMLA native paths remain. The same20-prompt quick check scored19/20; full dataset accuracy has not been rerun. Three identical128-request unprofiled rounds completed, median input throughput 42177.942 token/s. This P06 comparison includes both paged FlashMLA and wo_a changes, not wo_a alone, and does not establish complete historical DAS parity. See examples/deepseek_v41_w4a8/WOA_NATIVE_PATH_FIX.md. Original numerical failures and the operation-order fix are retained. CPU/G1/unsupported fallback, adapter, D and router are unchanged.
+
+### 2026-11-16 measured performance gains recorded
+
+Documented the measured P07-to-P08 wo_a profile reductions separately from the P06-to-P08 cumulative unprofiled gains: CPU wrapper -92.33%, representative GPU projection -37.89%, GPU step -12.00%; cumulative input throughput +63.13% and single-request TTFT -38.44%. The cumulative comparison includes FP8 paged and wo_a. Accuracy scope and remaining hipBLASLt GEMM gap are explicit. Documentation only; no runtime, configuration, service or new benchmark changes. See examples/deepseek_v41_w4a8/PERFORMANCE_OPTIMIZATION.md section8.1.
+
+### 2026-11-16 trace-directed Prefill candidates
+
+Plugin-only changes select the current-library MT256x256x32 grouped INT8 GEMM by exact kernel name and supported shape (M4096/G8/N1024/K4096), enable existing flat-row RoPE for HCU independently of CK/AITER, and provide a plugin-owned fused RoPE/FP4 Triton kernel for gfx936/BF16/D128 or512/rope64. Unsupported FP4 inputs preserve the previous path.283 algorithms were exact INT32;14 selected-projection cases including large Graph/streams passed exact BF16. RoPE/FP4 primitive77 and actual entry20 passed: FP4 exact, RoPE explicit BF16 rtol2^-7/atol2^-20 due to FMA order. Prior exact/one-ULP RoPE negatives and NaN propagation failure are retained; the final FP4 kernel propagates NaN before scale derivation. Adapter/D/router/CLI budgets remain unchanged. New full-model sanity/prof/unprofiled validation is pending.
+
+### 2026-11-16 P09 Prefill validation completed
+
+The three plugin-only candidates completed model20/20, same128 five-step all8 profiler and three unprofiled128 rounds with no errors. Median input throughput52,422.368token/s (+24.29% vsP08), single TTFT657.535ms (-18.95%), TP4 GPU step605.077ms (-20.32%). Local full219-member evidence/source/native/requests/inputs and full TP4 were independently verified; all15,574 kernel/runtime pairs and retained category hashes checked. RoPE uses the documented BF16 contract, FP4/wo_a remain exact in their stated cases. Full dataset accuracy and long-context matrix not rerun. Runtime source is frozen as measured, adapter/D/router unchanged; no commit/push. See examples/deepseek_v41_w4a8/PREFILL_TRACE_OPT09.md.
+
+
+### DeepSeek V4.1 P16 Prefill空泡复验（2026-11-17）
+
+参考`examples/deepseek_v41_w4a8/PREFILL_BUBBLE_FIX_P16.md`。Full索引分裂新增hook须登记`FullComponent.redistribute_on_node_split`；SWA异步snapshot消费遵守原sender依赖/abort，Extra复用按forward/source/ratio/写入和staging覆盖失效。CPU capture共识每步保留all-rank changed flag，不能单rank跳过。未通过的异步GPU metadata试验已回退。
+
+
+### DeepSeek V4.1 Prefill：有界输出与CPU共识（P18）
+
+该能力属于plugin，不修改adapter或全局LightOp。`dense_mqa_out.py`使用构造期有界FP32输出、实际Torch HIP编译flags与source/provider/ABI keyed cache；只覆盖当前HCU/gfx936/CP/bounded replay/P-prefill/非draft及原显式预算条件，其他流/不支持配置回原入口。设备数学、候选布局和无效值填充保持；工作区计入原预算，不在forward扩容。四个供应源保留LICENSE/SPDX及ORIGIN，准备快照与实际构建资格分开。
+
+`bootstrap_vote.py`只省略HCU CPU/Gloo单rank轴且peer轴为多rankGloo的identity；不融合异步ready/prefix快照，不删除多rank共识或GPU完成边界。持久化回归为`tests/runtime/bootstrap_vote.py`、`dense_mqa_output_dispatch.py`、`dense_mqa_output_native.py`及`pd_hidden_capture_consensus.py`。目标目录保持658项，未为已有size1 guard新增无效hook。
+
+当前same20=20/20，384无prof请求0错误，累计吞吐P09+5.14%；完整数据集未重跑。三窗口24raw显示已确认copy/分配/重复准备消除，同时保留9–34ms CPU控制平面慢值。详见`examples/deepseek_v41_w4a8/PREFILL_BUBBLE_FIX_P18.md`，不从CPU长条推算GPU空泡或宣称所有等待均可删。
+
+
+## P19：Sparse Prefill cache-builder 标量同步消除（2026-11-17）
+
+HCU CP 容量断言改用已有 CPU 长度/interleave 元数据；原生 producer、物理 padding、数学和 GPU 完成语义不改，非 HCU 保留原分支。详见 [P19 完整报告](../examples/deepseek_v41_w4a8/PREFILL_SPARSE_QUERY_SYNC_P19.md)。
+
+同组20/20；无prof384请求零错误，吞吐中位 55206.683 token/s（相对P18 +0.166%，累计相对P09 +5.311%），单条 644.027ms。两独立窗口全8rank×5step：目标sum/item/scalar/sync全0。CPU140+3、真实HCU70+1和Graph3通过；有效metadata零容差。
+
+本次只确认截图目标调用域，无全模型所有step空泡消除或完整新数据集授予；其他准入/CPU协议间隙见报告原值。运行policy58为87b451...，backend041c17...；原P18负链和native1–4 fixture失败保留。CPU wheel18042f8d，独立资格包60e4cd6f。
+
+
+## 2026-11-17：PR #61 CI 合规与可移植测试修复
+
+- 为已有 Hygon Copyright 的 async_indices.py 和 cache_index_views.py 补充与根 LICENSE 一致的 Apache-2.0 SPDX；两文件执行 AST 完全不变。
+- compressed_w4a8 的 public consumer 回归改为读取 tests/fixtures/deepseek_v41_w4a8_quantization.json，固定真实模型 quantization_config 快照，不再依赖本机 /models 挂载。配置来源完整 config SHA256 为 10c6c3843b70f6d8bd8c0a1b23f112f004f729f0e05e469e88131f35cb151ced；fixture SHA256 为 7372cc44c29659b2b13c0685bdc16c6f97dc066ef694d9125fbf4914baa7d2cb。
+- channelwise_int8 从当前 sglang 包的搜索路径定位 DSpark Markov 源码，去除固定 Python 版本和系统 site-packages 前缀；原消费者断言、数值和 GPU opt-in 不变，不用 skip 掩盖缺模型。
+- 三份 Prefill 修复报告使用相对证据路径，保留原始 trace 名称与 SHA；architecture.html 由 build_guide 生成，不手工改内嵌 catalog。
+- 本次仅改变许可证标注、测试输入/定位和文档，不改变运行时数学、设备行为、服务配置或历史精度/性能证据。CI 同版本扫描、路径回归和检查实际结果由本次修复 artifact 保存，不能以旧模型测试冒作新运行。
+- 其余版权归属提示保留供维护者复核；已有第三方 LICENSE/ORIGIN 及原内核字节不改写。
+
+
+本次实际结果：L0、导览 build/check 和差异检查通过；CI v2.0.13 同版本原生五项扫描在隔离 Git tree 上均为 0 blocker，原合规阻断 2→0，保留第三方归属/生成 catalog 的 38 项非阻断提示供人工复核。未创建提交、修改分支引用或暂存区；线上 Actions 要在后续提交推送后才能给出最终状态。
+
+两个现有 runtime 文件实际运行共 14 项：13 个 CPU 用例通过，1 个 GPU 用例保持原 opt-in 跳过。另 4 项缺模型挂载/包路径迁移回归执行完整原/新测试方法，确认原版失败、修复版通过；fixture 与真实 quantization_config 逐值同、运行时两文件 AST 同。该 DTK 环境的 provider 导入需要真实设备元数据；隐藏设备的两次入口都在用例前失败并完整保留，不能称为 GPU-free 导入通过。成功入口显式关闭 GPU 数值测试，路径回归结束 torch.cuda.is_initialized=False。已有 torch/library.py 退出 weakref 清理告警保留，实际测试断言与子进程退出码均成功，不归于本次 SPDX/路径修复。没有新增模型、精度、性能或 profiler 任务。

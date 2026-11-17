@@ -1,0 +1,109 @@
+{
+  "captured": "2026-11-15T04:09:35.665261+00:00",
+  "adapter_head": "766879bee10a91aaac132f003c51a7a7c8cfc4cd",
+  "plugin_head": "9258ceff25c9735827aeadb2c2049f365a2129d5",
+  "reference_DAS_head": "d9e87ae59573c7374e5de6e90c6b2c7054a4d9fc",
+  "branch": "deepseek_v4.1_w4a8_cp8ep8",
+  "sglang_version": "0.5.22",
+  "plugin_version": "0.3.2.dev77",
+  "runtime_sources": {
+    "hcu_sglang/__init__.py": "68ce5c414227f51d96a5f6428cbbb10ff83ddc3bb1f091f8403b7245e35497cb",
+    "hcu_sglang/batch_overlap.py": "bfbb67b7a7986e5f463864758276ec35bee9599fcb0ec40681e5096fdd69a413",
+    "hcu_sglang/cp_runtime.py": "89fdd591eeac78fbfdebd0e60e8aaf8a0d4df68c94e5f4aac70f2fe5ccc9e6a2",
+    "hcu_sglang/disagg/decode.py": "2a99d562c3ac17a89a26f15ce038b7c15eff73b88431f4b892af8d248d5507ee",
+    "hcu_sglang/disagg/prefill.py": "8ef8b68845c327e16efd390826f6a2270d81fd7295d312e2880d8b528ea02f31",
+    "hcu_sglang/kernels/mhc.py": "fea20e2b672174134ff10147bba36fc9972ab23ac40797a87817f473b5e0de9b",
+    "hcu_sglang/layers/attention/debug_flash_mla_adapter.py": "1f7153c0cf371433842ba643ddeda07f3fb173af50e0d0039ce45421cc386879",
+    "hcu_sglang/layers/engram.py": "d5f52296b452c10cb9418f3a814aafaf05f0441da98c63193b1ef34f76de5655",
+    "hcu_sglang/layers/logits_gather.py": "4d2a6c7685df00a8d71a430fda4fda1b2c349ccde47949494bacc0fe975a1f8e",
+    "hcu_sglang/layers/quantization/__init__.py": "020d4a2db9072e5bb851aa1bd11ce5aa12d21d5943a4fa0e09bf2027aa4e5e83",
+    "hcu_sglang/layers/quantization/channelwise_int8.py": "8a0755c9c8df62ac3503498ad774380cc40580c24e955b15d97ea64e34cbcd4f",
+    "hcu_sglang/layers/quantization/compressed_w4a8.py": "70b961a3031b79231e4b90680968030ca7dd0fe23246704721dc0c316255c8cb",
+    "hcu_sglang/layers/quantization/slimquant_w4a8_marlin.py": "d58cda4ac7d188ef782a85bf00c24c29630f262e10ba23040131ff132296e390",
+    "hcu_sglang/mem_cache/cp_cache_layer_split/transfer.py": "4d2ca17d5c2fad0d3b5b856a5d20eb6223056b8d203319233e34e6f3530e20fe",
+    "hcu_sglang/models/deepseek/current_v4/attention.py": "382d449ffb9061a68186b1d1c6c83f213cbc43aa1b623206bd5254bd91a416fe",
+    "hcu_sglang/models/deepseek/current_v4/backend.py": "2b08a6048192a112aaa6b489c43347d94f372c8a5476155aa69f624f776743f9",
+    "hcu_sglang/models/deepseek/current_v4/dspark.py": "7a639fe302a37d0ee6a90f2ea09d4bbca9a547aa4625f15d177f0979cb8f8f7b",
+    "hcu_sglang/models/deepseek/current_v4/execution/core.py": "9052fb471fe0d54ba372281b2a63cd2840ec6927fcb05f8f75de1d05f2d21679",
+    "hcu_sglang/models/deepseek/current_v4/hcu_backend/backend.py": "eeb26eab14922603162fb48b38db4a53df612f7ff93460dc9b15cbe3c5901abf",
+    "hcu_sglang/server_args_hooks.py": "a7529a0d3628c8bd1c13c15dc21d63db6c2223ffc010c8a85959499e864bbf24",
+    "hcu_sglang/speculative_dspark_worker.py": "a2c1a005059b2380d93a97c5eb6943c78dea7b14e1c6aed48d86e66c59a163fe"
+  },
+  "selected_sources": {
+    "docs/hcu-sglang-development.md": "65097b245a1af1b35aa96b535db71d461d1fe3203afa0ec331328be057a74610",
+    "hcu_sglang/__init__.py": "68ce5c414227f51d96a5f6428cbbb10ff83ddc3bb1f091f8403b7245e35497cb",
+    "hcu_sglang/batch_overlap.py": "bfbb67b7a7986e5f463864758276ec35bee9599fcb0ec40681e5096fdd69a413",
+    "hcu_sglang/cp_runtime.py": "89fdd591eeac78fbfdebd0e60e8aaf8a0d4df68c94e5f4aac70f2fe5ccc9e6a2",
+    "hcu_sglang/disagg/decode.py": "2a99d562c3ac17a89a26f15ce038b7c15eff73b88431f4b892af8d248d5507ee",
+    "hcu_sglang/disagg/prefill.py": "8ef8b68845c327e16efd390826f6a2270d81fd7295d312e2880d8b528ea02f31",
+    "hcu_sglang/kernels/mhc.py": "fea20e2b672174134ff10147bba36fc9972ab23ac40797a87817f473b5e0de9b",
+    "hcu_sglang/layers/attention/debug_flash_mla_adapter.py": "1f7153c0cf371433842ba643ddeda07f3fb173af50e0d0039ce45421cc386879",
+    "hcu_sglang/layers/engram.py": "d5f52296b452c10cb9418f3a814aafaf05f0441da98c63193b1ef34f76de5655",
+    "hcu_sglang/layers/logits_gather.py": "4d2a6c7685df00a8d71a430fda4fda1b2c349ccde47949494bacc0fe975a1f8e",
+    "hcu_sglang/layers/quantization/__init__.py": "020d4a2db9072e5bb851aa1bd11ce5aa12d21d5943a4fa0e09bf2027aa4e5e83",
+    "hcu_sglang/layers/quantization/channelwise_int8.py": "8a0755c9c8df62ac3503498ad774380cc40580c24e955b15d97ea64e34cbcd4f",
+    "hcu_sglang/layers/quantization/compressed_w4a8.py": "70b961a3031b79231e4b90680968030ca7dd0fe23246704721dc0c316255c8cb",
+    "hcu_sglang/layers/quantization/slimquant_w4a8_marlin.py": "d58cda4ac7d188ef782a85bf00c24c29630f262e10ba23040131ff132296e390",
+    "hcu_sglang/mem_cache/cp_cache_layer_split/transfer.py": "4d2ca17d5c2fad0d3b5b856a5d20eb6223056b8d203319233e34e6f3530e20fe",
+    "hcu_sglang/models/deepseek/current_v4/attention.py": "382d449ffb9061a68186b1d1c6c83f213cbc43aa1b623206bd5254bd91a416fe",
+    "hcu_sglang/models/deepseek/current_v4/backend.py": "2b08a6048192a112aaa6b489c43347d94f372c8a5476155aa69f624f776743f9",
+    "hcu_sglang/models/deepseek/current_v4/dspark.py": "7a639fe302a37d0ee6a90f2ea09d4bbca9a547aa4625f15d177f0979cb8f8f7b",
+    "hcu_sglang/models/deepseek/current_v4/execution/core.py": "9052fb471fe0d54ba372281b2a63cd2840ec6927fcb05f8f75de1d05f2d21679",
+    "hcu_sglang/models/deepseek/current_v4/hcu_backend/backend.py": "eeb26eab14922603162fb48b38db4a53df612f7ff93460dc9b15cbe3c5901abf",
+    "hcu_sglang/server_args_hooks.py": "a7529a0d3628c8bd1c13c15dc21d63db6c2223ffc010c8a85959499e864bbf24",
+    "hcu_sglang/speculative_dspark_worker.py": "a2c1a005059b2380d93a97c5eb6943c78dea7b14e1c6aed48d86e66c59a163fe",
+    "tests/contracts/hcu_source_alignment_targets.json": "da3b79e8255e85a8c5b71ec71ff1cc12b1283ab8713cd1c845e84d11dbd8f072",
+    "tests/runtime/batch_overlap_current.py": "c1e3a50025a9d3c7aba51e7d791f6069bdd3d44d453bd39d70398f6f73f32c1d",
+    "tests/runtime/channelwise_int8.py": "adeb2b6e8c2907d9186d672bd3535f8da7c7473ce4ba26feafcb3a78dbdfb67f",
+    "tests/runtime/compressed_w4a8.py": "e6c3fac30752183f1cc7db380a493d8c4685def9c646f12f339de9d604023712",
+    "tests/runtime/compressed_w4a8_loader.py": "eb5891ff40d0e140597d21a5eceac0e93f745f32bc80e179338bd38e3af30a4d",
+    "tests/runtime/cp_materialize_current.py": "8fa19207cf90f725ba1a8785e75063ca2f9c3883c468bcc297abf1f634cab1d4",
+    "tests/runtime/cp_state_descriptors.py": "7db968f70943eaeddf4726d2ea230112d2b0119e1dea6ef58df55d1b71487831",
+    "tests/runtime/cp_transfer_import.py": "f1b7da6ef4dae183e5739b36e879db099b5725b3b85dff90c5c07a738197b8a4",
+    "tests/runtime/engram_host_pointer.py": "3edfe3435d5d93b3bdd417e2835bab11b00220d763a74f77cdde8b007073adf3",
+    "tests/runtime/fix_pd_transport.py": "3b857c958eb81fb1a101dda37bd091366dbf2f3661b01f9b38e3c54497d62f04",
+    "tests/runtime/flashmla_masked_kv_gpu.py": "7f8941534ed8f70e20df8a599ccc17068f59f73ca105ea8646542408cf69bdef",
+    "tests/runtime/hcu_mega_compat.py": "eaca2efe208ed2de0634ab02f4dfc4b86d338140fed696c2e449fc637387cac7",
+    "tests/runtime/logits_gather_gpu.py": "63df92974a411591bd109444812aba83e4d791db40e976f5cb9995272ffd3bba",
+    "tests/runtime/prefill_tilelang_abi.py": "52ec09e63af7f26b07b7eca18c3189c268a8e584367cc50d6a1d834cd2732a12"
+  },
+  "recipe_origins": {
+    "prefill.sh": {
+      "origin_sha256": "4f84291d6c93e021082fe42a02e729fea249ef5fa15e630f8a443f5c613731b5",
+      "changes": [
+        "source shared environment",
+        "required role expert path",
+        "host/no_proxy/tuning/expert path variables"
+      ],
+      "model_arguments_changed": false
+    },
+    "decode.sh": {
+      "origin_sha256": "25276db5612d80099145f1f2f3c0fbd088a918352fd5dc0c5bddfd5593100292",
+      "changes": [
+        "source shared environment",
+        "required role expert path",
+        "host/no_proxy/tuning/expert path variables"
+      ],
+      "model_arguments_changed": false
+    }
+  },
+  "dependencies": {
+    "megamoe_wheel_sha256": "ab15547a36160117e7a74d7d2b202b713f325c183b649c82c90d285361c56adc",
+    "deepgemm_wheel_sha256": "2a2ec3ef4bfdc49e172596c4d2bb3b479f4071fc1c21958b23c8bbd826fb6ecd",
+    "mooncake_wheel_sha256": "4390f26651d435e370418b4dbc1aa5307535a56622fdad503c7ac8cda74c4e1c"
+  },
+  "accuracy": {
+    "HumanEval": {
+      "correct": 158,
+      "count": 164
+    },
+    "GSM8K_round1": {
+      "correct": 1285,
+      "count": 1319
+    },
+    "GSM8K_round2": "resuming_after_PD_502_with_336_saved",
+    "MATH500": "pending",
+    "full_alignment_passed": false
+  },
+  "scope": "source/deployment snapshot; not complete model accuracy, native provider qualification or performance acceptance"
+}

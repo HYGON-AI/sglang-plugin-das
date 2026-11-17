@@ -141,7 +141,7 @@ class PDTransportTests(unittest.TestCase):
         scope.enter_context(patch.object(C, "get_local_ip_auto", return_value="127.0.0.1"))
         scope.enter_context(patch.object(C.ModelConfig, "from_server_args", return_value=S(hf_config=S(num_hidden_layers=1, model_type="fixture"))))
         scope.enter_context(patch.object(T, "get_observability", return_value=S(enable_trace=False)))
-        for mod in [M, T, NM]:
+        for mod in [M, NM]:
             scope.enter_context(patch.object(mod, "get_memory", return_value=S(enable_unified_memory=False)))
         src = PDHiddenRowPool(8, 4, torch.bfloat16)
         dst = PDHiddenRowPool(8, 4, torch.bfloat16)

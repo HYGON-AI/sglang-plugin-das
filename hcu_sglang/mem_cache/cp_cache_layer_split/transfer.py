@@ -55,6 +55,8 @@ def configure_v4_transfer(kv_args, pool, draft_pool):
             ]
         elif state_type == StateType.DSV4_REQUEST_STATE:
             layout = pool.get_request_state_transfer_layout()
+        elif state_type in (StateType.PD_HIDDEN, StateType.REQUEST_ROW):
+            layout = [(state_type.value, index) for index in range(len(ptrs))]
         else:
             layout = []
         if layout and len(layout) != len(ptrs):

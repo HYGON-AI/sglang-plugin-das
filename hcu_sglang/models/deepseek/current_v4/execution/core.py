@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+
+from hcu_sglang.layers.quantization import channelwise_int8
 from sglang.srt.models.deepseek_v4 import (
     Aligner,
     Backend,
@@ -948,7 +950,7 @@ class DeepseekV4Model(NativeDeepseekV4Model):
             # ROCm starts the tail after the source layer: the gfx950 fused boundary
             # runs a whole layer in one call, and the ROCm backend carries the source
             # layer's top-k and candidates into the tail itself.
-            self.tail_writes_source_kv = not _is_hip
+            self.tail_writes_source_kv = not (_is_hip or _is_hcu)
             self.late_layer_start = (
                 last_source if self.tail_writes_source_kv else last_source + 1
             )
@@ -1825,6 +1827,10 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
         # DeepseekV4 enables, by default, the CK w8a8-block GEMM (MLA proj) and the
         # batched/contiguous-load rope kernels (faster on gfx95; .
         # Module-level toggles default OFF; flipped True here for DSV4
+        if _is_hcu and not _is_hip:
+            from sglang.kernels.ops.attention.deepseek_v4_rope import set_batched_rope
+
+            set_batched_rope(True)
         if _is_hip:
             from sglang.kernels.ops.attention.deepseek_v4_rope import set_batched_rope
             from sglang.srt.layers.quantization.fp8_utils import (
@@ -1901,6 +1907,10 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
                 )
         else:
             self.lm_head = PPMissingLayer()
+        if (self.pp_group.is_last_rank
+            and getattr(config, "model_type", None) == "deepseek_v41"
+            and channelwise_int8.enabled(self.lm_head, quant_config, add_prefix("lm_head", prefix))):
+            channelwise_int8.install(self.lm_head)
         self.logits_processor = LogitsProcessor(config)
         self.capture_aux_hidden_states = False
         get_attn_tp_context().init_context(config.q_lora_rank, is_dsa=True)

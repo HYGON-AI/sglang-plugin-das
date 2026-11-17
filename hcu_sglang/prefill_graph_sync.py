@@ -72,7 +72,7 @@ class ScheduleBatch(_NativeScheduleBatch):
         self.seq_lens = seq_lens_tensor
         self.seq_lens_cpu = seq_lens_cpu
         self.extend_num_tokens = extend_num_tokens
-        self.loc_tensor = SB.torch.tensor([-1], device=self.device)
+        self.loc_tensor = SB.torch.full((1,), -1, dtype=SB.torch.int64, device=self.device)
 
         if SB.get_exec().features.enable_encoder_swa_bounded_replay:
             for req in reqs:

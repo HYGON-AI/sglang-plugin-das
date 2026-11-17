@@ -93,6 +93,8 @@ def register() -> None:
     base_backend.register_hooks()
     flashattention_backend.register()
     debug_flash_mla_adapter.register_hooks()
+    from hcu_sglang.layers import logits_gather
+    logits_gather.register_hooks()
     dsa_kernels.register_hooks()
     dsa_topk.register_hooks()
     current_dsa.register_hooks()
@@ -184,6 +186,8 @@ def register() -> None:
     linear_fusion.register_hooks()
     layer_boundary.register_hooks()
     rotary.register_hooks()
+    from hcu_sglang.layers import engram
+    engram.register_hooks()
     mem_cache_allocation.register_hooks()
     kv_cache_dtype.register_hooks()
     swa.register_hooks()
