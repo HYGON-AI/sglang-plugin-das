@@ -82,6 +82,8 @@ def register() -> None:
     distributed.register_hooks()
     disaggregation.register_hooks()
     kernel_compat.register_hooks()
+    from hcu_sglang import sampling
+    sampling.register_hooks()
     hcu_mla_registry.register()
     base_backend.register_hooks()
     flashattention_backend.register()

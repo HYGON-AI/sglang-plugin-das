@@ -12,6 +12,8 @@ from sglang.srt.plugins.hook_registry import HookRegistry
 
 @pytest.fixture
 def registered(monkeypatch):
+    from hcu_sglang.environ import register_envs
+    register_envs()
     hooks = []
     monkeypatch.setattr(Q, 'is_hcu', lambda: True)
     monkeypatch.setattr(HookRegistry, 'register', lambda *args: hooks.append(args))
@@ -20,6 +22,7 @@ def registered(monkeypatch):
         'QwenSparseAttnBackend._metadata_from_forward_batch',
         'QwenSparseAttnBackend.forward_extend',
         'ForwardBatch._compute_mrope_positions_extend',
+        'pack_qsa_prefill_kv',
     )
     saved = []
     for target, fn, kind in hooks:
@@ -133,3 +136,84 @@ def test_mrope_mm_and_other_model_preserve_effective_baseline():
         marker = object()
         assert P.around_mrope_extend(lambda *a: marker, batch, runner,
                                     SimpleNamespace(multimodal_inputs=mm)) is marker
+
+
+@pytest.mark.skipif(os.environ.get('HCU_PLUGIN_RUN_GPU_TESTS') != '1' or not torch.cuda.is_available(), reason='explicit GPU lane required')
+@pytest.mark.parametrize('layout', ['nhd', 'bhsd'])
+@pytest.mark.parametrize('impl', ['native-packed', 'native-paged'])
+@pytest.mark.parametrize('heads,kvheads', [(24, 2), (6, 1)])
+@pytest.mark.parametrize('prefix', [False, True])
+def test_native_prefill_public_pool_write_and_read(registered, monkeypatch, impl, heads, kvheads, prefix, layout):
+    from hcu_sglang.environ import register_envs
+    from hcu_sglang.models.qwen import qsa_prefill as P
+    from sglang.srt.environ import envs
+    from sglang.srt.mem_cache.memory_pool import MHATokenToKVPool
+    from hcu_sglang.mem_cache.hcu_mha_pool import HCUMHATokenToKVPool
+    register_envs()
+    monkeypatch.setattr(A, 'get_parallel', lambda: SimpleNamespace(attn_cp_size=1))
+    monkeypatch.setattr(P, 'get_parallel', lambda: SimpleNamespace(attn_cp_size=1))
+    torch.manual_seed(1729)
+    extend = [9, 8]
+    prefixes = [2304, 2496] if prefix else [0, 0]
+    lengths = [p + e for p, e in zip(prefixes, extend)]
+    pool_class = MHATokenToKVPool if layout == 'nhd' else HCUMHATokenToKVPool
+    pool = pool_class(6144, 64, torch.float8_e5m2, kvheads, 256, 1, 'cuda', False,
+                            enable_alt_stream=False, kv_cache_layout='nhd')
+    pool.qsa_compress_ratio = 4
+    pool.qsa_block_topk = 2
+    pages = torch.randperm(96, device='cuda').reshape(2, 48) + 1
+    table = (pages[:, :, None] * 64 + torch.arange(64, device='cuda')).reshape(2, -1).to(torch.int32)
+    layer = SimpleNamespace(tp_q_head_num=heads, head_dim=256, scaling=256 ** -.5, layer_id=0)
+    full_locs = torch.cat([table[b, :n] for b, n in enumerate(lengths)]).long()
+    full_k = torch.randn(sum(lengths), kvheads, 256, device='cuda', dtype=torch.bfloat16) * .3
+    full_v = torch.randn_like(full_k)
+    pool.set_kv_buffer(layer, full_locs, full_k, full_v)
+    runner = SimpleNamespace(token_to_kv_pool=pool, device='cuda',
+                             req_to_token_pool=SimpleNamespace(req_to_token=table))
+    backend = N.QwenSparseAttnBackend(runner)
+    positions = torch.cat([torch.arange(p, p + e, device='cuda') for p, e in zip(prefixes, extend)])
+    locs = torch.cat([table[b, p:p + e] for b, (p, e) in enumerate(zip(prefixes, extend))]).long()
+    batch = SimpleNamespace(forward_mode=ForwardMode.EXTEND,
+        seq_lens=torch.tensor(lengths, device='cuda', dtype=torch.int32),
+        seq_lens_cpu=torch.tensor(lengths, dtype=torch.int32), extend_seq_lens_cpu=extend,
+        extend_seq_lens=torch.tensor(extend, device='cuda', dtype=torch.int32),
+        req_pool_indices=torch.arange(2, device='cuda'), positions=positions, mrope_positions=None,
+        input_ids=torch.zeros(sum(extend), device='cuda', dtype=torch.int64), out_cache_loc=locs, spec_info=None)
+    q = torch.randn(19, heads, 256, device='cuda', dtype=torch.bfloat16) * .3
+    k = torch.randn(17, kvheads, 256, device='cuda', dtype=torch.bfloat16) * .4
+    v = torch.randn_like(k)
+    indices = torch.full((17, 67), -1, device='cuda', dtype=torch.int32)
+    for row, position in enumerate(positions.cpu().tolist()):
+        count = min(67, position + 1)
+        indices[row, :count] = torch.randint(position + 1, (count,), device='cuda', dtype=torch.int32)
+    indices[-1] = -1
+    indices[-2] = -1
+    indices[-2, 66] = 1
+    with envs.SGLANG_QWEN4_PREFILL_QSA_IMPL.override('triton'):
+        backend.init_forward_metadata(batch)
+        expected = backend.forward_extend(q, k, v, layer, batch, topk_indices=indices)
+    with envs.SGLANG_QWEN4_PREFILL_QSA_IMPL.override(impl):
+        backend.init_forward_metadata(batch)
+        scalar = torch.Tensor.item
+        def forbid_gpu_item(tensor, *args, **kwargs):
+            assert not tensor.is_cuda, 'per-layer GPU scalar synchronization'
+            return scalar(tensor, *args, **kwargs)
+        with monkeypatch.context() as m:
+            m.setattr(torch.Tensor, 'item', forbid_gpu_item)
+            actual = backend.forward_extend(q, k, v, layer, batch, topk_indices=indices)
+    torch.testing.assert_close(actual.float(), expected.float(), rtol=.035, atol=.025, equal_nan=True)
+    torch.testing.assert_close(actual[-2:], torch.zeros_like(actual[-2:]))
+    paged = prefix and impl == 'native-paged' and heads == kvheads * 12
+    assert getattr(backend, '_hcu_native_paged_logged', False) == paged
+    assert getattr(backend, '_hcu_native_packed_logged', False) == (not paged)
+    stored = pool.get_key_buffer(0)
+    stored = stored[locs] if layout == 'nhd' else stored[locs // 64, :, locs % 64, :]
+    torch.testing.assert_close(stored.float(), k.to(torch.float8_e5m2).float())
+
+
+def test_native_prefill_cpu_preserves_effective_baseline():
+    from hcu_sglang.models.qwen import qsa_prefill as P
+    marker = object()
+    backend = SimpleNamespace(forward_metadata=SimpleNamespace(hcu_sparse_prefill=None))
+    assert P.around_forward_extend(lambda *args, **kwargs: marker, backend, torch.ones(2, 4),
+        None, None, None, SimpleNamespace(), topk_indices=torch.zeros(2, 1)) is marker

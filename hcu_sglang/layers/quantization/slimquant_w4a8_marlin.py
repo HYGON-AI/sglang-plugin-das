@@ -1249,6 +1249,11 @@ class SlimQuantW4A8Int8MarlinMoEMethod:
             if self.use_deepep:
                 from deepgemm import pack_w4a8_moe_hipc_weight
 
+                if _is_hcu and get_bool_env_var("SGLANG_USE_W4A8_CONTIGUOUS_HIPC"):
+                    from hcu_sglang.layers.moe.deepep_w4a8 import pad_contiguous_hipc_weights
+
+                    pad_contiguous_hipc_weights(layer)
+
                 layer.w13_weight = Parameter(
                     pack_w4a8_moe_hipc_weight(layer.w13_weight.data),
                     requires_grad=False,

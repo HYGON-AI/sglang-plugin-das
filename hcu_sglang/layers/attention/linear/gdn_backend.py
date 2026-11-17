@@ -7,6 +7,7 @@ from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 import torch
 
 from sglang.srt.utils import is_cpu, is_npu
+from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.utils.module_patch import get_original_attr
 
 
@@ -74,6 +75,8 @@ def replacement_forward_decode(self, layer, forward_batch, mixed_qkv, a, b, **kw
 
 
 def replacement_forward_extend(self, layer, forward_batch, mixed_qkv, a, b, **kwargs):
+    if isinstance(mixed_qkv, torch.Tensor) and mixed_qkv.shape[0] == 0 and is_hcu():
+        return mixed_qkv.new_zeros((1, 0, layer.num_v_heads, layer.head_v_dim))
     original = get_original_attr(_GDN_BACKEND_MODULE, "GDNAttnBackend.forward_extend")
     return original(self, layer, forward_batch, mixed_qkv, a, b, **kwargs)
 
