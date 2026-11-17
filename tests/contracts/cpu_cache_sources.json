@@ -1,0 +1,368 @@
+{
+  "schema_version": 1,
+  "source_root": "sglang-das",
+  "scope": "CPU cache deltas; not full module or GPU verification",
+  "definitions": [
+    {
+      "source": "python/sglang/srt/mem_cache/layout/token_major.py",
+      "source_symbol": "build_mamba_entry_views",
+      "source_sha256": "5e98b0ca2e3c5a39c586c14d87edc1f596013ee672ae1ba64d3f6c6af43e6842",
+      "source_definition_sha256": "83dc725e69e0c186f11063986f9b6c206bedff51fd8fb95a4b583d7145aa4d4f",
+      "owned_symbol": "TokenMajor.build_mamba_entry_views",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/multimodal_cache.py",
+      "source_symbol": "MultiModalStaticCache.set",
+      "source_sha256": "ca496dc41f2ab8e938ca741afeb5c25db1c389893732838578d93a234d533ea3",
+      "source_definition_sha256": "8a1968be6e6bc38733725cd9d3aa3a738481dfa477874512236c4acdad0a270b",
+      "owned_symbol": "MultiModalStaticCache.set",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+      "source_symbol": "HiCacheHF3FS.__init__",
+      "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+      "source_definition_sha256": "9d2d6b293a9e0c2024ec92db509fe45357187252fbb8b3eab04bb782e048d836",
+      "owned_symbol": "HiCacheHF3FS.__init__",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+      "source_symbol": "HiCacheHF3FS.from_env_config",
+      "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+      "source_definition_sha256": "b7e68a98c5d6f9c50aacf84bb880f126cb95d15e6748d9951128420f4ded5b3f",
+      "owned_symbol": "HiCacheHF3FS.from_env_config",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+      "source_symbol": "HiCacheHF3FS.batch_exists_v2",
+      "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+      "source_definition_sha256": "317daef104e5b35b4d98607ec2bba28a142c1d0f0ef5d7d1be06d0ab78cb5de5",
+      "owned_symbol": "HiCacheHF3FS.batch_exists_v2",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+      "source_symbol": "HiCacheHF3FS._pool_batch_get",
+      "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+      "source_definition_sha256": "47f3a7c5910109a132d501e07ab076731b520a2ec23e9a9c1aea1d32ac07680a",
+      "owned_symbol": "HiCacheHF3FS._pool_batch_get",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+      "source_symbol": "HiCacheHF3FS._pool_batch_set",
+      "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+      "source_definition_sha256": "6cfd90ae52ba155f8ea93d29d1f0207b5f38fb4f8473a9acd41b0a33a8ac9645",
+      "owned_symbol": "HiCacheHF3FS._pool_batch_set",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+      "source_symbol": "HiCacheHF3FS._pool_component_key",
+      "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+      "source_definition_sha256": "b86927c8c2c8eafca014f6aa17b64012e23aa82760b112daab808e2e619ae069",
+      "owned_symbol": "HiCacheHF3FS._pool_component_key",
+      "helper": true
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/seaweedfs/seaweedfs_store.py",
+      "source_symbol": "SeaweedFSStore.__init__",
+      "source_sha256": "3ce6d286615cd3e49953b0efdb0a93d18d99b292f629a6c5fce391ed9504a59c",
+      "source_definition_sha256": "a2a0028bd16ba717b61849409290ef32913c55e82d746e276299a89f75380e22",
+      "owned_symbol": "SeaweedFSStore.__init__",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/seaweedfs/seaweedfs_store.py",
+      "source_symbol": "SeaweedFSStore._component_key",
+      "source_sha256": "3ce6d286615cd3e49953b0efdb0a93d18d99b292f629a6c5fce391ed9504a59c",
+      "source_definition_sha256": "271b057d9990e3f003962c8db9ce088c89ee79ae153caae318bc1adbc86cac69",
+      "owned_symbol": "SeaweedFSStore._component_key",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/tensorcast_store/tensorcast_store.py",
+      "source_symbol": "_validate_storage_config",
+      "source_sha256": "313154b8dcadf4e643c3c8c80906fbc2d557492dad08fe76cc314f697328c6ac",
+      "source_definition_sha256": "9973d800227e5786f97fb24b610a42674291d1839279956173d842d69d7c5a0d",
+      "owned_symbol": "Tensorcast._validate_storage_config",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/storage_attachment.py",
+      "source_symbol": "StorageAttachment.attach",
+      "source_sha256": "b8154695db3a415dbe9767aafbbff022e3a014712387a3257764d050b0b3770b",
+      "source_definition_sha256": "7c5524d30af6571efb8e43af518bef1454dec77520d05934c2a630af3864d65d",
+      "owned_symbol": "StorageAttachment.attach",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/storage_attachment.py",
+      "source_symbol": "StorageAttachment.resolve_prefetch_threshold",
+      "source_sha256": "b8154695db3a415dbe9767aafbbff022e3a014712387a3257764d050b0b3770b",
+      "source_definition_sha256": "f69036571278d7452501b42858deb13e2153b574b2010562d6891eec3f7cbecd",
+      "owned_symbol": "StorageAttachment.resolve_prefetch_threshold",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/storage_attachment.py",
+      "source_symbol": "StorageAttachment._release_pending_storage_ops",
+      "source_sha256": "b8154695db3a415dbe9767aafbbff022e3a014712387a3257764d050b0b3770b",
+      "source_definition_sha256": "4cc909d387d5e15757223597ae0140ce73bb0bb74c78d88e6aada536d74eca21",
+      "owned_symbol": "StorageAttachment._release_pending_storage_ops",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+      "source_symbol": "MambaComponent._alloc_mamba_slot",
+      "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+      "source_definition_sha256": "980ae7f8dbe10b9206d51f8fec21edc93405e8a365b7373eeb0db679833132a7",
+      "owned_symbol": "MambaComponent._alloc_mamba_slot",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+      "source_symbol": "MambaComponent.prepare_for_caching_req",
+      "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+      "source_definition_sha256": "71bf4d45ac992c01e7d17bd309b92398eb0ac922ce6a4ded4174a4040650d684",
+      "owned_symbol": "MambaComponent.prepare_for_caching_req",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+      "source_symbol": "MambaComponent.build_external_linker_transfer",
+      "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+      "source_definition_sha256": "3baaf8e767043f46b28583260a5d2cdaefccde22fb3f9880380308b0627b4d0c",
+      "owned_symbol": "MambaComponent.build_external_linker_transfer",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+      "source_symbol": "MambaComponent.update_external_linker_load",
+      "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+      "source_definition_sha256": "4182a43bf1a933190df19635123ecc37fc764454adae00b203dce1f82601b321",
+      "owned_symbol": "MambaComponent.update_external_linker_load",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+      "source_symbol": "MambaComponent._adopt_loaded_state",
+      "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+      "source_definition_sha256": "c6084d4ddfeffb969de20a1486b4e22cbb0936bd7183b686b056f0f8b271fd4c",
+      "owned_symbol": "MambaComponent._adopt_loaded_state",
+      "helper": true
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+      "source_symbol": "_MambaBufferLoadBackContext.finalize_allocation",
+      "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+      "source_definition_sha256": "716279bab03639eac0aec05c6edb81497c740e9b9b297b9f7400cac70d0b339c",
+      "owned_symbol": "MambaBufferLoadBackContext.finalize_allocation",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/unified_cache_linker.py",
+      "source_symbol": "UnifiedCacheLinkerWrapper.__init__",
+      "source_sha256": "1805429222fc418218d006598e76ed43df2d42fbf5f20f1c62dae6eb6ff9e1ca",
+      "source_definition_sha256": "5566ddde5f89faba3d3f6f6c4848b1e7818631e6681952e67adb873a0d3f3399",
+      "owned_symbol": "UnifiedCacheLinkerWrapper.__init__",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_symbol": "_get_mooncake_client_http_port",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "source_definition_sha256": "8b9bbbb687fe8dfed9f5f8cd3aaaf23340b257c2a2aed337c4d1bdfc47e69d20",
+      "owned_symbol": "MooncakeGlue._get_mooncake_client_http_port",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_symbol": "_get_mooncake_client_http_setup_kwargs",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "source_definition_sha256": "6f097df61e9e62f628ddbe9c51c388354ffd1c6e596fcd402999238f453a54fb",
+      "owned_symbol": "MooncakeGlue._get_mooncake_client_http_setup_kwargs",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_symbol": "from_file",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "source_definition_sha256": "e634d504974d7942010a5c67ea9aeb1fb9506c0c733edf851504f7f0ec62a651",
+      "owned_symbol": "MooncakeStoreConfig.from_file",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_symbol": "load_from_extra_config",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "source_definition_sha256": "598d8e219cf805a9806ede57f93631b60cea5fca07974c62190ce621008ed37a",
+      "owned_symbol": "MooncakeStoreConfig.load_from_extra_config",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_symbol": "register_buffer",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "source_definition_sha256": "57bbbee458f30cc127b60d72080c549c7fe89616a6151366313eea2da41d0724",
+      "owned_symbol": "MooncakeBaseStore.register_buffer",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_symbol": "__init__",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "source_definition_sha256": "07cb8ff0f7a0174abdd35fa0733b80788339de5f430cff84c996d12379f7aa5c",
+      "owned_symbol": "MooncakeStore.__init__",
+      "helper": false
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_symbol": "_get_hybrid_page_component_keys",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "source_definition_sha256": "b3757992468b4492e016653f056dc9ff8a6e145dcaed76dfa0a73c43b94f30a7",
+      "owned_symbol": "MooncakeStore._get_hybrid_page_component_keys",
+      "helper": false
+    }
+  ],
+  "groups": [
+    {
+      "module": "sglang.srt.mem_cache.layout.token_major",
+      "class": "",
+      "donor": "TokenMajor",
+      "methods": [
+        "build_mamba_entry_views"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.multimodal_cache",
+      "class": "MultiModalStaticCache",
+      "donor": "MultiModalStaticCache",
+      "methods": [
+        "set"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.storage.hf3fs.storage_hf3fs",
+      "class": "HiCacheHF3FS",
+      "donor": "HiCacheHF3FS",
+      "methods": [
+        "__init__",
+        "from_env_config",
+        "batch_exists_v2",
+        "_pool_batch_get",
+        "_pool_batch_set"
+      ],
+      "helpers": [
+        "_pool_component_key"
+      ]
+    },
+    {
+      "module": "sglang.srt.mem_cache.storage.seaweedfs.seaweedfs_store",
+      "class": "SeaweedFSStore",
+      "donor": "SeaweedFSStore",
+      "methods": [
+        "__init__",
+        "_component_key"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.storage.tensorcast_store.tensorcast_store",
+      "class": "",
+      "donor": "Tensorcast",
+      "methods": [
+        "_validate_storage_config"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.unified_cache.storage_attachment",
+      "class": "StorageAttachment",
+      "donor": "StorageAttachment",
+      "methods": [
+        "__init__",
+        "attach",
+        "resolve_prefetch_threshold",
+        "_release_pending_storage_ops"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.unified_cache.components.mamba",
+      "class": "MambaComponent",
+      "donor": "MambaComponent",
+      "methods": [
+        "_alloc_mamba_slot",
+        "prepare_for_caching_req",
+        "build_external_linker_transfer",
+        "update_external_linker_load"
+      ],
+      "helpers": [
+        "_adopt_loaded_state"
+      ]
+    },
+    {
+      "module": "sglang.srt.mem_cache.unified_cache.components.mamba",
+      "class": "_MambaBufferLoadBackContext",
+      "donor": "MambaBufferLoadBackContext",
+      "methods": [
+        "finalize_allocation"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.unified_cache.unified_cache_linker",
+      "class": "UnifiedCacheLinkerWrapper",
+      "donor": "UnifiedCacheLinkerWrapper",
+      "methods": [
+        "__init__"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.storage.mooncake_store.mooncake_store",
+      "class": "",
+      "donor": "MooncakeGlue",
+      "methods": [],
+      "helpers": [
+        "_get_mooncake_client_http_port",
+        "_get_mooncake_client_http_setup_kwargs"
+      ]
+    },
+    {
+      "module": "sglang.srt.mem_cache.storage.mooncake_store.mooncake_store",
+      "class": "MooncakeStoreConfig",
+      "donor": "MooncakeStoreConfig",
+      "methods": [
+        "from_file",
+        "load_from_extra_config"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.storage.mooncake_store.mooncake_store",
+      "class": "MooncakeBaseStore",
+      "donor": "MooncakeBaseStore",
+      "methods": [
+        "register_buffer"
+      ],
+      "helpers": []
+    },
+    {
+      "module": "sglang.srt.mem_cache.storage.mooncake_store.mooncake_store",
+      "class": "MooncakeStore",
+      "donor": "MooncakeStore",
+      "methods": [
+        "__init__",
+        "_get_hybrid_page_component_keys"
+      ],
+      "helpers": []
+    }
+  ]
+}
