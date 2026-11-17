@@ -2699,3 +2699,84 @@ HCU 缺请求映射时，零 logical tokens 直接返回同设备的 long 空张
 7项既有PD trace tuning CPU测试通过，并执行L0和导览重建/快照检查。
 本次仅一行运行时代码清理，未重跑全量CPU discovery、GPU、Graph、模型精度、
 smoke或SLA；未重启容器或改变在用服务源码，生成页未做浏览器渲染复验。
+
+
+## 2026-11-17：PR #68 QSA key分段尾块行界收敛
+
+用途：处理 review r4585717820。该 review 判定
+`hcu_sglang/models/qwen/qsa_mqa_split_key.py` 的尾块越界读 `Starts`/`Ends`
+会污染 `start_min`/`end_max` 并导致输出错误，属 P2。核实后**结论不成立，
+但空转是真实的性能项**，据此只做行号收敛。
+
+核实过程：该 kernel 的 `pass_configs` 未设置 `TL_DISABLE_SAFE_MEMORY_ACCESS`，
+TileLang `LegalizeSafeMemoryAccess` 会为 global buffer 下标插入显式谓词。容器
+`yht-pd-w4a8`（tilelang 0.1.15+dtk2604、HIP 后端）编译后生成的设备码为
+`if (((blockIdx.x*32) + (threadIdx.x & 31)) < rows) condval = Starts[...];
+else condval = 0;`，`Ends` 与写入侧 `Logits` 同理。显式设置
+`TL_DISABLE_SAFE_MEMORY_ACCESS=True` 重新编译后该谓词消失，反证守护归属该
+pass。同栈 BoltOPs `tilelang_qsa_mqa_prefill` 的注释亦说明 generic kernel
+保留 safe-memory pass 使尾块在设备码中谓词化，故刻意不做行 padding。
+
+真实影响：无效 lane 读 0 使 `starts_f` 的 0 拉低 `start_min`，尾块从 key 轴
+起点起扫。该污染只会扩大覆盖范围（`min` 变小、`max` 变大），不漏写有效区间，
+随后 `_tilelang_qsa_mqa_mask_kernel` 将 `[0,start)` 与 `[end,keys)` 置 `-inf`。
+探针实测 rows=1/17/20/31/32/33/40/64/65/512/513/1024/1025/2048/2049、
+key_span=1024/2048/4096/8192、keys=65536/131072 组合，区间内与 torch 参考
+最大误差 9.5e-07~2.9e-06，无 NaN，输出不受影响。
+
+修改：`for qi in T.Parallel(block_q)` 内改为 `row=T.min(row_base+qi,rows-1)`
+后读 `Starts[row]`/`Ends[row]`。clamp 后仍取块内有效行，归约结果精确，且不引入
+`if_then_else`；未采用 review 建议的“无效行 starts 取大整型、ends 取 0”。
+同组输入下三种实现逐元素一致，clamp 优于 sentinel：rows=40/span=1024 现状
+0.143ms、sentinel 0.091ms、clamp 0.082ms；rows=20/keys=131072/span=8192 为
+0.508/0.361/0.318ms；rows=512/keys=65536/span=4096 为 0.993/1.134/1.002ms
+（sentinel 在该档反而慢于现状）。真实规模 rows=1025/span=1024 由 0.298ms
+降到 0.218ms，rows=2049/span=4096 由 0.549ms 降到 0.414ms；rows 为 block_q
+整数倍时三档无差异。
+
+新增 `tests/runtime/qwen4_qsa_split_key.py`：4 项真实设备对拍（rows=17/33/65/64，
+覆盖不足一块、刚过一块、非对齐且跨 key 分段、对齐）校验区间内数值与
+“有限值个数等于 in-range 个数”；1 项生成源码断言校验 `Starts`/`Ends` 加载
+带 `min(..., rows-1)`。红绿已复现：移除 clamp 后只剩源码断言失败，4 项数值
+用例仍通过——这正说明越界读不影响数值，只有空转差异。
+
+验证边界：5 项新GPU用例通过；L0 通过（630 python files）；导览重建与
+`--check` 通过。全量 `python3 -m unittest discover -s tests` 为
+139 tests / 1 failure / 2 errors / 13 skipped，与本改动无关（`sglang` 未在
+宿主安装导致 `server_args` 导入失败），stash 后基线一致。未重跑服务 smoke、
+SLA、整模型精度，未重启容器、未启动模型；改动前已在容器内用探针脚本
+复现全部数字。
+
+
+## 2026-11-17：PR #68 QSA key 分段内核尾块行界收紧
+
+用途：处理 review r4585717820 对 `hcu_sglang/models/qwen/qsa_mqa_split_key.py`
+尾块读取 `Starts`/`Ends` 的 P2 结论。该结论所述“越界设备内存读取返回垃圾值”
+不成立：该内核 `pass_configs` 未设置 `TL_DISABLE_SAFE_MEMORY_ACCESS`，
+TileLang `LegalizeSafeMemoryAccess` 已为 global buffer 下标插入谓词，实际生成的
+HIP 设备码为 `if (blockIdx.x*32 + (threadIdx.x & 31) < rows) condval = Starts[...]
+else condval = 0;`，`Ends` 与写入侧 `Logits` 同构；显式关闭该 pass 重新编译后
+谓词消失，可确认守护来源。BoltOPs 同栈 `tilelang_qsa_mqa_prefill` 的注释亦说明
+generic kernel 依赖该 pass 谓词化尾块，因此刻意不做行 padding。
+
+但尾块空转真实存在：越界 lane 读 0 会把 `start_min` 拉到 0，使尾块从 key 轴起点
+开始扫描。该污染只扩大覆盖区间（`min` 只会更小、`max` 只会更大），不漏写有效
+区间，且随后 BoltOPs mask kernel 把 `[0,start) ∪ [end,keys)` 置 `-inf`，故不影响
+正确性。本轮改为行号钳制 `Starts[T.min(row_base+qi, rows-1)]`，对块内有效行做
+精确归约，避免空转；未采用 review 建议的“越界行 starts 取大整型、ends 取 0”，
+因实测钳制方案逐元素一致且更快（sentinel 在 rows=512 时反而慢于修改前）。
+
+验证：新增 `tests/runtime/qwen4_qsa_split_key.py`。数值侧覆盖 rows=17/33/65/64、
+key_span=1024/2048/4096，与 torch 参考逐元素对比（atol/rtol 1e-4）并校验
+finite 单元数等于 `[start,end)` 单元数；源码侧断言生成的 `Starts`/`Ends` 载入
+带行钳制。红绿已复现：钳制回退后源码断言失败，恢复后5项通过。
+容器 `yht-pd-w4a8`、tilelang 0.1.15+dtk2604、单卡 HCU4 显式
+`HCU_PLUGIN_RUN_GPU_TESTS=1` 执行。性能侧独立探针（非仓库测试）测得
+rows=513/span=1024 由0.208ms降至0.149ms、rows=1025/span=1024 由0.298ms降至
+0.218ms、rows=2049/span=4096 由0.549ms降至0.414ms，rows为32倍数时无差异；
+该组数据来自探针而非服务，不能外推为端到端收益。
+
+未验证：未重跑全量GPU/Graph、模型精度、smoke或SLA；未重启容器、未改动在用
+服务源码。CPU discovery 结果与改动前一致（139 tests，1 failure + 2 errors
+来自 `sglang.srt.arg_groups.arg_utils` 缺 `field_names`，属既有环境缺失）；
+L0 通过，导览已重建并通过快照检查，生成页未做浏览器渲染复验。尚未push。

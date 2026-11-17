@@ -35,8 +35,9 @@ def split_key_kernel(key_span: int=4096, block_q: int=32, block_n: int=64):
             end_max_f=T.alloc_fragment([1],T.int32)
             row_base=bx*block_q
             for qi in T.Parallel(block_q):
-                starts_f[qi]=Starts[row_base+qi]
-                ends_f[qi]=Ends[row_base+qi]
+                row=T.min(row_base+qi,rows-1)
+                starts_f[qi]=Starts[row]
+                ends_f[qi]=Ends[row]
             T.reduce_min(starts_f,start_min_f,dim=0,clear=True)
             T.reduce_max(ends_f,end_max_f,dim=0,clear=True)
             start_min=T.min(start_min_f[0],keys)
