@@ -1,0 +1,1784 @@
+{
+  "schema_version": 1,
+  "source_head": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+  "semantics": "Reverse only the declared import/adapter deltas; restored bytes must equal the fixed Source file. Import success and runtime equivalence are separate lanes.",
+  "files": [
+    {
+      "target": "hcu_sglang/configs_muse_spark.py",
+      "source": "python/sglang/srt/configs/muse_spark.py",
+      "source_sha256": "2a07f2b7fd19c89125d3b718d17ea21dcd7bb347b51aeb278504efb853f118df",
+      "target_sha256": "2a07f2b7fd19c89125d3b718d17ea21dcd7bb347b51aeb278504efb853f118df",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/muse_spark_spec.py",
+      "source": "python/sglang/kernels/spec.py",
+      "source_sha256": "cd50ffa93142d7716dfd7b5ae209da122afd73e011dbc5343870432c5ecd0803",
+      "target_sha256": "384c2ff21b86f009d2a52d7a4170f89b42b15d8e3b25bdf0eb40f639d7ca9fa0",
+      "reverse_replacements": [],
+      "adapter_suffix": "\n\nfrom sglang.kernels import fused_op as _fused_op\n\n_fused_op.KernelBackend = KernelBackend\n_fused_op.BACKEND_METHODS[KernelBackend.HELION] = \"forward_helion\"\n_fused_op._METHOD_BACKEND_LABELS[\"forward_helion\"] = KernelBackend.HELION.value\nif KernelBackend.HELION not in _fused_op.DEFAULT_PRIORITY:\n    _fused_op.DEFAULT_PRIORITY = (\n        *_fused_op.DEFAULT_PRIORITY[:5],\n        KernelBackend.HELION,\n        *_fused_op.DEFAULT_PRIORITY[5:],\n    )\n",
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/__init__.py",
+      "source": "python/sglang/kernels/ops/muse_spark/__init__.py",
+      "source_sha256": "8b0f83dc261323194e8fd6876e38f2cb888e4d120f68e026a5b62fd2b2e34175",
+      "target_sha256": "8b0f83dc261323194e8fd6876e38f2cb888e4d120f68e026a5b62fd2b2e34175",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/all_gather_norm_residual.py",
+      "source": "python/sglang/kernels/ops/muse_spark/all_gather_norm_residual.py",
+      "source_sha256": "023f9877cc0a80bc1363bb46e03b15de6a3fc62832b5b739e99d1150a2cb2ebe",
+      "target_sha256": "3b8eb07e98659338f6c1e7ca1bf42a23f1c1bfa9453f2a37ccf439ebe1f22b6b",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fi_trtllm_moe_finalize_with_rmsnorm_cutedsl.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fi_trtllm_moe_finalize_with_rmsnorm_cutedsl.py",
+      "source_sha256": "01fac72ef834b126c502252dcef1c83ab5cecef4a2c6241a0ec3e2292fb008a4",
+      "target_sha256": "01fac72ef834b126c502252dcef1c83ab5cecef4a2c6241a0ec3e2292fb008a4",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fused_muse_spark_routing.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fused_muse_spark_routing.py",
+      "source_sha256": "cb1d06c49488d4b6bbffae4759571ce9db7dc42cb49f478d2cf89d0462efb586",
+      "target_sha256": "8f85544550ee416dae375d0c76043e9a8413359b55e157857466679ea7e5ee60",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.kernels.muse_spark_spec import",
+          "from sglang.kernels.spec import"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fused_norm_gate.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fused_norm_gate.py",
+      "source_sha256": "e3db6a599c235c9a8256a3d617a32432986aacc804b4f5fc2616e65ea64cda13",
+      "target_sha256": "f02155c71b46d37b9686b5808bcbea78544e1a297b7337aad786f33e73197f51",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.kernels.muse_spark_spec import",
+          "from sglang.kernels.spec import"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fused_norm_residual.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fused_norm_residual.py",
+      "source_sha256": "33bb01cd2758dc181b65aa7a54ba43a9cf8c433fb5a7d952dc9d7de79bba3d53",
+      "target_sha256": "566875a6cda17d5bf66d8ef2ff0860283502cbdc06e64ba10ad56652f2c047c0",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.layers.muse_spark",
+          "from sglang.srt.layers.muse_spark"
+        ],
+        [
+          "from hcu_sglang.kernels.muse_spark_spec import",
+          "from sglang.kernels.spec import"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fused_op_tuning.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fused_op_tuning.py",
+      "source_sha256": "a8bb0db2b95a98a19c59bd0fbede9d653cc6d59b80ca40add168ddb5e9bd5e8e",
+      "target_sha256": "a8bb0db2b95a98a19c59bd0fbede9d653cc6d59b80ca40add168ddb5e9bd5e8e",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fused_post_expert_norm_weighted_sum_triton.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fused_post_expert_norm_weighted_sum_triton.py",
+      "source_sha256": "9b816e971817f96a22d2d09424dc8dfa6f6020e18de73fb895674c76494fe591",
+      "target_sha256": "9b816e971817f96a22d2d09424dc8dfa6f6020e18de73fb895674c76494fe591",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fused_post_expert_norm_weighted_sum_trtllm.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fused_post_expert_norm_weighted_sum_trtllm.py",
+      "source_sha256": "8462abb7b824e94c0e6d0b192cb49377d37c34da5a4b1776e36a5c779a6b926a",
+      "target_sha256": "5f0ce470b3d091676eb4bcc4f64dd637136967e6c723a12cc37dc059a3e97a47",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.kernels.muse_spark_spec import",
+          "from sglang.kernels.spec import"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/fused_qk_norm.py",
+      "source": "python/sglang/kernels/ops/muse_spark/fused_qk_norm.py",
+      "source_sha256": "5cbe7c71de40b26a267ff77ab7cda6eb5d956af6f8ac44ff7bbe1c8eed21a44b",
+      "target_sha256": "f31a8daaace307477e82a7da9f775a42abe3352566e78790e929eb75aa9bf0d9",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.kernels.muse_spark_spec import",
+          "from sglang.kernels.spec import"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/gemm_ag.py",
+      "source": "python/sglang/kernels/ops/muse_spark/gemm_ag.py",
+      "source_sha256": "66dd12a9f00ea86c9a730043e04247cb8c113ac6089a3d8e9bf8b6c7ed143a4c",
+      "target_sha256": "66dd12a9f00ea86c9a730043e04247cb8c113ac6089a3d8e9bf8b6c7ed143a4c",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/helion_norm_fp4_quant.py",
+      "source": "python/sglang/kernels/ops/muse_spark/helion_norm_fp4_quant.py",
+      "source_sha256": "79e88c055813cc5606bc4c66998d2a83704a6e9625d0e27aa756bb82ccd72f14",
+      "target_sha256": "0dc3e72cefd905e33359fbfac703ee33fbcc6bb6fba01b8d7e64639b1e75328e",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/helion_norm_gate.py",
+      "source": "python/sglang/kernels/ops/muse_spark/helion_norm_gate.py",
+      "source_sha256": "affc26572547a7cc69a6a969ad49b53ef06b1de6e796e38e5938cc4dc5df90a0",
+      "target_sha256": "6a64ac5aacff4cf22a76b1d93487a6d91fd9d25c207416254f4c7a38804a97f1",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/helion_post_expert.py",
+      "source": "python/sglang/kernels/ops/muse_spark/helion_post_expert.py",
+      "source_sha256": "d5d1857b5a2fc5eeab08cc4441e09f5cb55858da532c6db7ea00062c3b87f3de",
+      "target_sha256": "d5d1857b5a2fc5eeab08cc4441e09f5cb55858da532c6db7ea00062c3b87f3de",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/helion_qk_norm.py",
+      "source": "python/sglang/kernels/ops/muse_spark/helion_qk_norm.py",
+      "source_sha256": "c1572bb5b8989fedc9ff455a43cb6f401b9310f375302ec7b93dd6801e27f62d",
+      "target_sha256": "c9a26ecbf4a6bd9be1d30af03086a075afc56534cd5fe137f5bb6ebb79102dc6",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/helion_runtime.py",
+      "source": "python/sglang/kernels/ops/muse_spark/helion_runtime.py",
+      "source_sha256": "2c8c9d7624e655c2c357b3034db3917d9d713ae8625fef4f3057e47baa476cd4",
+      "target_sha256": "2d0edd43ba06ff486cbbe1062effb297886330edef8ae76674957701531c51d3",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.muse_spark_spec import",
+          "from sglang.kernels.spec import"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/norm_fp4_quant.py",
+      "source": "python/sglang/kernels/ops/muse_spark/norm_fp4_quant.py",
+      "source_sha256": "c75807eb4d6c1bb96e7210946a86d4ff4787243aaf8c757c3ec60c9c75bd59de",
+      "target_sha256": "0870c0538d756ded24a2caaba8d2db0c7d1beaf6cde5ec2905c10fdf0f8cc755",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.kernels.muse_spark_spec import",
+          "from sglang.kernels.spec import"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/norm_gate.py",
+      "source": "python/sglang/kernels/ops/muse_spark/norm_gate.py",
+      "source_sha256": "fb66534284d3980d9add7f2417d2b5f7c6e94c5f230c05eba93bf31db72d4815",
+      "target_sha256": "fb66534284d3980d9add7f2417d2b5f7c6e94c5f230c05eba93bf31db72d4815",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/norm_residual.py",
+      "source": "python/sglang/kernels/ops/muse_spark/norm_residual.py",
+      "source_sha256": "6d8a9256999fce0833e81ec7badedca743ddf25258b92bab7201becf879b6d1e",
+      "target_sha256": "6d8a9256999fce0833e81ec7badedca743ddf25258b92bab7201becf879b6d1e",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/router_gemm.py",
+      "source": "python/sglang/kernels/ops/muse_spark/router_gemm.py",
+      "source_sha256": "478cff3d96cb1b70f622127e500768e2d51491fe176b0d6aec58a867d5806c79",
+      "target_sha256": "478cff3d96cb1b70f622127e500768e2d51491fe176b0d6aec58a867d5806c79",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/routing.py",
+      "source": "python/sglang/kernels/ops/muse_spark/routing.py",
+      "source_sha256": "7883429d62ad85a2a076f9f1f4e9be4ecbd085c39437056dc2d7771e87124706",
+      "target_sha256": "7883429d62ad85a2a076f9f1f4e9be4ecbd085c39437056dc2d7771e87124706",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/row_sum.py",
+      "source": "python/sglang/kernels/ops/muse_spark/row_sum.py",
+      "source_sha256": "1b8d8bdecc9ac4a4863066c3d4a65aa94f4a1667f49a44e676e1e0275f844b95",
+      "target_sha256": "1b8d8bdecc9ac4a4863066c3d4a65aa94f4a1667f49a44e676e1e0275f844b95",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/kernels/ops/muse_spark/triton_sum.py",
+      "source": "python/sglang/kernels/ops/muse_spark/triton_sum.py",
+      "source_sha256": "36c4122386ce2430401c70c2d02f07e28dac05b473452b553dd48ecc1a977c40",
+      "target_sha256": "09069e22de6e6785a19c47c0d4d2cba87b188e1bfebadfcc1e9bd7641feda7c2",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/fla/l2norm_source.py",
+      "source": "python/sglang/kernels/ops/attention/fla/l2norm.py",
+      "source_sha256": "c8142677d81757f23de083f6952a3d81d7f1bba159f2440f3b0645655059f1d1",
+      "target_sha256": "c8142677d81757f23de083f6952a3d81d7f1bba159f2440f3b0645655059f1d1",
+      "reverse_replacements": [],
+      "source_header_lines": [
+        "# Adapt from https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/l2norm.py",
+        "# -*- coding: utf-8 -*-",
+        "# Copyright (c) 2026 Hygon Information Technology Co., Ltd.",
+        "# SPDX-License-Identifier: Apache-2.0",
+        "# Modified by Hygon Information Technology Co., Ltd., 2026.",
+        "",
+        "# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang",
+        ""
+      ],
+      "source_declaration": "保留来源声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/__init__.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/__init__.py",
+      "source_sha256": "089c6c6ce803d57f4001195afdf371aadcc73b0a67fa835ce4880585215354e7",
+      "target_sha256": "643ffb3e47f4ad6967b853d0659e77dccbfa8727979eda378aa5fcc08449cee0",
+      "reverse_replacements": [
+        [
+          "    from hcu_sglang.utils.detection import is_hcu\n",
+          "    from sglang.srt.utils import is_hcu\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/dequant_k_cache.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/dequant_k_cache.py",
+      "source_sha256": "76d109db838ecc2015358f1a36ba0e4e10df6de78ab8a754267cbb961c019adb",
+      "target_sha256": "76d109db838ecc2015358f1a36ba0e4e10df6de78ab8a754267cbb961c019adb",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/dsa_backend.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/dsa_backend.py",
+      "source_sha256": "9cbf93216b537f00cbe5a01e58c979ae0df6f04d94db68bd4eee3e7fce58cd04",
+      "target_sha256": "cbafa3fe6f8b8a946af9edccc99106666d85556aed92fe5f21de75318f7ffe27",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.attention.glm5_next.dequant_k_cache import (\n",
+          "from sglang.srt.layers.attention.glm5_next.dequant_k_cache import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.indexer import BaseIndexerMetadata\nfrom hcu_sglang.layers.attention.glm5_next.topk_transform import TopkTransformMethod\nfrom hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.indexer import BaseIndexerMetadata\nfrom sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.mtp_precompute import (\n",
+          "from sglang.srt.layers.attention.glm5_next.mtp_precompute import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.runtime import (\n",
+          "from sglang.srt.layers.attention.glm5_next.runtime import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.transform_index import (\n",
+          "from sglang.srt.layers.attention.glm5_next.transform_index import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.utils import (\n",
+          "from sglang.srt.layers.attention.glm5_next.utils import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.utils.detection import is_hcu\nfrom sglang.srt.utils import is_cuda, is_hip\n",
+          "from sglang.srt.utils import is_cuda, is_hcu, is_hip\n",
+          "once"
+        ],
+        [
+          "    from hcu_sglang.layers.attention.glm5_next.triton_kernel import get_valid_kv_indices\n",
+          "    from sglang.srt.layers.attention.glm5_next.triton_kernel import get_valid_kv_indices\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.flashattention_interface import flash_attn_with_kvcache\n",
+          "from sglang.srt.layers.attention.flashattention_interface import flash_attn_with_kvcache\n",
+          "once"
+        ],
+        [
+          "        from hcu_sglang.layers.attention.glm5_next import is_glm5_next_hcu\n",
+          "        from sglang.srt.layers.attention.glm5_next import is_glm5_next_hcu\n",
+          "once"
+        ],
+        [
+          "@torch.compile\ndef _compiled_cat(tensors: list[torch.Tensor], dim: int = -1) -> torch.Tensor:\n",
+          "class TopkTransformMethod(IntEnum):\n    # Transform topk indices to indices to the page table (page_size = 1)\n    PAGED = auto()\n    # Transform topk indices to indices to ragged kv (non-paged)\n    RAGGED = auto()\n\n\n@torch.compile\ndef _compiled_cat(tensors: list[torch.Tensor], dim: int = -1) -> torch.Tensor:\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/index_buf_accessor.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/index_buf_accessor.py",
+      "source_sha256": "4af6f39946f3936295ed150666bd0b3b6491f2b0570354786a2267cc90d394c5",
+      "target_sha256": "f31986df1ae9cf7a1d2161d8d6e6f2ced1040451c51a1d337f699ec39e899670",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.attention.glm5_next.utils import (\n",
+          "from sglang.srt.layers.attention.glm5_next.utils import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.utils.detection import is_hcu\nfrom sglang.srt.utils import get_bool_env_var, is_hip\n",
+          "from sglang.srt.utils import get_bool_env_var, is_hcu, is_hip\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/indexer.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/indexer.py",
+      "source_sha256": "69011eb54e3c94272d5b9a0fa46efd82feba7157a5267ef44d4fda6f06e17871",
+      "target_sha256": "0aa26a5148f823ef4463c007a375ac94dea9140635a9ae6e12e014b0216f726b",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.attention.glm5_next.utils import (\n",
+          "from sglang.srt.layers.attention.glm5_next.utils import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.utils.detection import is_hcu\nfrom sglang.srt.utils import add_prefix, ceil_align, get_bool_env_var, is_cuda, is_gfx95_supported, is_hip, is_npu\n",
+          "from sglang.srt.utils import (\n    add_prefix,\n    ceil_align,\n    get_bool_env_var,\n    is_cuda,\n    is_gfx95_supported,\n    is_hcu,\n    is_hip,\n    is_npu,\n)\n",
+          "once"
+        ],
+        [
+          "    from hcu_sglang.layers.attention.glm5_next.triton_kernel import (\n",
+          "    from sglang.srt.layers.attention.glm5_next.triton_kernel import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.runtime import (\n",
+          "from sglang.srt.layers.attention.glm5_next.runtime import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.glm5_next_layer_boundary import ScatterMode\n",
+          "from sglang.srt.layers.layer_boundary.hcu_legacy import ScatterMode\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.models.deepseek.current_v4.hcu_backend.hcu_cp_utils import cp_all_gather_rerange_output\n",
+          "from sglang.srt.layers.utils.cp_utils import cp_all_gather_rerange_output\n",
+          "once"
+        ],
+        [
+          "                from hcu_sglang.layers.attention.glm5_next.kpool.kernels import (\n",
+          "                from sglang.srt.layers.attention.glm5_next.kpool.kernels import (\n",
+          "once"
+        ],
+        [
+          "            from hcu_sglang.layers.attention.glm5_next.triton_kernel import act_quant\n",
+          "            from sglang.srt.layers.attention.glm5_next.triton_kernel import act_quant\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/kpool/__init__.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/kpool/__init__.py",
+      "source_sha256": "5dc68f68851e67e09189343bfc6cd97005d878a7b588255021373c6e953560bd",
+      "target_sha256": "3b1a3cdc6dd54a7052c86c8939f23695dc20871f4832a3da8839414ac4d4a1ed",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.indexer import IndexerKPool\nfrom hcu_sglang.layers.attention.glm5_next.kpool.planner import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.indexer import IndexerKPool\nfrom sglang.srt.layers.attention.glm5_next.kpool.planner import (\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/kpool/indexer.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/kpool/indexer.py",
+      "source_sha256": "11b95842a038ae37ae260566f82ef7ab7db67c87cd98d6382a96e32116b87368",
+      "target_sha256": "96c768e1a08964e5ab1d0bb9c6d5ca08f387741227c599ab082feca619b42f78",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.attention.glm5_next.topk_transform import TopkTransformMethod\nfrom hcu_sglang.layers.attention.glm5_next.indexer import (\n",
+          "from sglang.srt.layers.attention.glm5_next.dsa_backend import TopkTransformMethod\nfrom sglang.srt.layers.attention.glm5_next.indexer import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.kernels import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.kernels import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.runtime import (\n",
+          "from sglang.srt.layers.attention.glm5_next.runtime import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.utils import (\n",
+          "from sglang.srt.layers.attention.glm5_next.utils import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.models.deepseek.current_v4.hcu_backend.hcu_cp_utils import (\n",
+          "from sglang.srt.layers.utils.cp_utils import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.utils.detection import is_hcu\nfrom sglang.srt.utils import get_bool_env_var, is_cuda, is_hip, is_npu\n",
+          "from sglang.srt.utils import get_bool_env_var, is_cuda, is_hcu, is_hip, is_npu\n",
+          "once"
+        ],
+        [
+          "        from hcu_sglang.layers.attention.glm5_next.triton_kernel import act_quant\n",
+          "        from sglang.srt.layers.attention.glm5_next.triton_kernel import act_quant\n",
+          "once"
+        ],
+        [
+          "            from hcu_sglang.layers.attention.glm5_next.triton_kernel import act_quant\n",
+          "            from sglang.srt.layers.attention.glm5_next.triton_kernel import act_quant\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/kpool/kernels.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/kpool/kernels.py",
+      "source_sha256": "1a2b3bdd89405013b825ae403d45d83ee6b7c6604d2988b6bc23f1713334d423",
+      "target_sha256": "1a2b3bdd89405013b825ae403d45d83ee6b7c6604d2988b6bc23f1713334d423",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/kpool/planner.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/kpool/planner.py",
+      "source_sha256": "c4f995c94c9021aa7cb1855b9b86fa134361109a302ee744fa15d82df06621f0",
+      "target_sha256": "10c88c380dd58f8d51537d94e1195edc2cd4828d89f12919b26459327c739478",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.kpool_write_plan import (\n",
+          "from sglang.kernels.jit.kpool_write_plan import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.kpool.kernels import (\n",
+          "from sglang.srt.layers.attention.glm5_next.kpool.kernels import (\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.layers.attention.glm5_next.utils import dsa_use_prefill_cp\n",
+          "from sglang.srt.layers.attention.glm5_next.utils import dsa_use_prefill_cp\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.utils.detection import is_hcu\nfrom sglang.srt.utils import is_cuda\n",
+          "from sglang.srt.utils import is_cuda, is_hcu\n",
+          "once"
+        ],
+        [
+          "    from hcu_sglang.layers.attention.glm5_next.dsa_backend import (\n",
+          "    from sglang.srt.layers.attention.glm5_next.dsa_backend import (\n",
+          "once"
+        ],
+        [
+          "    from hcu_sglang.layers.attention.glm5_next.dsa_backend import TopkTransformMethod\n",
+          "    from sglang.srt.layers.attention.glm5_next.dsa_backend import TopkTransformMethod\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/mtp_precompute.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/mtp_precompute.py",
+      "source_sha256": "d3afa7fa8e1415babcb65b613acb20dc208db4e20427e9e84922bd00852da824",
+      "target_sha256": "175166581c3f930aaaff53803a2ab8f8b866023996adabe4bf79866c9966081a",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.attention.glm5_next.utils import compute_dsa_seqlens\n",
+          "from sglang.srt.layers.attention.glm5_next.utils import compute_dsa_seqlens\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/quant_k_cache.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/quant_k_cache.py",
+      "source_sha256": "6adee228291a895fb6d3852a0b3d3bb53a2223f1d5758bbdd8148d5b277de423",
+      "target_sha256": "6adee228291a895fb6d3852a0b3d3bb53a2223f1d5758bbdd8148d5b277de423",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/runtime.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/runtime.py",
+      "source_sha256": "c76b69153df8a9f9f386ae919229e98ed698524da8b5365fb64810fbbba6287e",
+      "target_sha256": "c76b69153df8a9f9f386ae919229e98ed698524da8b5365fb64810fbbba6287e",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/transform_index.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/transform_index.py",
+      "source_sha256": "58b98416e8017b6214e92630a9a40696bae82ca67cd0e8c728b6d2cbb26b4243",
+      "target_sha256": "58b98416e8017b6214e92630a9a40696bae82ca67cd0e8c728b6d2cbb26b4243",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/triton_kernel.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/triton_kernel.py",
+      "source_sha256": "cc33e2ec40cf6277069712ecde26cc8993878266b9c70a64ba524a211cf65290",
+      "target_sha256": "cc33e2ec40cf6277069712ecde26cc8993878266b9c70a64ba524a211cf65290",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/utils.py",
+      "source": "python/sglang/srt/layers/attention/glm5_next/utils.py",
+      "source_sha256": "84770e38d606712fe91908665a462074066cdce2334a42066361b95387de058a",
+      "target_sha256": "3cce480e3b6ba8b3b77094f7ef1c4ec63dd4113d2e65baf50e4b217ef0c13090",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.attention.glm5_next.runtime import (\n",
+          "from sglang.srt.layers.attention.glm5_next.runtime import (\n",
+          "once"
+        ],
+        [
+          "from sglang.srt.layers.dp_attention import DpPaddingMode\nfrom hcu_sglang.layers.dp_attention import get_attention_dp_rank\n",
+          "from sglang.srt.layers.dp_attention import DpPaddingMode, get_attention_dp_rank\n",
+          "once"
+        ],
+        [
+          "from hcu_sglang.utils.detection import is_hcu\nfrom sglang.srt.utils import get_bool_env_var, is_cuda, is_hip, is_pin_memory_available\n",
+          "from sglang.srt.utils import (\n    get_bool_env_var,\n    is_cuda,\n    is_hcu,\n    is_hip,\n    is_pin_memory_available,\n)\n",
+          "once"
+        ],
+        [
+          "    from hcu_sglang.layers.attention.glm5_next import is_glm5_next_hcu\n",
+          "    from sglang.srt.layers.attention.glm5_next import is_glm5_next_hcu\n",
+          "once"
+        ],
+        [
+          "    from hcu_sglang.layers.attention.glm5_next.transform_index import (\n",
+          "    from sglang.srt.layers.attention.glm5_next.transform_index import (\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/attention/index_topk_share.py",
+      "source": "python/sglang/srt/layers/attention/index_topk_share.py",
+      "source_sha256": "c66979b1a295344ff70c68db5531c84b86828412224b80c41b2af0921b5e5174",
+      "target_sha256": "612778ad393537a51dbf7328f3e2718443d653eb3fbdddbcfee141678de4a607",
+      "adapter_suffix": "\n\ndef register_hooks() -> None:\n    from hcu_sglang.utils.detection import is_hcu\n\n    if not is_hcu():\n        return\n    from sglang.srt.layers.attention import index_topk_share as native\n    from sglang.srt.plugins.hook_registry import HookRegistry, HookType\n\n    if not hasattr(native, \"write_mtp_seed\"):\n        native.write_mtp_seed = write_mtp_seed\n    HookRegistry.register(\n        \"sglang.srt.layers.attention.index_topk_share.IndexTopKShareState\",\n        IndexTopKShareState,\n        HookType.REPLACE,\n    )\n    HookRegistry.register(\n        \"sglang.srt.layers.attention.index_topk_share.write_mtp_seed\",\n        write_mtp_seed,\n        HookType.REPLACE,\n    )\n",
+      "source_header_lines": [],
+      "reverse_replacements": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/communicator_glm5_next_cp.py",
+      "source": "python/sglang/srt/layers/communicator_glm5_next_cp.py",
+      "source_sha256": "db3b9abded4073f209f821f3a558ca6b82dc4c3691fc33f13e24a10d6a5e9f92",
+      "target_sha256": "2e6933588672043e40cc6c8356786ba0e762e96aec582fd5f1249c1f7869d6d1",
+      "reverse_replacements": [
+        [
+          "from sglang.srt.layers.attention.dsa.utils import is_dsa_enable_prefill_cp\nfrom hcu_sglang.dsa_utils import dsa_prefill_has_history, dsa_use_prefill_cp",
+          "from sglang.srt.layers.attention.dsa.utils import (\n    dsa_prefill_has_history,\n    dsa_use_prefill_cp,\n    is_dsa_enable_prefill_cp,\n)"
+        ],
+        [
+          "from hcu_sglang.layers.glm5_next_layer_boundary import (",
+          "from sglang.srt.layers.layer_boundary.hcu_legacy import ("
+        ],
+        [
+          "from hcu_sglang.mem_cache.dsa_cache_layer_split import build_main_kv_page_plan",
+          "from sglang.srt.mem_cache.layer_split import build_main_kv_page_plan"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/communicator_glm5_next_mhc.py",
+      "source": "python/sglang/srt/layers/communicator_glm5_next_mhc.py",
+      "source_sha256": "466894a07744cc657c2a67d90e7a42c47a44c21a0a49c59a72e1b2b24447299d",
+      "target_sha256": "da8899be4584f8ebe1b3a33e3d1b897d6d8cb600cd0e007005ca2767721a41b8",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.glm5_next_layer_boundary import (",
+          "from sglang.srt.layers.layer_boundary.hcu_legacy import ("
+        ],
+        [
+          "from hcu_sglang.layers.dp_attention import get_attention_dp_size\n",
+          ""
+        ],
+        [
+          "    dp_scatter,\n    get_global_dp_buffer,",
+          "    dp_scatter,\n    get_attention_dp_size,\n    get_global_dp_buffer,"
+        ],
+        [
+          "from hcu_sglang.layers.fused_rms_quant import (",
+          "from sglang.srt.layers.fused_rms_quant import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/communicator_glm5_next_mhc_cp.py",
+      "source": "python/sglang/srt/layers/communicator_glm5_next_mhc_cp.py",
+      "source_sha256": "beac9463b57a386c73ab0580d125515c47e40a12ce7ebde935900959ed06dac3",
+      "target_sha256": "db8d2ecad036de5de899018c47cb8f93433de1c38ef8ccfe48b05e25224b18ba",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.dsa_utils import dsa_use_prefill_cp",
+          "from sglang.srt.layers.attention.dsa.utils import dsa_use_prefill_cp"
+        ],
+        [
+          "from hcu_sglang.layers.communicator_glm5_next_cp import (",
+          "from sglang.srt.layers.communicator_glm5_next_cp import ("
+        ],
+        [
+          "from hcu_sglang.layers.communicator_glm5_next_mhc import MHCLayerCommunicator",
+          "from sglang.srt.layers.communicator_glm5_next_mhc import MHCLayerCommunicator"
+        ],
+        [
+          "from hcu_sglang.layers.glm5_next_cp_utils import (",
+          "from sglang.srt.layers.utils.glm5_next_cp import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/glm5_next_cp_utils.py",
+      "source": "python/sglang/srt/layers/utils/glm5_next_cp.py",
+      "source_sha256": "19ce15052d2fe5fa2e981335403efd277104565bad5bae66f510ef7eb65a0ff4",
+      "target_sha256": "b50cb060e6786acd880d333fdf762d058828212fd08badf8d6d341846501bae4",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.models.deepseek.current_v4.hcu_backend.hcu_cp_utils import (",
+          "from sglang.srt.layers.utils.cp_utils import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/glm5_next_layer_boundary.py",
+      "source": "python/sglang/srt/layers/layer_boundary/hcu_legacy.py",
+      "source_sha256": "7fe68244faa01c73cef91155491896761619c2f8b49896bbfbb68b9e1b0081ac",
+      "target_sha256": "c4e778a1b8dd2db7ac4ce9d40de45fa921f0f6ea3325bd68e42dfa41f7e96463",
+      "reverse_replacements": [
+        [
+          "from sglang.srt.layers.attention.dsa.utils import is_dsa_enable_prefill_cp\nfrom hcu_sglang.dsa_utils import dsa_use_prefill_cp",
+          "from sglang.srt.layers.attention.dsa.utils import (\n    dsa_use_prefill_cp,\n    is_dsa_enable_prefill_cp,\n)"
+        ]
+      ],
+      "source_header_lines": [
+        "# Copyright (c) 2026 Hygon Information Technology Co., Ltd.",
+        "# Modified by Hygon Information Technology Co., Ltd., 2026.",
+        "# SPDX-License-Identifier: Apache-2.0",
+        "# Copyright 2023-2024 SGLang Team",
+        "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+        "# you may not use this file except in compliance with the License.",
+        "# You may obtain a copy of the License at",
+        "#",
+        "#     http://www.apache.org/licenses/LICENSE-2.0",
+        "#",
+        "# Unless required by applicable law or agreed to in writing, software",
+        "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+        "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+        "# See the License for the specific language governing permissions and",
+        "# limitations under the License.",
+        "# ==============================================================================",
+        "# Legacy single-module layer communicator, relocated unchanged when the",
+        "# communicator became this package. Only the GLM5-Next (GLM-5.3 Flash) model",
+        "# and its CP / MHC communicators still build on this API."
+      ],
+      "source_declaration": "保留来源声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/__init__.py",
+      "source": "python/sglang/srt/layers/muse_spark/__init__.py",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_audio.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_audio.py",
+      "source_sha256": "082590cccc6432fdc7c94c27d00a1cd58e92a37ab124e80cbc86eae8e0702a01",
+      "target_sha256": "2499563ec33a25d7ea06e1ec7e4bf4c683bd286010601c0008f832a36219df72",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.configs_muse_spark",
+          "from sglang.srt.configs.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_bf16_moe.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_bf16_moe.py",
+      "source_sha256": "969a554ed923bccba7ef54f77170afda47c142836d6f7ebd84e59213a7b7697b",
+      "target_sha256": "1fd43dfe9d7b8bac72852d741e223daefb3c0be18df81d22ad1cbac9860b3e78",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.layers.muse_spark",
+          "from sglang.srt.layers.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_fp4_moe.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_fp4_moe.py",
+      "source_sha256": "be3c325357b6eacefa212a16f98fcd64f8558743da1cd6f3fd6c0eea70163bbd",
+      "target_sha256": "d948f6b81d687fac44502ad7a78d07cf5ae5710ecbaef85e26bbaafee5dd8bf5",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.kernels.ops.muse_spark",
+          "from sglang.kernels.ops.muse_spark"
+        ],
+        [
+          "from hcu_sglang.layers.muse_spark",
+          "from sglang.srt.layers.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_int4_moe.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_int4_moe.py",
+      "source_sha256": "5cb1d7d790e938e8729f3b11ca25f57ff8e5ac102d9b021b3f0a6485319600fd",
+      "target_sha256": "5cb1d7d790e938e8729f3b11ca25f57ff8e5ac102d9b021b3f0a6485319600fd",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_layers.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_layers.py",
+      "source_sha256": "930e66da715bae576ae681f2dfd8353a36a9ca469a229d88fa3f77bc1e74cef0",
+      "target_sha256": "930e66da715bae576ae681f2dfd8353a36a9ca469a229d88fa3f77bc1e74cef0",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_megamoe.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_megamoe.py",
+      "source_sha256": "d5013b179728276bb28e28e308e8cfe60399a7453d1b876eeee4a39b49c44016",
+      "target_sha256": "70125e136816351fcba5caedd74180ee3fdf183df7803da12b53b73ae03fadc0",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.muse_spark",
+          "from sglang.srt.layers.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_navit.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_navit.py",
+      "source_sha256": "30a38610c66f4cccd8dae8c6236af3037afa6fdad0b5a9fbd028b4bc2a07fc31",
+      "target_sha256": "e100903226fe82fcb99542068fd06fd6a28c7da533e8e45505fc5dee6f572ac2",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.configs_muse_spark",
+          "from sglang.srt.configs.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/muse_spark/muse_spark_nvfp4_moe.py",
+      "source": "python/sglang/srt/layers/muse_spark/muse_spark_nvfp4_moe.py",
+      "source_sha256": "6a1769ef903f1771040fc97e78c3fa46662ab0311cb45a5455984562da2c8a5d",
+      "target_sha256": "c962aac92cd4bb9f5234389fdac581f08e811135801e0a863f2a1cd7dc532031",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.layers.muse_spark",
+          "from sglang.srt.layers.muse_spark"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/quantization/quant_ops.py",
+      "source": "python/sglang/srt/layers/quantization/compressed_tensors/quant_ops.py",
+      "source_sha256": "3bca0050f22b43b6cc084f6f2f6ff1a9e73fc094e2247307463d0b5d796e23da",
+      "target_sha256": "60a56546d0e844d4b24599dd4f902a900b7a2a85f258acb926c9c0736bdcb80f",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.utils.detection import is_hcu as is_hcu\n",
+          "from sglang.srt.utils import is_hcu\n"
+        ],
+        [
+          "    _, out = quant_ops.hipblaslt_w8a8_gemm(\n        a, b, scale_a, scale_b, m, n, k, \"NT\", out_dtype\n    )\n    if bias is not None:\n        out.add_(bias)\n    return out\n",
+          "    _, out = quant_ops.hipblaslt_w8a8_gemm(\n        a, b, scale_a, scale_b, m, n, k, \"NT\", out_dtype\n    )\n    return out\n",
+          "once"
+        ]
+      ],
+      "source_header_lines": [
+        "# Copyright 2026 Hygon Information Technology Co., Ltd.",
+        "#",
+        "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+        "# you may not use this file except in compliance with the License.",
+        "# You may obtain a copy of the License at",
+        "#",
+        "#     http://www.apache.org/licenses/LICENSE-2.0",
+        "#",
+        "# Unless required by applicable law or agreed to in writing, software",
+        "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+        "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+        "# See the License for the specific language governing permissions and",
+        "# limitations under the License."
+      ],
+      "source_declaration": "保留来源声明"
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cleanup.py",
+      "source": "python/sglang/srt/mem_cache/cleanup.py",
+      "source_sha256": "a3a347d73b6cdf1e48f4ef446d6b7ec51f14f17afac969d4abdf42731c3c0b3c",
+      "target_sha256": "a3a347d73b6cdf1e48f4ef446d6b7ec51f14f17afac969d4abdf42731c3c0b3c",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/__init__.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/__init__.py",
+      "source_sha256": "d9c30f54af6a86cef471730ad7cee62fb7b424fff754ccf3602c0b541ed8247d",
+      "target_sha256": "430ebcc8f27d906ba37a3bebfe4d3652843639aaf2fd65f867935d594628024f",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.deepseek_v4_layout import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.deepseek_v4_layout import ("
+        ],
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.pool_base import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.pool_base import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py",
+      "source_sha256": "8d77253c98ebba3b2f53e0ef7ddefc6e60107de22e07a4a71f94423ae28a95d0",
+      "target_sha256": "2b435ac078115f2c4b518e7056ad765d8e66ed9dd159f7f633078e44bd0a081f",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.utils import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.utils import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/pool_base.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/pool_base.py",
+      "source_sha256": "3b043cfdb3b7f3511e21533651857de7d60949c1d764463c3eac88e325db9b74",
+      "target_sha256": "4124722d79062ce6e8cfd71bc592af6fecc2dc15f3da62e27228ece4d20b7a2b",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.utils import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.utils import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/transfer.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/transfer.py",
+      "source_sha256": "5eb6b333d33fc6c629c25c68aad1513d96cf83ed172b0cd234744f5bdfa98216",
+      "target_sha256": "da7a21fcf5fe1b2b5c934e24bff3c57a7a6c3d0bef84ec89ac99b39f323ec4e4",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.hcu_v4_pool import DeepSeekV4TokenToKVPool",
+          "from sglang.srt.mem_cache.deepseek_v4_memory_pool import DeepSeekV4TokenToKVPool"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/utils.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/utils.py",
+      "source_sha256": "ebc80c484f4abbb729a3c32853e14c63b38e1b0c14689a72f28ac8a1679ecec8",
+      "target_sha256": "ebc80c484f4abbb729a3c32853e14c63b38e1b0c14689a72f28ac8a1679ecec8",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    },
+    {
+      "target": "hcu_sglang/multimodal/processors/muse_spark_omni.py",
+      "source": "python/sglang/srt/multimodal/processors/muse_spark_omni.py",
+      "source_sha256": "ef2f5dfa47de7d9e8eae02c5265d2afc5ff97b2db583cc260fdd5080e83b8b63",
+      "target_sha256": "b27fcb9c8debf804b330c4b4b54527b95f537014ac4147232cdfd1c62bb54812",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.models.muse_spark.omni",
+          "from sglang.srt.models.muse_spark_omni"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明"
+    }
+  ],
+  "extracted_files": [
+    {
+      "target": "hcu_sglang/mem_cache/cpu_cache_methods.py",
+      "target_sha256": "a2d9706d784888706de3ddce42c925f5ca051cc6532fb2e7f706b763cdd076ad",
+      "definition_contract": "tests/contracts/cpu_cache_sources.json",
+      "sources": [
+        {
+          "source": "python/sglang/srt/mem_cache/layout/token_major.py",
+          "source_sha256": "5e98b0ca2e3c5a39c586c14d87edc1f596013ee672ae1ba64d3f6c6af43e6842",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/multimodal_cache.py",
+          "source_sha256": "ca496dc41f2ab8e938ca741afeb5c25db1c389893732838578d93a234d533ea3",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+          "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/seaweedfs/seaweedfs_store.py",
+          "source_sha256": "3ce6d286615cd3e49953b0efdb0a93d18d99b292f629a6c5fce391ed9504a59c",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/tensorcast_store/tensorcast_store.py",
+          "source_sha256": "313154b8dcadf4e643c3c8c80906fbc2d557492dad08fe76cc314f697328c6ac",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to SGLang project"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+          "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/unified_cache/storage_attachment.py",
+          "source_sha256": "b8154695db3a415dbe9767aafbbff022e3a014712387a3257764d050b0b3770b",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/unified_cache/unified_cache_linker.py",
+          "source_sha256": "1805429222fc418218d006598e76ed43df2d42fbf5f20f1c62dae6eb6ff9e1ca",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+          "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+          "source_header_lines": [
+            "# Copyright (c) 2026 Hygon Information Technology Co., Ltd.",
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# Modified by Hygon Information Technology Co., Ltd., 2026."
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "source_header_lines": [
+        "# SPDX-License-Identifier: Apache-2.0",
+        "# SPDX-FileCopyrightText: Copyright contributors to SGLang project"
+      ],
+      "scope": "Only the definitions declared in definition_contract; not whole-source-file equivalence.",
+      "source_declaration": "来源声明原样保留：Tensorcast 为 SGLang Apache 声明，Mooncake 为 Hygon 声明；其余来源无声明"
+    },
+    {
+      "target": "hcu_sglang/layers/quantization/kv_cache.py",
+      "target_sha256": "a7880189e8ebd363035fcb7e51c6355cae855b5a2bce9c0642129fd14b6f0cac",
+      "definition_contract": "tests/contracts/runtime_reviewed_definitions.json",
+      "sources": [
+        {
+          "source": "python/sglang/srt/layers/quantization/kv_cache.py",
+          "source_sha256": "8ea6d9b6e7a8005ea0f0f114e2f66046c9cfb1fda95e30473452c52412b5f92f",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/kv_cache.py"
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "source_header_lines": [
+        "# SPDX-License-Identifier: Apache-2.0",
+        "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+        "# Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/kv_cache.py"
+      ],
+      "scope": "Only BaseKVCacheMethod.process_weights_after_loading and its declared wrapper/import/super adaptations; not whole-source equivalence.",
+      "definitions": [
+        {
+          "source": "python/sglang/srt/layers/quantization/kv_cache.py",
+          "source_sha256": "8ea6d9b6e7a8005ea0f0f114e2f66046c9cfb1fda95e30473452c52412b5f92f"
+        }
+      ]
+    },
+    {
+      "target": "hcu_sglang/layers/quantization/moe_wna16.py",
+      "target_sha256": "a97131b0f9a954d8eba9d224d5d74ef8bb833e35c5ac62ecd624a4f460f2451c",
+      "definition_contract": "tests/contracts/runtime_reviewed_definitions.json",
+      "sources": [
+        {
+          "source": "python/sglang/srt/layers/quantization/moe_wna16.py",
+          "source_sha256": "992d8b7628f0f2563c061e18a6638f23d3fa7f76ace9c110558f6ae23926fc0a",
+          "source_header_lines": [
+            "# Copyright (c) 2026 Hygon Information Technology Co., Ltd.",
+            "# Modified by Hygon Information Technology Co., Ltd., 2026.",
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/moe_wna16.py"
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "source_header_lines": [
+        "# Copyright (c) 2026 Hygon Information Technology Co., Ltd.",
+        "# Modified by Hygon Information Technology Co., Ltd., 2026.",
+        "# SPDX-License-Identifier: Apache-2.0",
+        "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+        "# Adapted from https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/quantization/moe_wna16.py"
+      ],
+      "scope": "Only MoeWNA16Config.__init__ and its declared wrapper/import/super adaptations; not whole-source equivalence.",
+      "definitions": [
+        {
+          "source": "python/sglang/srt/layers/quantization/moe_wna16.py",
+          "source_sha256": "992d8b7628f0f2563c061e18a6638f23d3fa7f76ace9c110558f6ae23926fc0a"
+        }
+      ]
+    },
+    {
+      "target": "hcu_sglang/layers/quantization/auto_round.py",
+      "target_sha256": "5f284492cb3e9066d03505067a326e93f0a8645660c9246e875d125bcc0d4707",
+      "definition_contract": "tests/contracts/runtime_reviewed_definitions.json",
+      "sources": [
+        {
+          "source": "python/sglang/srt/layers/quantization/auto_round.py",
+          "source_sha256": "13ee26c0b28f4be4b5ec033498928ef3e76f565f49492aaf4e2370e0e87d2298",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "source_header_lines": [
+        "# SPDX-License-Identifier: Apache-2.0"
+      ],
+      "scope": "Only AutoRoundConfig.get_layer_config and its declared wrapper/import/super adaptations; not whole-source equivalence.",
+      "definitions": [
+        {
+          "source": "python/sglang/srt/layers/quantization/auto_round.py",
+          "source_sha256": "13ee26c0b28f4be4b5ec033498928ef3e76f565f49492aaf4e2370e0e87d2298"
+        }
+      ]
+    },
+    {
+      "target": "hcu_sglang/layers/attention/glm5_next/topk_transform.py",
+      "target_sha256": "bb6ef31318e37e11d531eb8f41d03db52a755356535c02cf8b34b867dbec51ee",
+      "definition_contract": "tests/contracts/topk_transform_sources.json",
+      "sources": [
+        {
+          "source": "python/sglang/srt/layers/attention/glm5_next/dsa_backend.py",
+          "source_sha256": "9cbf93216b537f00cbe5a01e58c979ae0df6f04d94db68bd4eee3e7fce58cd04",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        }
+      ]
+    },
+    {
+      "target": "hcu_sglang/mem_cache/dsa_cache_layer_split.py",
+      "target_sha256": "b1cfeb3718f7e3138ee52bed898e2bfad8d0b51d7eb2cb1a10e3bda7667b6326",
+      "definition_contract": "tests/contracts/runtime_reviewed_definitions.json",
+      "sources": [
+        {
+          "source": "python/sglang/srt/mem_cache/layer_split.py",
+          "source_sha256": "1c253a2104e15179f8585d35c17f70c3bcc41cabaf1dad041d9aa61ea23efa30",
+          "source_header_lines": [
+            "# Copyright 2026 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "scope": "Only the complete MainKVPagePlan, _build_unique_physical_pages and build_main_kv_page_plan definitions; remaining LayerSplit pool code is outside this source-file row."
+    }
+  ],
+  "adapter_files": [
+    {
+      "target": "hcu_sglang/mem_cache/cpu_cache.py",
+      "target_sha256": "65c026896549fff8b706ebfef9809a42c003bea6e10d7f046fb4160a63ff64a0",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/mem_cache/layout/token_major.py",
+          "source_sha256": "5e98b0ca2e3c5a39c586c14d87edc1f596013ee672ae1ba64d3f6c6af43e6842",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/multimodal_cache.py",
+          "source_sha256": "ca496dc41f2ab8e938ca741afeb5c25db1c389893732838578d93a234d533ea3",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+          "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/seaweedfs/seaweedfs_store.py",
+          "source_sha256": "3ce6d286615cd3e49953b0efdb0a93d18d99b292f629a6c5fce391ed9504a59c",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/tensorcast_store/tensorcast_store.py",
+          "source_sha256": "313154b8dcadf4e643c3c8c80906fbc2d557492dad08fe76cc314f697328c6ac",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to SGLang project"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+          "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/unified_cache/storage_attachment.py",
+          "source_sha256": "b8154695db3a415dbe9767aafbbff022e3a014712387a3257764d050b0b3770b",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/unified_cache/unified_cache_linker.py",
+          "source_sha256": "1805429222fc418218d006598e76ed43df2d42fbf5f20f1c62dae6eb6ff9e1ca",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+          "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+          "source_header_lines": [
+            "# Copyright (c) 2026 Hygon Information Technology Co., Ltd.",
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# Modified by Hygon Information Technology Co., Ltd., 2026."
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "scope": "Plugin registration glue; referenced source hashes do not claim whole-file equivalence."
+    },
+    {
+      "target": "hcu_sglang/models/registry.py",
+      "target_sha256": "b392227d83db41dfea7a9a17701cf5f7ebf1cf9e0ae2a800bd8a028e04ea313a",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/models/registry.py",
+          "source_sha256": "2394ed48eddaf315cfe8e9220969e8ebf796aebd5adb2b7394baa951f6f6e020",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/models/registry.py"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/hcu/glm5_next.py",
+          "source_sha256": "51ab7078e530b9ac5ebae1b27c6f0c0fb8077409c4dd51e40f8247fcae776c47",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_vision.py",
+          "source_sha256": "842e68f8f6df6d48dc6546ae1e9f29fa19affafcef3700082c17885e946c9d9a",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_nextn.py",
+          "source_sha256": "e5447d0ac47222ef7c80041e099803e2b88ff41a4ae503e79955950dc412dc4d",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm_visual.py",
+          "source_sha256": "e25559fbd440eaa28ccae6f9665ec24ec9e7ba4c79a0e54c6af9c7070438feac",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/muse_spark.py",
+          "source_sha256": "cd12755d2a71940ad33df3993c140be46b5eb0aaee191ba2d42a3b5fd15b22bc",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/models/muse_spark_omni.py",
+          "source_sha256": "f186e56bbfa76ecb06d92330a5597513f5179efd7c1b9bc567955d4e800ef777",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        }
+      ],
+      "scope": "Plugin registration glue; referenced source hashes do not claim whole-file equivalence."
+    },
+    {
+      "target": "hcu_sglang/models/glm5_next/entries/__init__.py",
+      "target_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/models/registry.py",
+          "source_sha256": "2394ed48eddaf315cfe8e9220969e8ebf796aebd5adb2b7394baa951f6f6e020",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/models/registry.py"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/hcu/glm5_next.py",
+          "source_sha256": "51ab7078e530b9ac5ebae1b27c6f0c0fb8077409c4dd51e40f8247fcae776c47",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_vision.py",
+          "source_sha256": "842e68f8f6df6d48dc6546ae1e9f29fa19affafcef3700082c17885e946c9d9a",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_nextn.py",
+          "source_sha256": "e5447d0ac47222ef7c80041e099803e2b88ff41a4ae503e79955950dc412dc4d",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm_visual.py",
+          "source_sha256": "e25559fbd440eaa28ccae6f9665ec24ec9e7ba4c79a0e54c6af9c7070438feac",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "scope": "Plugin registration glue; referenced source hashes do not claim whole-file equivalence."
+    },
+    {
+      "target": "hcu_sglang/models/glm5_next/entries/nextn.py",
+      "target_sha256": "c07638659a3257b35183ed103b051b9042ac1cfd54bf8c43f9d632b7e4799815",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/models/registry.py",
+          "source_sha256": "2394ed48eddaf315cfe8e9220969e8ebf796aebd5adb2b7394baa951f6f6e020",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/models/registry.py"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/hcu/glm5_next.py",
+          "source_sha256": "51ab7078e530b9ac5ebae1b27c6f0c0fb8077409c4dd51e40f8247fcae776c47",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_vision.py",
+          "source_sha256": "842e68f8f6df6d48dc6546ae1e9f29fa19affafcef3700082c17885e946c9d9a",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_nextn.py",
+          "source_sha256": "e5447d0ac47222ef7c80041e099803e2b88ff41a4ae503e79955950dc412dc4d",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm_visual.py",
+          "source_sha256": "e25559fbd440eaa28ccae6f9665ec24ec9e7ba4c79a0e54c6af9c7070438feac",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "scope": "Plugin registration glue; referenced source hashes do not claim whole-file equivalence."
+    },
+    {
+      "target": "hcu_sglang/models/glm5_next/entries/text.py",
+      "target_sha256": "02eb3318dffecbe10cdc04aabfb0d8861bc3239404048f50df9e694c248b328c",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/models/registry.py",
+          "source_sha256": "2394ed48eddaf315cfe8e9220969e8ebf796aebd5adb2b7394baa951f6f6e020",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/models/registry.py"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/hcu/glm5_next.py",
+          "source_sha256": "51ab7078e530b9ac5ebae1b27c6f0c0fb8077409c4dd51e40f8247fcae776c47",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_vision.py",
+          "source_sha256": "842e68f8f6df6d48dc6546ae1e9f29fa19affafcef3700082c17885e946c9d9a",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm5_next_nextn.py",
+          "source_sha256": "e5447d0ac47222ef7c80041e099803e2b88ff41a4ae503e79955950dc412dc4d",
+          "source_header_lines": [
+            "# Copyright 2023-2024 SGLang Team",
+            "# Licensed under the Apache License, Version 2.0 (the \"License\");",
+            "# you may not use this file except in compliance with the License.",
+            "# You may obtain a copy of the License at",
+            "#",
+            "#     http://www.apache.org/licenses/LICENSE-2.0",
+            "#",
+            "# Unless required by applicable law or agreed to in writing, software",
+            "# distributed under the License is distributed on an \"AS IS\" BASIS,",
+            "# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.",
+            "# See the License for the specific language governing permissions and",
+            "# limitations under the License.",
+            "# =============================================================================="
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/glm_visual.py",
+          "source_sha256": "e25559fbd440eaa28ccae6f9665ec24ec9e7ba4c79a0e54c6af9c7070438feac",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "scope": "Plugin registration glue; referenced source hashes do not claim whole-file equivalence."
+    },
+    {
+      "target": "hcu_sglang/models/muse_spark/entries/__init__.py",
+      "target_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/models/registry.py",
+          "source_sha256": "2394ed48eddaf315cfe8e9220969e8ebf796aebd5adb2b7394baa951f6f6e020",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/models/registry.py"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/muse_spark.py",
+          "source_sha256": "cd12755d2a71940ad33df3993c140be46b5eb0aaee191ba2d42a3b5fd15b22bc",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/models/muse_spark_omni.py",
+          "source_sha256": "f186e56bbfa76ecb06d92330a5597513f5179efd7c1b9bc567955d4e800ef777",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        }
+      ],
+      "scope": "Plugin registration glue; referenced source hashes do not claim whole-file equivalence."
+    },
+    {
+      "target": "hcu_sglang/models/muse_spark/entries/omni.py",
+      "target_sha256": "da67fd38bf11a7b139eeccb785a82b86bfee1414f7d5e56e930ea4bec9b15b50",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/models/registry.py",
+          "source_sha256": "2394ed48eddaf315cfe8e9220969e8ebf796aebd5adb2b7394baa951f6f6e020",
+          "source_header_lines": [
+            "# SPDX-License-Identifier: Apache-2.0",
+            "# SPDX-FileCopyrightText: Copyright contributors to the vLLM project",
+            "# Adapted from https://github.com/vllm-project/vllm/blob/v0.6.4.post1/vllm/model_executor/models/registry.py"
+          ],
+          "source_declaration": "保留来源声明"
+        },
+        {
+          "source": "python/sglang/srt/models/muse_spark.py",
+          "source_sha256": "cd12755d2a71940ad33df3993c140be46b5eb0aaee191ba2d42a3b5fd15b22bc",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        },
+        {
+          "source": "python/sglang/srt/models/muse_spark_omni.py",
+          "source_sha256": "f186e56bbfa76ecb06d92330a5597513f5179efd7c1b9bc567955d4e800ef777",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        }
+      ],
+      "scope": "Plugin registration glue; referenced source hashes do not claim whole-file equivalence."
+    },
+    {
+      "target": "hcu_sglang/layers/quantization/quark_w8a8_fp8_moe.py",
+      "target_sha256": "f98d5c09a345aa5f125799cb105a51cabf5b9b420ad0d8d2e00b40acf4954752",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/layers/quantization/quark/schemes/quark_w8a8_fp8_moe.py",
+          "source_sha256": "6af2f77944502665b05af5c6a3a45515dd292b3735d7d0e6b67b3ab6e38d9dc1",
+          "source_header_lines": [
+            "# Copyright (c) 2026 Hygon Information Technology Co., Ltd.",
+            "# Modified by Hygon Information Technology Co., Ltd., 2026.",
+            "# SPDX-License-Identifier: Apache-2.0"
+          ],
+          "source_declaration": "保留来源声明"
+        }
+      ],
+      "scope": "Only HCU detection and disabling the AITER shuffle branch; no scheme body copied."
+    },
+    {
+      "target": "hcu_sglang/multimodal/encoder_preprocessing.py",
+      "target_sha256": "e8c9fe8779f64b8c48147b9119d475574ae705fb7507ddb71b1f77f9a600d29f",
+      "provenance": "original_plugin_adapter",
+      "sources": [
+        {
+          "source": "python/sglang/srt/multimodal/encoder_preprocessing.py",
+          "source_sha256": "e347ad90494ca9daee39cd4852193998fd563e409df59900f84293e01284e89b",
+          "source_header_lines": [],
+          "source_declaration": "来源无声明"
+        }
+      ],
+      "scope": "Only the two Source fields are added; native defaults and consumers preserved."
+    }
+  ]
+}

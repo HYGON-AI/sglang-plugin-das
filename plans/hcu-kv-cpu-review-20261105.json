@@ -1,0 +1,489 @@
+{
+  "schema_version": 1,
+  "source_head": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+  "semantics": "File-level implementation review only. Reversible bytes and static callers do not establish runtime, numeric, model or collective equivalence.",
+  "files": [
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/__init__.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/__init__.py",
+      "source_sha256": "d9c30f54af6a86cef471730ad7cee62fb7b424fff754ccf3602c0b541ed8247d",
+      "target_sha256": "430ebcc8f27d906ba37a3bebfe4d3652843639aaf2fd65f867935d594628024f",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.deepseek_v4_layout import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.deepseek_v4_layout import ("
+        ],
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.pool_base import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.pool_base import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明",
+      "callers": [
+        "hcu_sglang/mem_cache/hcu_v4_sizing.py",
+        "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_pool.py"
+      ],
+      "status": "implemented",
+      "rationale": "The complete public export module is present in the owned package. Its only deltas are two owned import paths; importing the layout/base submodules through the V4 sizing/pool consumers initializes this package.",
+      "validation_scope": "Static complete-file reversible byte audit. CPU behavior, GPU, CP/PD multi-process, numeric and performance lanes pending."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py",
+      "source_sha256": "8d77253c98ebba3b2f53e0ef7ddefc6e60107de22e07a4a71f94423ae28a95d0",
+      "target_sha256": "2b435ac078115f2c4b518e7056ad765d8e66ed9dd159f7f633078e44bd0a081f",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.utils import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.utils import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明",
+      "callers": [
+        "hcu_sglang/mem_cache/hcu_v4_sizing.py",
+        "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_pool.py"
+      ],
+      "status": "implemented",
+      "rationale": "The complete layout implementation, including C1/C2 and kv_source_layers, is byte-identical after reversing the utils import. V4 sizing and the CP V4 pool call the owned layout builders.",
+      "validation_scope": "Static complete-file reversible byte audit. CPU behavior, GPU, CP/PD multi-process, numeric and performance lanes pending."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/pool_base.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/pool_base.py",
+      "source_sha256": "3b043cfdb3b7f3511e21533651857de7d60949c1d764463c3eac88e325db9b74",
+      "target_sha256": "4124722d79062ce6e8cfd71bc592af6fecc2dc15f3da62e27228ece4d20b7a2b",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.cp_cache_layer_split.utils import (",
+          "from sglang.srt.mem_cache.cp_cache_layer_split.utils import ("
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明",
+      "callers": [
+        "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_pool.py"
+      ],
+      "status": "implemented",
+      "rationale": "The complete base implementation, including requires_descriptor_matched_transfer=False, is byte-identical after reversing the utils import. The owned CP V4 pool inherits this exact base class.",
+      "validation_scope": "Static complete-file reversible byte audit. CPU behavior, GPU, CP/PD multi-process, numeric and performance lanes pending."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/transfer.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/transfer.py",
+      "source_sha256": "5eb6b333d33fc6c629c25c68aad1513d96cf83ed172b0cd234744f5bdfa98216",
+      "target_sha256": "da7a21fcf5fe1b2b5c934e24bff3c57a7a6c3d0bef84ec89ac99b39f323ec4e4",
+      "reverse_replacements": [
+        [
+          "from hcu_sglang.mem_cache.hcu_v4_pool import DeepSeekV4TokenToKVPool",
+          "from sglang.srt.mem_cache.deepseek_v4_memory_pool import DeepSeekV4TokenToKVPool"
+        ]
+      ],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明",
+      "callers": [
+        "hcu_sglang/disagg/state.py",
+        "hcu_sglang/disagg/protocol.py",
+        "hcu_sglang/disagg/transport_mooncake.py",
+        "hcu_sglang/mem_cache/cp_cache_layer_split/validation.py"
+      ],
+      "status": "implemented",
+      "rationale": "All four transfer metadata/configuration definitions are byte-identical after reversing the V4 pool class import. Public setup-state adaptation and owned protocol/Mooncake consumers use this module. The separate prefill/decode migration remains incomplete.",
+      "validation_scope": "Static complete-file reversible byte audit. CPU behavior, GPU, CP/PD multi-process, numeric and performance lanes pending."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cleanup.py",
+      "source": "python/sglang/srt/mem_cache/cleanup.py",
+      "source_sha256": "a3a347d73b6cdf1e48f4ef446d6b7ec51f14f17afac969d4abdf42731c3c0b3c",
+      "target_sha256": "a3a347d73b6cdf1e48f4ef446d6b7ec51f14f17afac969d4abdf42731c3c0b3c",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明",
+      "callers": [
+        "hcu_sglang/mem_cache/common.py",
+        "hcu_sglang/disagg/prefill.py"
+      ],
+      "status": "implemented",
+      "rationale": "Complete request-owned cleanup state machine is byte-identical; owned common and public PD prefill hook consumers retain completed-result identity, quarantine unknown side effects and retry only declared side-effect-free failures.",
+      "validation_scope": "Complete-file byte audit and real owned module CPU tests with explicit request/action and CP parallel-state fixtures. No full plugin registration, real allocator failure, PD communication, GPU/model/numeric/performance validation."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cp_cache_layer_split/utils.py",
+      "source": "python/sglang/srt/mem_cache/cp_cache_layer_split/utils.py",
+      "source_sha256": "ebc80c484f4abbb729a3c32853e14c63b38e1b0c14689a72f28ac8a1679ecec8",
+      "target_sha256": "ebc80c484f4abbb729a3c32853e14c63b38e1b0c14689a72f28ac8a1679ecec8",
+      "reverse_replacements": [],
+      "source_header_lines": [],
+      "source_declaration": "来源无声明",
+      "callers": [
+        "hcu_sglang/mem_cache/cp_cache_layer_split/pool_base.py",
+        "hcu_sglang/mem_cache/cp_cache_layer_split/deepseek_v4_layout.py"
+      ],
+      "status": "implemented",
+      "rationale": "All five configuration/ownership helpers are byte-identical; existing owned layout and pool_base consumers call the complete utilities. CPU tests exercise actual pool_base ownership, disjoint coverage and balanced partition invariants.",
+      "validation_scope": "Complete-file byte audit and real owned module CPU tests with explicit request/action and CP parallel-state fixtures. No full plugin registration, real allocator failure, PD communication, GPU/model/numeric/performance validation."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cpu_cache_methods.py",
+      "scope": "MambaComponent full delta",
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/mamba.py",
+      "source_sha256": "092f4527184756ebd900c09a47fe3dc91de6e63ab07991c61921ee4c6ec2c2ec",
+      "changed_leaf_definitions": 5,
+      "added_leaf_definitions": 2,
+      "triage_uncovered_definitions": 9,
+      "count_delta": "Triage counts module-level statements; top-level function and class-method audit yields 5 changed + 2 added = 7 leaves. Not padded to 9.",
+      "migrated_definitions": [
+        "MambaComponent._alloc_mamba_slot",
+        "MambaComponent.prepare_for_caching_req",
+        "MambaComponent.build_external_linker_transfer",
+        "MambaComponent.update_external_linker_load",
+        "MambaComponent._adopt_loaded_state",
+        "_MambaBufferLoadBackContext.finalize_allocation"
+      ],
+      "equivalent_definitions": [
+        "MambaComponent.refresh_lru"
+      ],
+      "callers": [
+        "hcu_sglang/__init__.py",
+        "hcu_sglang/mem_cache/allocation.py"
+      ],
+      "status": "implemented",
+      "rationale": "Six source definitions are copied verbatim into cpu_cache_methods.py and exposed through public AROUND targets; refresh_lru's match-to-if/elif rewrite preserves every phase branch and the invalid-phase ValueError. Wrapper fallback off HCU keeps the effective original, and the helper installs on the preserved native class before the original constructor runs.",
+      "validation_scope": "Static complete-delta review plus seven explicit namespace LRU fixtures and CPU wrapper/lifecycle regressions in the container. Full unified_cache controller, storage backends, Mamba model, GPU, PD and numeric/performance lanes remain pending; importing the real components.base module is still blocked by the fp8_kernel device probe."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/swa.py",
+      "source": "python/sglang/srt/mem_cache/base_swa_memory_pool.py",
+      "source_sha256": "3bf33b4e16bea82a0ef296335d87898d9d066511177e407560d48e73293bd69e",
+      "changed_leaf_definitions": 0,
+      "class_attribute_deltas": [
+        "BaseSWAKVPool.request_window = None"
+      ],
+      "status": "implemented",
+      "rationale": "The fixed source has no callable delta; it only declares BaseSWAKVPool.request_window as an optional class attribute with default None. The plugin installs the same default inside the HCU gate without replacing the class object, methods or abstract-method set, so existing instances see None and subclasses or instances that set their own value keep it.",
+      "validation_scope": "Five container CPU regressions cover install for an already-created instance, unchanged class and method identity, unchanged non-HCU baseline, no overwrite of an existing adapter value, private subclass/instance overrides and CUDA staying uninitialized. Real DeepSeek-V4.1 RequestWindow construction, encoder replay, GPU/model/numeric/performance lanes are not verified."
+    },
+    {
+      "target": "hcu_sglang/mem_cache/cpu_cache_methods.py",
+      "scope": "MooncakeStore full delta",
+      "source": "python/sglang/srt/mem_cache/storage/mooncake_store/mooncake_store.py",
+      "source_sha256": "3227e82a92248e7e23ec4ded7ef55f31e8555077861aaf3bf7934021816bb770",
+      "triage_uncovered_definitions": 11,
+      "changed_leaf_definitions": 6,
+      "added_leaf_definitions": 2,
+      "migrated_definitions": [
+        "_get_mooncake_client_http_port",
+        "_get_mooncake_client_http_setup_kwargs",
+        "MooncakeStoreConfig.from_file",
+        "MooncakeStoreConfig.load_from_extra_config",
+        "MooncakeBaseStore.register_buffer",
+        "MooncakeStore.__init__",
+        "MooncakeStore._get_hybrid_page_component_keys"
+      ],
+      "unmigrated_definitions": [
+        {
+          "symbol": "MooncakeStore.register_mem_pool_host",
+          "reason": "DAS delta is an added layout_hcu assert; the body calls super() twice, which the FunctionType extraction cannot rebind"
+        }
+      ],
+      "callers": [
+        "sglang.srt.mem_cache.storage.backend_factory",
+        "sglang.srt.mem_cache.pool_host.common",
+        "sglang.srt.mem_cache.registry"
+      ],
+      "status": "in_progress",
+      "rationale": "Seven definitions copied verbatim; the extraction contract keeps their source bytes. register_mem_pool_host is the single documented remaining leaf.",
+      "validation_scope": "Contract test plus four container CPU namespace regressions; no wheel, store, traffic, layout_hcu registration or GPU lane."
+    }
+  ],
+  "remaining_gaps": [
+    "The open PD import gap is closed: hcu_sglang/disagg/prefill.py and decode.py now import configure_v4_transfer from the owned hcu_sglang.mem_cache.cp_cache_layer_split.transfer namespace; the two pending rows stay open for their remaining 33 and 27 uncovered definitions.",
+    "The complete 104-row KV/PD/distributed/native assignment remains in progress.",
+    "MHA FP8 explicit clamp differs from the inherited official set_kv_buffer, but Torch 2.11.0 CPU converts +/-1000 to +/-448 on both paths (no NaN). Static difference only: HCU conversion behavior and actual-model range remain unverified; no causal conclusion for r04.",
+    "linker_fault_injection.py is fork-only test support (four definitions, no-op unless SGLANG_TEST_LINKER_LOAD_FAILURE_PROB is set) with no owned implementation.",
+    "hybrid_cache/linker_pool_assembler.py still misses the V4.1 and Mamba/SWA direct-linker group builders (2 changed + 4 added leaves); the owned window modules do not provide them.",
+    "unified_cache/unified_tree_core_interface.py adds an optional component_type=ComponentType.SWA parameter to two abstract methods only; the owned window_tree/window_rust implementations already carry the same default. No behavior copy was made and subclass signature enforcement remains unverified.",
+    "storage/mooncake_store/mooncake_store.py: seven of eight leaves are migrated; MooncakeStore.register_mem_pool_host remains because its layout_hcu assert sits in a body with two super() calls the extraction cannot rebind.",
+    "hicache_key_scheme.py is excluded with source proof: zero importers in the DAS tree, no declared --hicache-storage-key-scheme option, no consumption path. Re-evaluate if upstream wires it."
+  ],
+  "method_delta_reviews": [
+    {
+      "source": "python/sglang/srt/mem_cache/layout/token_major.py",
+      "source_sha256": "5e98b0ca2e3c5a39c586c14d87edc1f596013ee672ae1ba64d3f6c6af43e6842",
+      "official_sha256": "fe46f588c40865e5a47b3ead9c315ad81c1ada65eb4298b7851fd8d0d1cf8053",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/cpu_cache_methods.py",
+        "hcu_sglang/mem_cache/cpu_cache.py",
+        "hcu_sglang/mem_cache/allocation.py"
+      ],
+      "reviewed_definitions": [
+        "build_mamba_entry_views"
+      ],
+      "rationale": "The only executable definition delta is build_mamba_entry_views: optional shared-entry stride/offset with the unchanged standalone default. Its full body is registered through the public module Hook; the extra Optional import only supplies a deferred annotation.",
+      "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/multimodal_cache.py",
+      "source_sha256": "ca496dc41f2ab8e938ca741afeb5c25db1c389893732838578d93a234d533ea3",
+      "official_sha256": "26dbec397b32f80e96eb1631634fab5a6297f551c0e423f3858085fc0fc186b4",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/cpu_cache_methods.py",
+        "hcu_sglang/mem_cache/cpu_cache.py",
+        "hcu_sglang/mem_cache/allocation.py"
+      ],
+      "reviewed_definitions": [
+        "MultiModalStaticCache.set"
+      ],
+      "rationale": "The sole leaf-method change is MultiModalStaticCache.set: oversized entries return before eviction. The public method Hook preserves the native class/aliases and delegates to original off HCU.",
+      "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/hf3fs/storage_hf3fs.py",
+      "source_sha256": "2a8640ec06470ed58ad60728e187d5d5fff86a8727209b0b785a5b20b1070d4e",
+      "official_sha256": "bead3bd8670a5d8b79cac9c72dc49c2dadd127ce57353728c7de9c0ba09c79b6",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/cpu_cache_methods.py",
+        "hcu_sglang/mem_cache/cpu_cache.py",
+        "hcu_sglang/mem_cache/allocation.py"
+      ],
+      "reviewed_definitions": [
+        "HiCacheHF3FS.__init__",
+        "HiCacheHF3FS._pool_batch_get",
+        "HiCacheHF3FS._pool_batch_set",
+        "HiCacheHF3FS._pool_component_key",
+        "HiCacheHF3FS.batch_exists_v2",
+        "HiCacheHF3FS.from_env_config"
+      ],
+      "rationale": "All five changed methods (__init__, from_env_config, batch_exists_v2, _pool_batch_get, _pool_batch_set) and the added _pool_component_key helper are extracted verbatim. Constructor Hook installs the helper on the preserved native class before executing the DAS constructor; from_env_config carries tp_size into construction.",
+      "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/seaweedfs/seaweedfs_store.py",
+      "source_sha256": "3ce6d286615cd3e49953b0efdb0a93d18d99b292f629a6c5fce391ed9504a59c",
+      "official_sha256": "cc69837b6df6287bea210bd667900cd5f63e9859bad96ba6eabb2bfd6f2814c6",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/cpu_cache_methods.py",
+        "hcu_sglang/mem_cache/cpu_cache.py",
+        "hcu_sglang/mem_cache/allocation.py"
+      ],
+      "reviewed_definitions": [
+        "SeaweedFSStore.__init__",
+        "SeaweedFSStore._component_key"
+      ],
+      "rationale": "Both changed methods (__init__, _component_key) are extracted verbatim and hooked on the preserved native class. Constructor initializes the MLA-specific Mamba rank tag; the changed key method consumes it while retaining shared MLA KV keys.",
+      "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/storage/tensorcast_store/tensorcast_store.py",
+      "source_sha256": "313154b8dcadf4e643c3c8c80906fbc2d557492dad08fe76cc314f697328c6ac",
+      "official_sha256": "c2ff522ad23f49d283131c4d8c0226d71fe9e62739e0abd263d02ac93682cf42",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/cpu_cache_methods.py",
+        "hcu_sglang/mem_cache/cpu_cache.py",
+        "hcu_sglang/mem_cache/allocation.py"
+      ],
+      "reviewed_definitions": [
+        "_validate_storage_config"
+      ],
+      "rationale": "The only changed leaf function is _validate_storage_config. Its full DAS body is registered at the public function target, rejecting actual packed layer counts instead of the presence of draft device pools.",
+      "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/storage_attachment.py",
+      "source_sha256": "b8154695db3a415dbe9767aafbbff022e3a014712387a3257764d050b0b3770b",
+      "official_sha256": "11d523d6a354c02e209fc6216d2516b14d770b1725a3624e03096c9f2ecd9f28",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/cpu_cache_methods.py",
+        "hcu_sglang/mem_cache/cpu_cache.py",
+        "hcu_sglang/mem_cache/allocation.py"
+      ],
+      "reviewed_definitions": [
+        "StorageAttachment._release_pending_storage_ops",
+        "StorageAttachment.attach",
+        "StorageAttachment.resolve_prefetch_threshold"
+      ],
+      "rationale": "All three changed methods (attach, resolve_prefetch_threshold, _release_pending_storage_ops) are extracted verbatim and publicly hooked. The original constructor is retained with an HCU-only waiting-state initializer. Existing window_cache_init and window_pipeline Hooks supply the dual-window consumer interface. Complete linker migration is a separate open scope.",
+      "validation_scope": "Public leaf CPU regression for token-major and multimodal; explicit namespace fixtures for storage. Full storage/linker module import, external service, GPU, model, numeric A/B and performance pending."
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/unified_cache/components/base.py",
+      "source_sha256": "df2e61bcecb8729dc423459bb4afedf3d5514734487af1ad71e91fe363ea77f2",
+      "official_sha256": "327eb2a85d8d9f67bca73311e11fa5dcb346c97528dc4176372240b49772b1b0",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/window_cache_init.py",
+        "hcu_sglang/mem_cache/window_pipeline.py",
+        "hcu_sglang/__init__.py"
+      ],
+      "reviewed_definitions": [
+        "TreeComponent.refresh_lru",
+        "TreeComponent.create_buffer_pipeline"
+      ],
+      "rationale": "Complete file delta reviewed: refresh_lru match-to-if rewrite preserves all enum branches and invalid-phase error; create_buffer_pipeline is AST-identical after reversing the owned pipeline import. Existing HCU public AROUND and init_hicache consumer pass main and auxiliary SWA components. Extra SWAComponent import is TYPE_CHECKING-only.",
+      "validation_scope": "Six explicit CPU refresh_lru namespace fixtures agree; factory AST and public registration/consumer checked statically. Full controller/storage/PD/GPU/model/numeric/performance remain pending.",
+      "lru_fixture_outputs": [
+        {
+          "phase": "WALKDOWN",
+          "value": null,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": null
+          }
+        },
+        {
+          "phase": "WALKDOWN",
+          "value": 1,
+          "output": {
+            "calls": [
+              "reset_node_mru"
+            ],
+            "result": null,
+            "error": null
+          }
+        },
+        {
+          "phase": "MATCH_END",
+          "value": null,
+          "output": {
+            "calls": [
+              "reset_node_and_parents_mru"
+            ],
+            "result": null,
+            "error": null
+          }
+        },
+        {
+          "phase": "MATCH_END",
+          "value": 1,
+          "output": {
+            "calls": [
+              "reset_node_and_parents_mru"
+            ],
+            "result": null,
+            "error": null
+          }
+        },
+        {
+          "phase": "INSERT_END",
+          "value": 1,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": null
+          }
+        },
+        {
+          "phase": "bad",
+          "value": 1,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": "Unknown LRURefreshPhase: bad"
+          }
+        }
+      ],
+      "superseded_lru_fixture_outputs": [
+        {
+          "phase": "Phase.WALKDOWN",
+          "value": null,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": "Unknown LRURefreshPhase: namespace(component_data={'full': namespace(value=None)})"
+          }
+        },
+        {
+          "phase": "Phase.WALKDOWN",
+          "value": 1,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": "Unknown LRURefreshPhase: namespace(component_data={'full': namespace(value=1)})"
+          }
+        },
+        {
+          "phase": "Phase.MATCH_END",
+          "value": null,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": "Unknown LRURefreshPhase: namespace(component_data={'full': namespace(value=None)})"
+          }
+        },
+        {
+          "phase": "Phase.MATCH_END",
+          "value": 1,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": "Unknown LRURefreshPhase: namespace(component_data={'full': namespace(value=1)})"
+          }
+        },
+        {
+          "phase": "Phase.INSERT_END",
+          "value": 1,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": "Unknown LRURefreshPhase: namespace(component_data={'full': namespace(value=1)})"
+          }
+        },
+        {
+          "phase": "bad",
+          "value": 1,
+          "output": {
+            "calls": [],
+            "result": null,
+            "error": "Unknown LRURefreshPhase: namespace(component_data={'full': namespace(value=1)})"
+          }
+        }
+      ],
+      "lru_fixture_correction": "Previous fixture swapped phase/node positional arguments and exercised only invalid-phase errors. Superseded outputs are retained; corrected fixtures assert each branch and argument identities."
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/layer_split.py",
+      "target": "hcu_sglang/mem_cache/dsa_cache_layer_split.py",
+      "source_head": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
+      "source_sha256": "1c253a2104e15179f8585d35c17f70c3bcc41cabaf1dad041d9aa61ea23efa30",
+      "target_sha256": "b1cfeb3718f7e3138ee52bed898e2bfad8d0b51d7eb2cb1a10e3bda7667b6326",
+      "complete_source_definition_set": [
+        "MainKVPagePlan",
+        "_build_unique_physical_pages",
+        "build_main_kv_page_plan"
+      ],
+      "source_text_definitions_equal": true,
+      "callers": [
+        "hcu_sglang/dsa_utils.py",
+        "hcu_sglang/layers/communicator_glm5_next_cp.py"
+      ],
+      "status": "implemented",
+      "namespace_cpu_cases": 14,
+      "namespace_cpu_source_owned_equal": true,
+      "validation_scope": "All three source definitions are text-identical including decorators/docstrings; public registration and two consumer paths reviewed statically. Fourteen explicit CPU namespace cases pass. Full module runtime import blocked before test loading by hardware-probe/quantization import dependencies; no public Hook/consumer execution, CP/PD/GPU/model/numeric/performance evidence.",
+      "cpu_evidence": "artifacts/kv-cpu-20261105/page-plan-mha-cpu-diagnostic-results.json"
+    },
+    {
+      "source": "python/sglang/srt/mem_cache/base_swa_memory_pool.py",
+      "source_sha256": "3bf33b4e16bea82a0ef296335d87898d9d066511177e407560d48e73293bd69e",
+      "official_sha256": "3b53bb9263045cf27b80b7fd70ce34a7d8132c843a6d907c26b4f1ee4a6fac2a",
+      "status": "implemented",
+      "implementation": [
+        "hcu_sglang/mem_cache/swa.py"
+      ],
+      "reviewed_definitions": [],
+      "class_attribute_deltas": [
+        "BaseSWAKVPool.request_window"
+      ],
+      "rationale": "Only an optional class attribute is added by the source. The plugin installs the same default rather than copying the module, so no native class replacement is involved and the abstract-method contract is untouched.",
+      "validation_scope": "tests/runtime/swa_defaults_cpu.py, five container CPU cases; no RequestWindow construction, replay, GPU, model or performance validation."
+    }
+  ]
+}
