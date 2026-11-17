@@ -142,7 +142,14 @@ def flash_attn_with_kvcache(
             if max_seqlen_k is None and page_table is not None
             else max_seqlen_k
         )
-        _note_fa("fa_varlen_bhsd")
+        # The wheel takes both page layouts; declare the one actually
+        # carried: BHSD pages with the HCU layout flag ([NP, H, PS, D]),
+        # BSHD pages on the default official pool ([NP, PS, H, D]). A
+        # hard-coded "bhsd" mislabels the page and head axes on the
+        # default path ([4,64,2,16] read as 64 heads / page 2) and the
+        # kernel then attends to wrong keys/positions.
+        kv_layout = "bhsd" if _layout_enabled() else "bshd"
+        _note_fa("fa_varlen_" + kv_layout)
         result = hcu_flash_attn_varlen_func(
             q=q,
             k=k_cache,
@@ -159,7 +166,7 @@ def flash_attn_with_kvcache(
             q_descale=q_descale,
             k_descale=k_descale,
             v_descale=v_descale,
-            layout="bhsd",
+            layout=kv_layout,
         )
         return _apply_out(result, out, return_softmax_lse)
 

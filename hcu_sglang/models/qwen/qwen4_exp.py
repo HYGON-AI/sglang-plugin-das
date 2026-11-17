@@ -204,6 +204,17 @@ def around_load_weights(original, model, weights, *, mtp=False):
                 target.copy_(source.to(device=target.device, dtype=target.dtype))
             loaded.add(match[1]+".ngram_embedding."+field)
     result = original(model, stream())
+    # Scale tensors are copied straight into the CPU buffers (shard
+    # slices above, the official non-sharded loader below), so the
+    # construction-time GPU replica of a scalar scale would keep its
+    # init value 1 while _scale_ple_embeddings prefers the replica --
+    # a scale!=1 checkpoint would dequantize with 1. Refresh every
+    # replica now, before warmup/graph capture; reloads re-enter here.
+    for _, emb in model.named_modules():
+        if isinstance(emb, ple.Qwen4ExpPinnedHostEmbedding):
+            replica = getattr(emb, "_device_scalar_scale", None)
+            if replica is not None and replica.shape == emb.weight_scale.shape:
+                replica.copy_(emb.weight_scale)
     return result | loaded
 
 

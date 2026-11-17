@@ -64,7 +64,12 @@ def test_public_mix_changed_inputs_and_weights_graph(registered, monkeypatch, ro
     overlay.prefer_overlay_headers()
     monkeypatch.setattr(grouped, "load_jit", partial(overlay.around_load_jit, grouped.load_jit))
     monkeypatch.setenv("SGLANG_QWEN4_SPLIT_HC_MIX", "1")
-    assert hc_mix.get_gcn_arch().startswith("gfx936")
+    # The split kernel is gfx936-only (around_fused_hc_mix gates on it),
+    # so on the gfx938 re-verification nodes this case skips instead of
+    # failing the lane.
+    arch = hc_mix.get_gcn_arch()
+    if not arch.startswith("gfx936"):
+        pytest.skip(f"split hc_mix is gfx936-only; node arch={arch or 'unknown'}")
     torch.manual_seed(541 + rows)
     mixer = H.GatedResidual(H.HyperConnectionConfig(hc_count=4, hidden_size=2560,
         hc_lowrank=320, params_dtype=torch.bfloat16, hc_per_branch_norm=True)).cuda()
