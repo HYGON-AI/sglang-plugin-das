@@ -3968,3 +3968,22 @@ NEXTN steps=4 adaptive、decode graph 批次 1..40、`--disable-radix-cache`。
 ## HY3 INT8：专家分发类型
 
 普通分发按 token 准备 INT8 与缩放值，低延迟分发显式选择 INT8，并通过 Adapter 保存的原生入口传递类型。BF16/FP8 的既有路径保留。修改位于 `deepep_current.py` 和公共 `deepep_fp8.py`，复用 `tests/runtime/deepep_current.py`；依赖配套 Adapter INT8 引用修复。这里不修改通信内核，主仓同步后的完整组合验证另记。
+
+## HY3 INT8：完整 DeepGEMM 包接口配套
+
+gfx936、DeepEP auto、ASM=0 使用包内公开 pair32 权重排列与 INT8 矩阵乘法接口，普通/低延迟路径共用权重存储；前后两次计算配套调整。框架修改为 `deepep_int8.py` 与 `hcu_deepgemm_w8a8_utils.py`，回归复用 `compressed_int8.py`。完整 DeepGEMM wheel 是外部依赖，不提交算子源码、编译包或补充扩展，不带 ASM=1 或激活诊断实验。其他架构与未选中路径保留既有行为。
+
+主仓已包含 HY3 早期 FP8 与 NEXTN 缓存修复，不重复提交。仅合并重复 KV 布局判断的旧提交本次排除；HCU 布局仍默认关闭，当前 FA 路径在外层显式设 `HCU_FA_IMPL=vendor`、`SGLANG_KV_LAYOUT_HCU_FA=1`。原用户启动脚本不修改。
+
+
+### 2026-11-17：同步主仓后的组合复测
+
+固定公司 main：Adapter `253989dd224eec574c449b3516b2ace0d45ffe0d`，Plugin `3fab2fd6c723c0c8b17b44a565fc33d259464916`；官方 SGLang 0.5.22。仅保留两仓额外适配，不重复计入主仓已有 FP8/NEXTN 修复；没有新增仓库文件，纯重复布局整理提交排除。
+
+本轮 Adapter 针对性回归 54 项、Plugin 23 项通过；两仓 L0、档位清单与导览快照检查通过。Adapter L0 有 32 项警告。Plugin 一项已有 CPU 用例会调用 GPU 专用量化接口，本轮排除，不宣称全量测试通过；UI/导览浏览器视觉验收未执行。
+
+原用户启动脚本 SHA256 `9b39038c102e5d1df9e3ad98b29d5ac35cbbdefdda8a149c4654a7abe7bab7cc` 前后不变。HY3 INT8 W8A8、TP8/attention DP8、DeepEP auto、ASM=0、NEXTN 2/1/3、FA3、E5M2、page64、显存比例0.85、decode Graph BS16。外层显式选择 vendor FA、HCU KV 布局、本次源码与完整 DeepGEMM wheel；这不等于没有额外部署配置。官方会把 NEXTN 名称规范化为 EAGLE，并保留同一条 NEXTN/MTP 路径。
+
+完整服务启动，8 个并发基础问答均为完整正确答案且正常停止；实际后端仍为 FA3，decode Graph=full、prefill Graph=breakable，日志有 Graph 执行。完成后仅停止本任务进程，端口关闭且显存释放。本轮未重跑 GSM8K、稳态性能、其他模型或其他架构，基础问答不替代精度/性能验收。
+
+使用完整 DeepGEMM `2.1.0.post1+das.dtk2610.unknown` wheel，SHA256 `8b622a05075a705bf28d0d7bfe08a0d3402503bea0706d2bb72a84a8d461e59f`。没有新增内核实现、构建工具或补充扩展。原始日志、启动与清理记录、测试时 SHA 和最终 SHA 保存于仓库外 `hy3/pr_sync_20261117/`；提交内仅更新此说明。
