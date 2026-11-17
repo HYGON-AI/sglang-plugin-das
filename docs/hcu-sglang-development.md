@@ -3739,3 +3739,552 @@ ROCm/AITER 后端选择 Hook 仅向实际 ROCm 平台注册，HCU OOT 不加载�
 新增双入口与其他 Hook 共存的旧实现失败反例，注册与 rotary 专项、
 结构/导览及当前组合模型的实际结果随本 PR 验证说明提供；历史 INT8
 设备结果仍只属于其原版本，不将同步主分支视为重新验收所有配方。
+
+## 2026-11-12 扩散加载 utils 接口分阶段迁移
+
+本轮按用户要求从 `utils.py` 开始逐接口迁移，不改动其他加载策略。
+来源为 DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`；本地官方
+基线为 v0.5.22 `baa9befa381511cd4d56f83980951e5a45fffc6d`。另核对
+官方最新稳定版 v0.5.23 `297e54fd105e974cdf401e5b4d20253a22c16f90` 与
+main `c7f3e2bdfd348d396f17f776f067f5765fa2bc52`，均无 DAS 的
+`iter_hf_to_custom_state_dict` 和流式 state-dict 分支。
+
+实现位于 `hcu_sglang/multimodal_gen/loader/utils.py`：
+
+- `iter_hf_to_custom_state_dict` 按来源函数完整 AST 原样迁入，保留来源许可、
+  注释与 docstring，不在本次改变映射、合并、重复键或不完整分片语义。
+- 其他接口按名称转交已安装的 SGLang `runtime.loader.utils`，返回原函数对象，
+  包括私有辅助接口；不复制一份官方实现，不改写官方模块。
+- 官方不存在的属性继续报 `AttributeError`。`_resolve_missing_param_init`
+  属于后续 `fsdp_load.py` 接口范围，本轮不新增或伪造。
+- `load_safetensors_state_dict` 在本地官方 v0.5.22 存在，但最新 v0.5.23
+  和 main 均已没有该接口。插件按已安装版本暴露存在的接口；部署版本缺少
+  它时继续报属性缺失，不从其他仓库加载或补造旧实现。
+
+来源和 AST 哈希见 `plans/streaming-loader-utils-source.json`。功能回归位于
+`tests/runtime/multimodal_loader_utils.py`，覆盖真实 CPU 张量、惰性消费、乱序
+Q/K/V 合并、合法目标键回退、重复精度项透传，以及与官方全量转换的对照。
+
+本阶段为插件自有辅助接口就绪，未注册加载器 Hook，未切换现有 DAS
+`fsdp_load.py` 消费者。因此 DAS 旧 helper 暂保留，待消费者迁移后在同一步
+删除旧定义；此时删除会直接破坏现有 `from ...utils import ...`。不把本阶段
+记作整个流式功能已生效或 Wan2.2 启动已通过。
+
+验证：在现有容器的 Python 3.10 / PyTorch 2.11.0 环境，以
+`HCU_ADAPTER_HOST=none` 关闭设备桥初始化，并在 Python 启动后显式将官方
+`sglang/python` 放到搜索路径首位。实际 `utils.__file__` 确认为官方仓路径，
+运行 `tests/runtime/multimodal_loader_utils.py -v`：10/10 通过。
+这是 CPU/接口验证；没有启动模型、启用完整流式加载或执行 GPU 推理。
+另外将已固定提交的 v0.5.23 和 main 的 `utils.py` 源文件分别装入同一
+CPU 依赖环境，按其真实属性存在性重复同一组测试，各 10/10 通过，共 30 项。
+这不等于安装并验证了两个完整新版 SGLang 环境。跨版本检查中首先发现测试
+错误地要求每个版本都提供旧 checkpoint 接口，已改为同时验证“存在则同对象、
+不存在则属性缺失”，未给实现增加伪造接口或兼容副本。
+
+`ci/l0_gate.py` 通过；迁移执行台账、运行时 closure 与离线导览均已重建并
+通过 freshness 检查，`git diff --check` 通过。手工决策只变更 utils 一项；
+生成执行台账还刷新了仓库中此前已变更但未同步至生成快照的其他决策，
+不代表本次新增了其他模块的迁移或验证。
+
+
+## 2026-11-12 流式 state-dict 装载函数迁移
+
+接续 utils 接口阶段，在同一聚焦分支迁移 DAS
+`runtime/loader/fsdp_load.py:load_model_from_streaming_state_dict` 至
+`hcu_sglang/multimodal_gen/loader/fsdp_load.py`。来源仍固定为
+`15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`，来源函数及缺失参数 resolver
+的完整 AST 保持一致；来源许可、注释、docstring 保留。证据与有意依赖替换见
+`plans/streaming-state-dict-source.json`。
+
+接口与依赖：
+
+- 新装载函数直接使用已迁入插件的 `iter_hf_to_custom_state_dict`，不从 DAS
+  源目录动态加载任何实现，不复制官方完整 fsdp 模块。
+- 官方 `_make_param_like`、`_maybe_dequantize_fp8`、dtype 日志格式化，以及
+  `rank_local_checkpoint.QUANTIZED_DTYPES` 直接复用。
+- 旧 DAS `_get_param_for_weight_loading` 以官方公开
+  `rank_local_checkpoint.get_param_for_weight_loading` 替代。官方 helper
+  读取真实 Module/Parameter 的字典；历史 DAS helper 使用 getattr。本轮覆盖
+  实际参数对象与 FSDP 包装前的 weight_loader 元数据，不为仅依赖动态属性的
+  人工对象声称兼容。
+- `_resolve_missing_param_init` 在安装版本提供同名接口时使用原对象；否则
+  使用原样迁入的 DAS helper，保留 `local_attn.proj_l.` 零初始化策略。该规则
+  不写回官方普通加载路径；后续普通路径的迁移单独处理。
+- 其他原生 fsdp 接口按名称暴露原对象，不修改其签名。
+
+CPU 回归 `tests/runtime/streaming_state_dict.py` 已执行 15/15 通过，覆盖
+真实 meta Linear 参数物化、插件 iterator 实际消费、官方全量加载结果对照、
+合并顺序、目标 dtype、参数专属 loader、FSDP 前元数据、缺失/多余键、量化
+重复项及 FP8 反量化。实际官方来源为本地 v0.5.22，Python 3.10、Torch 2.11.0，
+`HCU_ADAPTER_HOST=none`；未 mock 被验证的加载与参数装载边界。
+
+另以 `tests/runtime/streaming_state_dict_distributed_cpu.py` 验证两 rank
+Gloo/DTensor 的真实 Shard(0) 分片、CPU 放置和异常拒绝，1/1 通过。
+该 lane 不是 HCU FSDP/TP 或 GPU offload 性能验收。
+另在当前已安装 DAS 树运行同一 15 项 CPU 测试，15/15 通过，并断言插件
+resolver 与安装树已有 resolver 是同一对象。因此本轮同时覆盖官方基线的
+自有 resolver 分支和当前安装树的原接口复用分支。
+
+L0 通过（703 个 Python 文件）；执行台账、closure、导览重建及 freshness
+检查通过，`git diff --check` 通过。原官方仓和 DAS 仓均未修改。
+
+父 `maybe_load_fsdp_model` 的选择/接线还未迁移，因而本阶段不注册生产 Hook，
+不删除仍被旧父 loader 调用的 DAS 定义；后续切换父链路时一起删除旧生产者
+和旧 iterator。本阶段不修复原启动报错、不启动 Wan2.2 服务。
+
+
+## 2026-11-12 流式加载选择策略与生产接线迁移
+
+接续前两步，将 TP/SP 条件与加载选择迁入
+`hcu_sglang/multimodal_gen/loader/integration.py`，来源仍为 DAS
+`15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`。接线与边界见
+`plans/streaming-loader-integration.json`。
+
+生产入口仍为既有 `hcu` entry point，不新增环境键、官方配置字段或函数参数。
+`TransformerLoader.load_state_dict_model` 的 AROUND Hook 从原有 server_args
+读取 TP/SP 条件，在单次加载作用域记录目标模型类；`full-state` 装载函数的
+AROUND Hook 仅对匹配类选择插件流式实现。状态使用 ContextVar，并以 finally
+恢复，避免跨模型、嵌套加载和异常后的状态泄漏。官方中间类及其方法签名不变。
+
+原生 rank-local 切片已经成功时继续使用原路径；checkpoint mapping、direct
+GPU weight loading、host spill 与 bitsandbytes 特殊处理也交回有效原函数，
+不丢弃其专属参数。选择插件流式时仍保留原函数外层的模型构造、FSDP 处理、
+post_load_weights、冻结和卸载生命周期，不复制 maybe_load_fsdp_model 整段。
+
+DAS 的清理范围只包含三处旧扩展：caller 的 selector/传参、底层参数/流式分支
+及旧装载函数、utils 的旧 iterator；流式专用私有参数解析副本和量化常量一并
+清理。其余普通加载与其他模型差异未动。对固定来源进行 AST 变换核验，三个
+文件均只包含计划中的移除，普通分支的初始化与后处理保持不变。
+
+新 Hook 在顶层 register 的早期登记，并纳入当前目标合同。当前安装树仍有
+既有的 SRT current_dsa 注册异常；本轮不吞掉这些错误，也不将局部 Hook 成功
+描述为全量插件合同通过。服务日志已确认 parent/worker 中两项新 Hook 实际
+apply，Wan attention_type=sla 与 sla_topk=0.25 已被识别。
+
+验证：`tests/runtime/streaming_loader_integration.py` 在当前 DAS 树 11/11
+通过。官方 v0.5.22 基线下，utils、装载函数、接线与两 rank CPU DTensor 的
+组合回归共 37/37 通过。覆盖插件启停、单卡原路径、TP/SP 选择、原生优化优先、
+缓存导入别名刷新、实际元权重物化及失败后恢复。TP/SP 条件单测不等于真实
+HCU 多卡验收；本轮未重新运行 HCU 多卡流式加载或性能测试。
+
+按用户配置进行真实 Wan2.2 单卡复测：DiT 常驻、text encoder/VAE CPU offload、
+SLA 0.25、720p 一步服务预热。原 unexpected keyword argument 已不再出现，
+六个组件全部加载完成，其中两组 DiT 各报告 26.62 GB，SLA 参数已识别。
+预热在 text_encoding 的组件上卡阶段 OOM：text encoder 的整组件 CPU offload
+在使用时仍会执行 module.to(device)，当时两个 DiT 常驻后可用显存只有
+7.25 GB，后续申请 192 MiB 失败；PyTorch allocated 60.90 GiB、reserved but
+unallocated 2.81 GiB。框架自动缩短帧数重试后仍失败，服务已自行退出。
+未发送额外生成请求，没有报告服务 ready 或生成通过。
+
+完整日志已归档于本次模型适配实验目录的 wan22-migrated 运行记录。
+新加载 Hook 在真实 parent/worker 中均已 apply，原 TypeError 与回退段错误
+没有重现。仍有此前的 SRT 适配警告，本轮未处理；不把单卡原路径验证外推成
+真实 HCU 多卡流式路径已验收。
+
+L0、导览与迁移台账 freshness、git diff --check 均通过。用户随后要求提供
+DiT 也 offload 的启动命令，该配置尚未执行，不能沿用本轮结果宣称已通过。
+
+
+### 2026-11-13：按 0.5.22 release 基线整理
+
+本次插件改动基于 `release/sglang_v0.5.22`（`9258cef`），只迁移流式加载
+实现、注册、四项测试模块及三项 loader 台账。保留 release 原有功能，
+不引入 main 的其他功能或全仓 runtime closure 工具与测试。配套 SGLang
+基于 `v0.5.22.plugin`（`15c7204b7a`），adapter 基于其
+`release/sglang_v0.5.22`（`766879b`）。此前 main 基线结果仅为历史证据，
+不外推为本次 release 的 GPU、模型、性能或全量门禁通过。
+
+本次 release 基线实际验证：四个 loader 模块共 37 项通过，覆盖
+CPU 张量与两 rank Gloo；上游导入探测需要设备可见，不是隐藏 GPU
+验证。L0、执行台账与导览快照检查通过。全量 unittest 候选与干净
+release 基线均为 132 项，1 failure、2 errors、13 skipped，失败/错误
+用例集合相同；两项错误为主机缺少 torch，一项为既有模拟 arg_utils
+缺少 field_names。未重跑真实模型、GPU Graph、多卡和性能验收；
+导览未执行浏览器渲染、交互及窄屏截图检查。
+
+
+### 2026-11-13：社区 diffusion 入口与 Wan SLA 跳过
+
+本轮目标改为社区 SGLang v0.5.22（`baa9befa381511cd4d56f83980951e5a45fffc6d`），
+配套插件以 `768b2e6`、adapter 以 `3fbbc89` 加本轮工作区改动运行；官方源码保持干净。
+用户明确批准将 RoPE 原地计算放入 adapter 的 sgl_kernel，以及由 plugin 实现
+Wan SLA 跳过线性分支。本条记录不沿用此前 DAS 框架的生成成功结果。
+
+- 新增 `sglang.multimodal_gen.plugins` 正式入口。八个 multimodal 注册模块接收
+  可选 registry，由 diffusion worker 在平台初始化后注册和 apply；SRT 入口仅在
+  旧框架没有该独立机制时沿原路径注册，避免同一目标在两份 registry 中重复包装。
+- Wan 构造期间沿用已有 `sla_topk`、`sla_skip_linear` 解析，限定普通
+  `SparseLinearAttentionImpl`；默认跳过时不创建 `proj_l` 和特征映射，不执行
+  线性 attention。forward 复用社区 get_block_map 与 _attention，不修改稀疏算法。
+- 显式关闭跳过时保留社区线性分支，并将新增投影参数声明为零初始化；非 Wan、
+  非 HCU 和 SageSLA 不进入这项新跳过逻辑。更新目标合同、安装说明和回归。
+
+实际验证：24 个 diffusion Hook 目标全部 apply。正式回归 7/7 通过（六项 CPU
+契约、一项 head size 64 的真实 GPU/Graph 对拍），覆盖真实
+  entry-point 加载、registry 所有权、meta 构造无参数、跳过计算、关闭后计算、
+  非目标模型/平台及构造失败后的上下文恢复。独立 GPU 探针在 BF16、40 heads、
+  head size 64、513 tokens 下 eager 及三轮变输入 Graph 与社区零投影完整 SLA
+  输出逐元素一致。该结果不外推至 Wan 的 head size 128。
+
+独立探针另记录两项社区稀疏 kernel 限制：129 tokens、topk=0.25 时，
+  `int(ceil(129/64)*0.25)` 为零；head size 128 默认 kernel 需要 81920 bytes
+  shared memory，超过本机 65536 bytes。保留失败日志，本轮未修改这些算法或
+  launch 配置，不能声称普通 CUDA SLA 在本机 Wan 形状下已通过 GPU 验收。
+
+真实单卡、DiT/text encoder/VAE CPU offload、720p、17 帧、一步请求已执行。
+两个 WanTransformer3DModel、UMT5EncoderModel 和 VAE 均按 sgl-diffusion 实现
+加载，无 native fallback；原 proj_l 缺失初始化报错消失。文本编码完成后，
+去噪在社区 `scale_residual_norm_cutedsl.fused_norm_scale_shift` 失败：
+TVM FFI 要求 CUDA Tensor，收到 HIP Tensor。请求失败、无视频输出，服务已停止。
+这项 CuTeDSL 兼容问题与稀疏 kernel shared-memory 限制均留待后续处理。
+
+adapter RoPE 的 25 项 GPU/接口回归通过，另有 CPU 41 passed、22 GPU skipped；
+kernel 在阻断 SGLang/vLLM 导入后仍可独立执行。原地 RoPE 保留 restore-safe
+  autotune，稳态不分配临时 GPU 张量；BF16/40 heads/head size 128 的四种 token
+  规模中，相对先前社区 out-of-place kernel 加写回的 ABI 版本约快 1.58–1.69 倍。
+性能为独立算子结果，不能描述为模型加速。
+
+两仓 L0 通过。插件全量主机 unittest 为 132 项，1 failure、2 errors、13 skipped，
+与前一 release 基线记录相同（缺 torch 和 field_names 测试替身缺项）。容器全量
+  unittest 为 135 项，2 failures、2 errors、13 skipped，另涉及隐藏 GPU 的 SRT
+导入、启动时已加载 torch 与 embedded 来源隔离；本轮不修改这些无关用例。
+目标测试通过不等于全量门禁通过，暂未提交或 push 本轮改动。证据按
+`inplace-rope-sla` 实验目录归档，包含源码摘要、patch、原始失败与成功日志。
+导览重建与 freshness 单独检查；未执行浏览器渲染、交互或窄屏截图验收。
+
+## CUDA 语义下的厂商 SLA 接入（2026-11-14）
+
+本轮按用户确认，将 HCU 的 CUDA `SLA_ATTN` 选择接到已有
+`RocmSparseLinearAttentionBackend`。Hook 位于实际定义 classmethod 的
+`CudaPlatformBase.get_attn_backend_cls_str`，保留类和实例调用的绑定语义。
+全局仍为 CUDA 平台，其他后端与非 HCU 请求交给传入的 original。
+支持 head size 64/128、FP16/BF16；依赖厂商 FlashAttention 的
+`sparse_attn_with_sla`，底层为 HIP `fwd_sparse`，不是 NVIDIA CUDA 二进制。
+
+Wan 构造上下文将既有 `sla_local_blocks` 和 `sla_skip_linear` 配置传到厂商
+实现。跳过线性分支时不创建 `proj_l`；关闭跳过时保留零初始化和缺失参数
+初始化标记。无需修改社区源码、模型接口或全局平台身份。
+
+新增 `tests/runtime/vendor_sla_cuda.py` 覆盖真实选择器/构造链、其他 CUDA
+后端、无投影分支、D128 独立 FP64 稠密参考和输入不变性、变更输入的 Graph
+重放。稠密参考仅对应 topk=1；topk=0.25 检查有限值和形状，不代表稀疏
+掩码语义或生成质量验收。实际执行结果及单步模型状态保存在本轮项目记录。
+
+本轮两个 runtime 文件各 7 项测试通过（含 GPU/Graph）；L0 通过、导览 freshness
+通过。真实单卡一步越过首个 SLA，原 shared-memory 报错消失；请求在后续
+`self_attn_residual_norm.forward_cuda` 调用另一个 CuTeDSL 算子
+`fused_scale_residual_norm_scale_shift` 时设备类型错误，最终 failed，无视频。
+服务已停止；本轮未修改 residual 算子，未 commit/push。浏览器渲染未验证。
+
+
+## 2026-11-15：社区 Wan2.2 组合端到端验证
+
+保持社区 SGLang v0.5.22 `baa9befa381511cd4d56f83980951e5a45fffc6d`
+源码不变；plugin 基于 release/sglang_v0.5.22 的 `9258cef`，adapter 基于
+同名 release 分支的 `766879b`，沿用各自功能分支及本轮改动组合部署。
+本轮仅整理验证记录后推送用户 fork，不更新未验证的上游运行时代码。
+
+已验证正式 diffusion 入口、CUDA SLA 选择、无 proj_l 的 Wan 构造、
+adapter 原地 RoPE、norm/residual norm CUDA dispatch。BW1000/gfx936
+四卡 FSDP+Ulysses4、DiT常驻、text encoder/VAE offload、vendor SLA
+0.25、720p/81帧/16fps/40步、CFG4/6：此前10条与官方提示词队列前37条
+均完成去噪、VAE解码及MP4保存，无 native loader fallback。
+37条视频全部解码验证为81帧，七项 VBench custom_input 评分各37条。
+用户人工查看视频认为语义基本正确；部分首帧彩噪/块状伪影仍存在，
+不宣称与参照平台逐位一致、全模型画质通过或官方完整VBench成绩。
+
+torch.compile 独立测试完成2步、4步冷预热与40步请求，实际DiT模式为default。
+40步API推理927.98秒，eager同prompt/seed为943.72秒；卡组不同且n=1，
+仅记录执行结果，不确定编译的性能收益。测试输出未混入37条评分样本。
+模型日志、源文件快照及评分明细保存在本机项目记录，不将视频或测试日志纳入Git。
+历史条目中“未提交”和失败状态保留为对应阶段记录，不覆盖本轮端到端结果。
+
+
+本次推送前复验：两个 SLA runtime 文件开启 `HCU_PLUGIN_RUN_GPU_TESTS=1`
+后各7项通过（共14项，无skip，包含GPU与变输入Graph）；adapter对应算子与
+custom-op定向130项通过，CPU契约38项通过。两仓L0及导览freshness通过。
+主机全量unittest当前分支和干净`768b2e6`归档各132项，均为1 failure、
+2 errors、13 skipped，失败/错误用例集合一致：主机缺torch，以及现有
+arg_utils测试替身缺field_names。保留全量非GREEN结论，不以定向或模型通过
+替代未通过的全量项目。导览未新增浏览器渲染/交互截图证据。
+## Qwen3.6-35B-A3B on the 0.5.22 plugin and adapter branches (2026-11-16)
+
+The Qwen4 PLE module imported the optional mapped-host adapter provider while
+registering global hooks. On adapter revision 2701b07 the provider is absent, so
+global registration stopped before completing even for Qwen3.6. Load the
+provider at the PLE operations that use it, with no fallback for a missing
+provider when those operations are requested. The target contract also records
+the already registered DecodePreallocQueue._send_kv_metadata hook, independently
+verified in the current disaggregation implementation.
+
+On bw46, with official revision baa9bef and the adapter revision above, the
+pre-change loader applied 615 hooks then logged a missing-provider error.
+After the change the real loader registered and applied 650 hooks and exposed
+all required resolution seams. The PLE execution path itself was not exercised.
+
+### Preserve the adapter's Breakable Prefill driver gate
+
+On Qwen3.6-35B-A3B TP2 the community configuration resolved Prefill to
+Breakable, while the image baseline used eager Prefill. The plugin graph
+lifecycle called its own private prefill implementation and bypassed the
+adapter's driver gate, causing HCU workers to fail inside the NVIDIA
+`cuda-python` stream capture probe. Call the public capture seam and honor an
+active adapter gate on the effective original. There is no change to Full
+Decode/Verify Graph capture or to plugin prefill implementations for other
+backends. Deploy with the adapter revision that advertises the callable gate.
+
+### Honor Qwen shared-expert ownership in the AITER W16A16 route
+
+The Qwen MoE constructs its runner with `inplace=False` when the shared expert
+reads the router input after the routed experts. The W16A16 AITER hook used
+`inplace=True` unconditionally. The vendor ASM route writes the combined routed
+output to that input; the Qwen shared gate then reads overwritten activations.
+Forward the runner contract instead. This retains the in-place route for callers
+that allow it, along with the AITER kernel and all original startup flags.
+
+bw46 isolation: disabling five optimization flags restored deterministic output;
+restoring W16A16 and fused TopK reproduced the failure; disabling only fused
+TopK did not recover. The new input-ownership test fails on the original
+forward and passes after the fix. See the original-script integration and
+1024/200 performance results in the run's validation artifacts.
+
+
+## 2026-11-16 Qwen3.6-35B-A3B-W8A8 的 E5M2 KV
+
+Qwen3.6-35B-A3B-W8A8 的目标模型以 `Qwen3_5MoeForConditionalGeneration`
+加载，EAGLE draft 以 `Qwen3_5ForCausalLMMTP` 加载。在 gfx936、BF16 query、
+page 64、FA3 和 HCU KV layout 的既有组合内，将目标模型加入 E5M2 配置例外
+及 paged MHA query 门控，复用插件的 BF16 query 与 E5M2 KV 的 HCU 路径。
+现有显式 K/V scale 检查继续生效。
+
+原始 E4M3 脚本在 DAS 基线的变长 Prefill 与 target verify Graph capture
+分别碰到 FA 和 paged attention 的限制。本次服务验证按用户指定设置 E5M2。
+基于 plugin `fcbbc81`、adapter `d4f8afe` 与社区源码 `baa9bef`。
+配置解析和真实 Hook 分发检查覆盖 MoE page 64、关闭 HCU KV layout、
+page 16、Prefill/Decode query 及显式 scale。
+
+Python 和 HCU 验证共 107 项通过，其中 3 项对拍 page 64、head dim 256 的 E5M2 KV，覆盖 query 长度 1、4、12 的 Graph 重放及变化的输入。
+
+## 2026-11-14：DeepEP W4A8 contiguous 非 512 对齐宽度
+
+用途：为 `release/sglang_v0.5.22` 当前 HCU DeepEP HIPC provider 补齐 W4A8 WASP mode 1006 的 N 对齐合同。改动保存在 `codex/pd-parallel-0.5.22-20261114`，未修改官方 sglang。
+
+Qwen4Exp 的 gate/up 投影宽度为 1280；当前厂商 mode 1006 要求 N 能被 512 整除，真实服务在首次前向失败。先保留真实量化方法的 process_weights_after_loading → pack 消费者反例；mode 1002 在同一实际维度的独立数值检查未通过，不能直接切换作为回退。
+
+仅 HCU、DeepEP、非 LightOP Marlin 且显式启用 SGLANG_USE_W4A8_CONTIGUOUS_HIPC 的权重加载路径将投影输出维补零到 512 的倍数，权重与通道 scale 均补零，保存原始输出宽度。contiguous 前向在 SwiGLU 前裁剪 gate/up，在加权 gather 前裁剪 down。AUTO 同时使用 masked 路径时也恢复原宽度。保留 INT8 激活、INT4 权重及 checkpoint scale/16；已有 aligned 与未启用路径不改变数值合同。没有新增 Hook 或环境变量。
+
+本轮证据保存在工作区 `pd-disag/codex-work/parallel-search-20261113`，包括修复前反例、运行时回归、厂商独立数值测试和逐服务配置快照。实际验证：修复前 2 项反例复现 N%512 错误；修复后 15 项相关回归通过，包含加权消费者、空输入、正常/补零/共享 masked 布局。N1536/K2560/E128 的真实 GPU INT8×INT4 GEMM 与 FP32 参考通过（rtol .02、atol .01，BF16 输出），服务通过 8 项文本/视觉 smoke 与短算术。首个冷 256K 请求停滞，gdb 位于 deep_ep::Buffer::intranode_dispatch；尚无合格长上下文、MTP 或 SLA 性能结论。L0 与生成导览一致性检查通过；完整 CPU 单测 144 项、2 项失败、13 项跳过，两项失败在原 HEAD worktree 同容器复现（CLI 测试 stub 缺 field_names；镜像自动 bootstrap 提前载入 Torch）。导览浏览器渲染未验，宿主和容器无浏览器/Playwright。P 端 graph 关闭，D 端沿用 AITER，未宣称 padded DeepEP graph 支持或 CUDA 平台验证。
+
+## 2026-11-14：实验性 Qwen4 prefill 原生 QSA reader
+
+用途：在相同 sparse indexer、权重、FP8 cache writer 和 MTP 下，对照 P 端 reader 内核及全缓存打包成本。保持上述开发分支，不改 official 或 adapter。沿既有 metadata/forward_extend Hook 所有权新增实现选择，没有新增 Hook target。
+
+`SGLANG_QWEN4_PREFILL_QSA_IMPL` 为 typed EnvStr，默认 `triton` 保留有效基线；`native-packed` 懒加载当前 HCU FlashAttention 的 packed BF16 API；`native-paged` 对 GQA group12、完整 top-k 槽窗口的已缓存请求直接读取 NHD FP8 页，其余受支持情况使用 packed API。只接入 BF16 Q、D256、GQA group 1–16、CP1 的普通 EXTEND；冷输入保留当前 BF16 K/V，D 与 speculative paged 分支不改变。QSA writer 调用 set_kv_buffer 时未传 scale，使用同一缓存单位 scale，带独立量化方法或 HND 池不进入分页路径。按现有 metadata 的页首 slot 生成页表，不复制 KV，FP8 buffer 使用保留 stride 的 view。每个 forward 的页表和设备 scale 随不可变 plan 持有，不在层间重新读取 GPU scalar。实际命中输出 provider/shape 日志。
+
+独立真实 GPU 反例发现：原生 paged API 的空行返回零，空首块后有有效值时继续计算，而当前 Triton 的这些行返回 NaN。因此 wrapper 按当前 Triton block config 保留空首块 NaN；DP 多余行仍由既有 pad 出口清零。有效行、E5M2/native 与 uint8 carrier、非连续 interleaved KV、随机页表、重复索引、width67/2051、动态 FP32 scale 的首次数值测试误差不超过约 .002，但未经空行归一化时整体等价检查真实失败。该反例保存原始日志，不能以只检查有限值子集代替边界语义。
+
+当前两项 CPU 回退/非目标 MRoPE 检查与 L0 通过。真实 provider 对 group6 的 paged 调用明确拒绝（requires group=12）；已在分派前保留该合同，TP4 对应 group6 使用其支持的 packed API，未改 vendor guard。新增显式 GPU lane 测试通过真实 MHA cache 构造及 set_kv_buffer → 公共 forward_extend → native consumer → DP pad，覆盖 Q24/KV2 与 Q6/KV1、冷/缓存、多请求和空行；该文件全部13项真实GPU/CPU检查通过（显式 HCU_PLUGIN_RUN_GPU_TESTS=1、adapter组合，8项新增reader组合全部命中并与现有Triton对拍；含公共缓存写读与DP padding，无逐层GPU item）。长模型 smoke、MTP、固定 cache SLA A/B 待执行；未宣称新接口已提高服务性能。P prefill Graph 关闭，Graph/其他平台与缺失这些专项 API 的普通 FlashAttention wheel 未验。浏览器渲染工具当前不可用，不以导览快照检查代替浏览器验收。
+
+首轮模型 A/B 核验发现当前实际池为 HCUMHA BHSD，首版只接 NHD，配置 native-paged 实际回退到 packed；8项文本视觉与20项短/256K质量通过，但不作分页 reader 性能证据。新增真实 HCUMHATokenToKVPool 构造→写缓存→QSA pack Hook→公开 forward_extend 的 counterexample，修复前数值仍正确但实际 native-paged 命中断言失败。补齐只对该真实池类型的 BHSD→BSHD permute 视图，零 KV 复制；原生接口继续消费实际 strides。增加 NHD/BHSD 双布局，group6 仍保留 packed 回退。当前新服务 probe 在正式性能前要求所有 P rank 日志命中 native paged。补齐后的21项专项 GPU/CPU 测试全部通过（16项原生 reader 双布局组合）；新服务复验待执行，旧 case 保留 route-miss 标记，不重命名旧证据。
+
+
+## 2026-11-14：实验性 PLE prefill 激活临时复用
+
+用途：降低长 prefill 的显存峰值。PD 共卡实测在社区 PLE `_short_conv` 返回 SiLU 处额外申请 1.25GiB OOM。该分支的 advanced indexing 已生成独占连续临时张量，SiLU 输出没有其他所有者；原生 inplace SiLU 可复用它。decode fast path、target verify、CP、autograd 以及 CPU 保留有效原方法。新能力在 plugin，resource-tracker 兼容修复仍归 adapter。
+
+以普通 AROUND Hook 接入 `_short_conv`，默认关闭。开启后复制函数全局字典，仅将这一个函数的 F 绑定为私有 facade；社区卷积、状态追踪和返回顺序不变，不改全局 Torch、函数对象或磁盘来源。首次执行核对已审查社区方法的完整 AST 指纹，未知上游/已有包装直接拒绝；不能把临时复用扩展到存在外部别名的输入。对默认关闭、非目标模式保留传入的 original，包括合法前序包装。
+
+CPU 隐藏 GPU lane 从当前已安装社区文件 AST 加载完整原方法体，避免其模块导入时的硬件探测；以独立 FP32 逐 tap 深度卷积与 SiLU 参考核对数值、ragged/零长度行、状态和输入别名。该 lane 不证明完整模块注册。真实 GPU lane 另经正式 HookRegistry 注册/应用、社区方法与真实 Torch conv1d，核对 FP32/BF16、峰值显存和变输入/变初态 Graph replay；结果与模型服务验证另行登记，未执行的 lane 不标通过。
+
+
+本次验证：隐藏 GPU 的完整社区方法 CPU 对照 4 passed/2 GPU skipped；随后停止已拥有模型服务，在 gfx936 的独立进程通过 6/6 检查。实际宽度 10240、1536 token 时，FP32 峰值 378470912→315556352 bytes，BF16 189235712→157778432 bytes，分别节省完整一个输出的 60/30MiB；首次 eager、正式 Hook、状态和变输入/变初态 Graph 均与当前社区方法逐元素一致。不能从这项局部峰值结果推导模型已不 OOM 或 SLA 已提高。服务候选及长输入 smoke/性能仍待执行。
+
+L0 通过；完整 CPU unittest 在容器隐藏 GPU 环境为135项、2项既存失败和1项导入错误、13项skip：两项原有 CLI/cold-import 失败有此前基线记录；额外 mrope 导入在社区硬件探测处因无可见 GPU 失败，也在原始60e37隔离 worktree同环境复现。宿主缺 Torch 的运行另外保留错误日志，不称全套通过。导览构建/快照检查执行，当前无浏览器工具，未验浏览器渲染。证据在本次外部实验工作目录 logs/ple-* 与 snapshots/ple-gpu-preflight-status.json。
+
+
+## 2026-11-15 PD trace 优化实验
+
+用途：在0.5.22基线上验证QSA indexer并行度和prefill结果回收时序，全部开关默认关闭。
+
+新增`SGLANG_HCU_QSA_PREFILL_LOGITS_MIB`（0=有效原函数，1..2048=显式FP32 logits预算MiB），通过`_qsa_prefill_row_chunk_size` AROUND接入，保留adapter提供的MQA/fast-topk实际provider。新增`SGLANG_HCU_PD_PREFILL_DRAIN_MODE=off|ready|wait`，在现有plugin overlap loop中提前回收上一批结果；ready复用scheduler原生全TP ready协商，wait复用原生阻塞结果处理，不更改collective组或KV生命周期。旧结果提前处理后本轮不重复pop，后续inflight与采样流程保留。
+
+CPU验证：四项专用回归通过，覆盖预算回退/对齐/空输入和真实loop方法的队列结果所有权及顺序。三长度×三预算的完整QSA consumer索引检查已执行；fast_topk原生允许无序输出，极少数集合差异在baseline自重复也存在，所有变更行的FP32分数差最大1.12e-8。全零同分项集合可变化；因果与近期token检查通过，不能据此宣称全模型精度。L0和guide --check通过；完整unittest宿主缺torch，容器剩余mrope导入与CLI arg_utils mock失败，涉及文件本轮未修改，日志独立保留，未标全绿。三长度模型质量、MTP和SLA扩样待执行，当前尚未宣称服务性能收益。
+
+部署组合为官方SGLang+adapter+plugin；官方工作树原有用户改动保留，本次不修改官方源码。plugin-only和非HCU设备不是本次验收组合。实验脚本/日志/结果保存在指定的`codex-work/trace-opt-20261115`私有目录；每次P/D重启使用Docker restart。最终执行范围与有效配置以本轮独立报告为准。
+
+补充实现：`SGLANG_HCU_QSA_PREFILL_KEY_SPAN=0|1024|2048|4096|8192` 默认0保留有效原provider；显式启用时，只接管HCU Qwen4实际BF16 Q[*,4,128]、K[*,1,128]且压缩key数≥8192的prefill logits，通过consumer缓存的`qsa_indexer.qsa_mqa_prefill` AROUND接入。TileLang网格增加key分段维，保持FP32分数、逐head ReLU求和、scale和原BoltOPs因果mask；其它形状/dtype/短key路径回到原函数。独立16组对拍逐元素一致，512×65536从3.60ms到0.87ms，尚不能推导服务SLA。真实consumer与模型质量验证另行记录。
+
+结果回收开关保留`get_next_disagg_prefill_batch_to_run`和ngram准备的原有顺序；仅在下一批forward启动前处理旧结果，避免越过chunk状态更新。真实loop回归同时检查plan→旧result→新run顺序。所有开关独立，内核不隐式扩预算、不接管decode。
+
+DP配对实验：新增typed `SGLANG_HCU_PREFILL_MIXED_TIMEOUT=False`，通过`PrefillDelayer._negotiate_should_allow_prefill_pure` AROUND，在原协商返回后只处理仍被延迟的mixed分支。要求显式配置`--prefill-delayer-queue-min-ratio 0`以使用原6字段gather中的全局timeout标志、`--prefill-delayer-max-delay-ms`设上限、较大passes设兜底。放行只看已gather的全局第5列，不使用rank本地时钟决定collective序列、不增加通信；本地时钟只记wait指标。开关关闭、all/none、token watermark和原count超时均返回原结果。真实native pure方法AST的8种CPU合同通过，仍需多rank长输入服务验收。
+
+key-parallel wrapper的start/end统一转为连续int32并供logits和原mask共用；首次实际命中按进程记录路由，供多P实例逐rank审计。P保持eager、D沿用原graph与原MQA provider，未声明新prefill内核的Graph/CP/FP8 scoring支持。CPU专用回归新增全局deadline与fallback检查，验证开关关闭不读取buffer、每次仅调用一次有效原协商函数。
+
+组合模型验证补充：两组P TP2/DP2/EP2配D TP4/DP4/EP4，使用logits512MiB、key4096、wait drain、native-paged和mixed100ms。40个四长度确定性质量请求以及所选并发下116个算术/完整序列请求全部正确且正常结束。首轮N≥64的通过点为64K C27/N81（TPOT29.954ms，余量极小）、128K C22/N66（TTFT14.896s）和256K C9/N72（13.850s/21.318ms）；256K C10/N70和C12/N72失败点保留。P/D逐请求缓存最大最小均为页对齐后的85%目标。进一步C12/N132为14.022s/23.094ms、MTP74.05%，前72个prompt多重集与N72相同；首次突发全部计入P90，N132通过不覆盖N72失败，尚须最终新容器、三长度N≥128和所选并发精度复验。
+
+匹配原trace的C5/N10已重新采集四P rank完整trace并读取校验：活跃forward平均8.801→5.618s，MQA3.375→0.753s、sparse attention1.177→0.717s；GPU完成到P结果发布最大6700→15.9ms。非profiling C5输入多重集与原轮相同，P90 TTFT18.878→11.652s。profiling数据与正式SLA点分开留档，不将N10推作稳定性结论。
+
+新增局部行分工实验：`SGLANG_HCU_QSA_PREFILL_TP_ROWS=0`默认关闭，正数表示触发行数阈值，实验为4096。仅在CUDA、CP1、attention TP>1且足够长时，包装实际`QSAIndexer.select_prefill_tokens`，按attention TP rank切query及逐行metadata，保留完整压缩key，调用有效原方法；末rank补行后复用现有attention TP group的all_gather，裁回完整行数。没有修改全模型SP/CP、PLE或GDN状态语义。短行、CPU、CP>1、attention TP1及关闭均回原函数，不增加collective。
+
+2/4张实际GPU上的完整consumer与真实NCCL索引all-gather已验证三长度、33行非整除及1行空local rank；所有输出检查原因果/近期token合同，top-k集合差异按独立FP32分数检查。256K形状TP4为99.73→28.16ms（含gather约2.23ms），TP2为99.70→52.69ms（含gather约1.72ms）；短行反而变慢，故保留阈值。测试使用真实GroupCoordinator.all_gather方法与注入的并行句柄/NCCL transport；生产HCU组provider、完整模型质量和服务收益仍pending。首次驻留P/D模型时的OOM及独立BF16 broadcast失败日志保留，后续通过在Docker重启后、Gloo控制同步和int32数据all-gather条件下取得，不隐去失败尝试。
+
+TP行分工门禁：7项专用回归通过，L0检查614个文件通过，导览重建和`--check`通过。可见GPU的完整unittest执行151项、13项skip，剩余2项既存失败：CLI stub缺少field_names，以及镜像自动bootstrap导致cold-import提前加载Torch；两项均有上述基线复现记录，本轮未修改其实现或测试。日志为外部工作目录`logs/tp-rows-full-unit-gpu-visible.log`，不将全套标绿。浏览器渲染仍未验。
+
+完整模型与高负载补验：实际TP4/DP2/EP4和TP4/DP1/EP4均在所有4个rank命中QSA TP行分工及原生reader，40个四长度确定性质量、8个文本视觉smoke通过，生产HCU attention TP group的索引all_gather实际执行。256K C8/N64分别为11.436s/20.004ms和11.859s/19.799ms；DP1的group6使用支持的native-packed，DP2用native-paged。TP4/DP4/EP4不启行分工时C8为16.482s/20.129ms，TTFT不达标。TP4/DP2行分工扩到C12/N132为14.402s/21.966ms、380.13 output token/s，P99/max30.813/35.554s；未胜过两组P2的14.022s/23.094ms、381.02 token/s，不因独立算子加速而认定服务容量已提高。上述局部行分工不是全模型SP/CP适配。
+
+匹配C12/N132的关闭优化对照为28.753s/23.021ms、293.11 token/s，prompt多重集和四个harness哈希均一致；优化100ms组合的单次TTFT减少51.23%、吞吐增加29.99%。首次突发全部纳入P90，基线113个TTFT超15秒、优化10个且全为首次突发；不同N的旧失败保留，不以扩样掩盖突发尾延迟。PLE inplace完整模型质量与所有rank路由通过，但C12/N132为14.356s/23.120ms、380.38 token/s，未见服务收益，最终候选关闭。配对1000ms在C8/C12初筛改善突发最大值且吞吐略降，单凭初筛未证明提高容量；较高并发筛选另见外部验收记录。关闭mixed-timeout并恢复原生delay30的C12/N132为13.808s/23.366ms、377.73 token/s，单次约1.5%差异不称统计显著。最终配对取值由统一N≥128的容量复核和Docker新启动复验决定。
+
+边界搜索首个新容器在第二组P的disaggregation warmup发生VMFault/worker -11，尚未进入正式测量；原件独立保留，不纳入性能点或仅凭等待栈归因。每次服务重启均经过Docker restart。最终三长度边界、所选并发精度、新容器重复、原生P/D缓存、MTP及8191入口恢复以外部实验验收记录为准。未执行长时间混合负载或浏览器渲染，不将本次局部primitive/模型smoke扩展为全模型精度或其它平台验收。
+
+统一N≥128的边界搜索已执行：64K C26/N130：TTFT P90 7.076s、TPOT 29.706ms、MTP 74.72%/3.240；128K C30/N150：TTFT P90 14.455s、TPOT 32.615ms、MTP 69.25%/3.076；256K C14/N140：TTFT P90 13.986s、TPOT 23.992ms、MTP 71.99%/3.158。每个选定并发另执行算术/完整序列质量并正常结束。首次突发全部计入P90，失败邻点和P99/max另列，不能当作逐请求时限。该轮组合adapter新增真实HIP multimem探测回退门，未修改社区或vendor源码；最终提交后的Docker新启动复验和8191恢复尚待执行，以独立acceptance.json为准。
+
+## 2026-11-16：空 DP rank 防护迁出 SGLang（静态核验）
+
+用途：按用户要求检查并清理 SGLang 未提交改动，将当前 PD 配置需要的防护集中到 plugin。工作分支 `codex/pd-empty-rank-0.5.22-20261116` 继承 plugin `f0756cb1e9a1b23ef354ab39cbf8bb3ca9b60f1d`；SGLang 基线 `baa9befa381511cd4d56f83980951e5a45fffc6d`，adapter 保持 `db858b34fbdf15ba676f86909eff31fab239d5ed`。清理前五文件补丁 SHA256 为 `08a0dda4498132c4465e04909b200de024f0b42aa83247da476c26c8cc98ef8b`，完整补丁和逐文件 clean/dirty 快照保存在外部实验目录 `pd-disag/codex-work/sglang-dirty-cleanup-20261116`。本次归属遵从用户明确的“需要的改动放到 plugin”要求，未改 adapter 的平台语义 seam。
+
+静态调用链表明，这批改动是空 token/rank 正确性防护，不能当成独立的非空算子提速。保留四处：沿既有 GDN extend REPLACE 入口增加 HCU 空输入返回；为 Qwen3.5 fused QKV prepare、QSA pending slots 和 Sampler.forward 添加三个窄 AROUND Hook，并同步目标合同。非空或非 HCU 路径调用当前有效原方法。QKV 空路径保留投影、split 和当前原生 fused norm/RoPE 调用，随后按 q_size/kv_size 明确返回空二维张量；不提前跳过可能具有通信职责的投影。Sampler 空路径保留原有 NaN 检测和入口 trace。QSA 缺请求映射时只允许零 logical tokens，非空保持显式异常，且先执行原 rows 转换。
+
+删除两处冗余修改：上游 GDN decode 已被 plugin 自有实现替换，修改上游方法体不改变当前 HCU decode；split helper 的两个仓内生产调用分别来自已保护的 extend 和 MIS 分段，而冻结三进程配置均为 enable_mis=false，故当前配方不再需要额外 split 空输入补丁。该判断限定于当前调用链及配置，不推断启用 MIS、外部直接调用或 plugin 自有 decode 的全部空输入边界已通过测试。QSA 函数存在 from-import 消费者；当前固定 SGLang HookRegistry 在 setattr 后以对象身份遍历模块传播绑定，覆盖 qsa_indexer 和 plugin 缓存别名。此处只核对源代码机制，未运行 Hook apply。
+
+本次验证范围仅为 stdlib AST/源码比较、注册入口与目标合同、补丁备份、git diff 检查、离线 L0 和导览生成一致性。不导入运行时，不执行 CPU 张量/单测、GPU、Graph、服务重启、请求、精度、MTP 或性能测试；浏览器渲染未验。原有 SLA/acceptance 继续对应旧 plugin 加 SGLang dirty 的历史组合，本次 clean SGLang 加新 plugin 组合运行验收 pending，不能复用历史通过状态。
+
+
+## 2026-11-16：PD 优化基于最新 0.5.22 上游准备评审
+
+用途：将当前 PD 优化分支的维护面整理为一个本地评审提交，基于 upstream release/sglang_v0.5.22 的 81315b299ff4620205372e1b9997b226e3fb650b。来源优化提交为 28861d1af101120dec24d07a5b5a7a49440f0892；配套 adapter 评审分支 fix/pd-hip-bootstrap-multimem-v0522 基于 0318ca3129fd1cc4642db52bd3e6faa308ce4ece，官方 SGLang 仍为 release/v0.5.22 的 baa9befa381511cd4d56f83980951e5a45fffc6d。
+
+实际三方应用仅冲突 docs/hcu-sglang-development.md 和生成的 architecture.html；保留上游 DeepSeek V4.1/CI/DSV4 decode-radix 防护及全部原开发记录，再拼接本地优化记录并重建导览。所有本地优化运行时文件继续与来源分支逐字节一致，所有仅上游修改的文件继续与最新上游逐字节一致。保留 opt-in QSA workspace/key split/TP rows、native reader、PLE activation、PD drain/pairing、DeepEP 补齐及空 rank 防护，不把未选用的实验路径记作最终性能收益。
+
+本次是分支整合与离线检查；独立 worktree 不替换当前运行服务的源码根目录，未重启服务或在新组合上生成模型请求。此前 clean SGLang + plugin 28861d1 + adapter 2e723cc 的 2026-11-16 短测为旧证据，不外推到同步后的新提交：8项文本视觉 smoke 和16项短/长 QA 正常，MTP 71.93%–73.64%；64K C26/N52 的 TPOT 30.274ms、128K C30/N60 的 TTFT 21.910s、256K C14/N28 的 TTFT 22.188s 未达对应 SLA。更早大样本通过记录使用旧版本及不同预热，不能改写为本次同步后通过。新组合的 Graph、生成、精度、MTP、长稳及性能仍 pending；离线检查结果见本节后续验证记录。
+
+本次实际验证：L0（618个Python文件、8个skill）和导览重建/一致性通过；7项PD trace tuning定向CPU测试通过。固定官方SGLang源码、HCU_ADAPTER_HOST=none且隐藏GPU的全套unittest执行142项，126通过、13跳过、2项断言失败、1项导入错误。两项失败（CLI stub缺field_names，冷导入被镜像bootstrap提前载入Torch）在最新upstream 81315b2的独立worktree中各自复现；MRoPE导入触发官方SGLang GPU架构探测，在隐藏GPU时No CUDA GPUs are available，上游相同导入也复现。没有修改这些既存测试/加载行为，未将全套记为通过。配套adapter定向CPU测试79通过、16跳过，L0通过但有31项提示。GPU/native/Graph及同步后模型验收未执行，导览浏览器渲染未验。完整日志在外部实验目录pd-disag/codex-work/upstream-pr-20261116/logs。
+
+
+## 2026-11-16：PR #68 同步已合入的 Qwen3.6 与扩散加载改动
+
+用途：解决 PD prefill 优化 PR #68（来源 `3109080`）与目标分支
+`release/sglang_v0.5.22@8b730e0` 的合入冲突，保留两个已合入 PR：
+Qwen3.6 / graph / PLE 懒加载修复（#69，`74f8232`）和扩散流式加载与
+Wan2.2 SLA（#65，`8b730e0`）。独立评审分支为
+`fix/pr68-upstream-conflicts-v0522`，不替换现有服务的源码 worktree。
+
+实际文本冲突只有本开发记录与生成页 `architecture.html`。保留上游完整
+开发记录，再保留 PR #68 的全部新增记录；导览由构建工具重新生成。
+`hcu_sglang/__init__.py` 与当前目标合同自动合并后另行核对：保留上游
+`register_legacy()` 聚合与流式加载入口，同时保留本 PR 的 sampling 注册
+及全部 QSA / PD / 空 rank 合同。其他运行时文件无手工冲突修补；上游专属
+改动与原优化专属改动按文件核对，不删减双方功能。
+
+本轮实际验证：L0 629个Python文件、8个skills通过；导览重建与快照检查通过；
+7项PD trace tuning CPU定向测试通过。全量CPU unittest执行142项：126通过、
+13跳过、2失败、1导入错误。CLI stub缺field_names、镜像冷导入预加载Torch
+两项失败，以及隐藏GPU时MRoPE导入触发官方GPU属性查询的错误，均在最新上游
+8b730e0的独立worktree、相同环境下复现，未将全量测试记为通过。58个双方各自
+修改的文件逐字节保留；公共注册入口按AST核对为上游入口加原PR的sampling
+两节点，目标合同为双方集合的精确并集。运行中的三个源码根目录及此前评审
+worktree均未改动，容器未重启。当前环境无浏览器/Playwright，生成页未做实际
+浏览器渲染复验；构建快照和已有导览契约测试不等同于视觉验收。
+
+此前 `3109080` / adapter `5be2e09` / 官方SGLang `baa9bef` 的256K/C5 trace
+与smoke是合入前的历史证据，不能外推为本次同步后组合的GPU / Graph / 模型
+精度或SLA已验证。本轮不重启Docker、不启动模型、不发送推理请求；仅完成
+本地解决、离线验证与评审交接，尚未push。
+
+
+## 2026-11-16：PR #68 QSA 空 rank 守卫冗余计算清理
+
+用途：处理 review r4583365330，删除 `around_pending_ring_slots` 中结果未使用的
+`token_to_batch_idx.long()` 转换与切片表达式。该表达式是迁移空 rank 防护时
+保留的多余计算；此前静态迁移记录所述“先执行原 rows 转换”不再保留。
+HCU 缺请求映射时，零 logical tokens 直接返回同设备的 long 空张量，非空输入
+继续显式报错；其它情况原样委托 original，由原函数完成索引转换和截断。
+没有补入截断赋值，也未改动官方 SGLang、adapter 或其它优化路径。
+
+本轮通过5项针对性 CPU 张量检查：空输入不求值 token_to_batch_idx、非空缺
+映射报错、非 HCU 原样回退、正常 extend 与 decode 委托原函数完成转换和截断；
+同时复现删除前多余求值。检查从实际源码抽取函数，未实际加载 Hook 或运行GPU。
+7项既有PD trace tuning CPU测试通过，并执行L0和导览重建/快照检查。
+本次仅一行运行时代码清理，未重跑全量CPU discovery、GPU、Graph、模型精度、
+smoke或SLA；未重启容器或改变在用服务源码，生成页未做浏览器渲染复验。
+
+
+## 2026-11-17：PR #68 QSA key分段尾块行界收敛
+
+用途：处理 review r4585717820。该 review 判定
+`hcu_sglang/models/qwen/qsa_mqa_split_key.py` 的尾块越界读 `Starts`/`Ends`
+会污染 `start_min`/`end_max` 并导致输出错误，属 P2。核实后**结论不成立，
+但空转是真实的性能项**，据此只做行号收敛。
+
+核实过程：该 kernel 的 `pass_configs` 未设置 `TL_DISABLE_SAFE_MEMORY_ACCESS`，
+TileLang `LegalizeSafeMemoryAccess` 会为 global buffer 下标插入显式谓词。容器
+`yht-pd-w4a8`（tilelang 0.1.15+dtk2604、HIP 后端）编译后生成的设备码为
+`if (((blockIdx.x*32) + (threadIdx.x & 31)) < rows) condval = Starts[...];
+else condval = 0;`，`Ends` 与写入侧 `Logits` 同理。显式设置
+`TL_DISABLE_SAFE_MEMORY_ACCESS=True` 重新编译后该谓词消失，反证守护归属该
+pass。同栈 BoltOPs `tilelang_qsa_mqa_prefill` 的注释亦说明 generic kernel
+保留 safe-memory pass 使尾块在设备码中谓词化，故刻意不做行 padding。
+
+真实影响：无效 lane 读 0 使 `starts_f` 的 0 拉低 `start_min`，尾块从 key 轴
+起点起扫。该污染只会扩大覆盖范围（`min` 变小、`max` 变大），不漏写有效区间，
+随后 `_tilelang_qsa_mqa_mask_kernel` 将 `[0,start)` 与 `[end,keys)` 置 `-inf`。
+探针实测 rows=1/17/20/31/32/33/40/64/65/512/513/1024/1025/2048/2049、
+key_span=1024/2048/4096/8192、keys=65536/131072 组合，区间内与 torch 参考
+最大误差 9.5e-07~2.9e-06，无 NaN，输出不受影响。
+
+修改：`for qi in T.Parallel(block_q)` 内改为 `row=T.min(row_base+qi,rows-1)`
+后读 `Starts[row]`/`Ends[row]`。clamp 后仍取块内有效行，归约结果精确，且不引入
+`if_then_else`；未采用 review 建议的“无效行 starts 取大整型、ends 取 0”。
+同组输入下三种实现逐元素一致，clamp 优于 sentinel：rows=40/span=1024 现状
+0.143ms、sentinel 0.091ms、clamp 0.082ms；rows=20/keys=131072/span=8192 为
+0.508/0.361/0.318ms；rows=512/keys=65536/span=4096 为 0.993/1.134/1.002ms
+（sentinel 在该档反而慢于现状）。真实规模 rows=1025/span=1024 由 0.298ms
+降到 0.218ms，rows=2049/span=4096 由 0.549ms 降到 0.414ms；rows 为 block_q
+整数倍时三档无差异。
+
+新增 `tests/runtime/qwen4_qsa_split_key.py`：4 项真实设备对拍（rows=17/33/65/64，
+覆盖不足一块、刚过一块、非对齐且跨 key 分段、对齐）校验区间内数值与
+“有限值个数等于 in-range 个数”；1 项生成源码断言校验 `Starts`/`Ends` 加载
+带 `min(..., rows-1)`。红绿已复现：移除 clamp 后只剩源码断言失败，4 项数值
+用例仍通过——这正说明越界读不影响数值，只有空转差异。
+
+验证边界：5 项新GPU用例通过；L0 通过（630 python files）；导览重建与
+`--check` 通过。全量 `python3 -m unittest discover -s tests` 为
+139 tests / 1 failure / 2 errors / 13 skipped，与本改动无关（`sglang` 未在
+宿主安装导致 `server_args` 导入失败），stash 后基线一致。未重跑服务 smoke、
+SLA、整模型精度，未重启容器、未启动模型；改动前已在容器内用探针脚本
+复现全部数字。
+
+
+## 2026-11-17：PR #68 QSA key 分段内核尾块行界收紧
+
+用途：处理 review r4585717820 对 `hcu_sglang/models/qwen/qsa_mqa_split_key.py`
+尾块读取 `Starts`/`Ends` 的 P2 结论。该结论所述“越界设备内存读取返回垃圾值”
+不成立：该内核 `pass_configs` 未设置 `TL_DISABLE_SAFE_MEMORY_ACCESS`，
+TileLang `LegalizeSafeMemoryAccess` 已为 global buffer 下标插入谓词，实际生成的
+HIP 设备码为 `if (blockIdx.x*32 + (threadIdx.x & 31) < rows) condval = Starts[...]
+else condval = 0;`，`Ends` 与写入侧 `Logits` 同构；显式关闭该 pass 重新编译后
+谓词消失，可确认守护来源。BoltOPs 同栈 `tilelang_qsa_mqa_prefill` 的注释亦说明
+generic kernel 依赖该 pass 谓词化尾块，因此刻意不做行 padding。
+
+但尾块空转真实存在：越界 lane 读 0 会把 `start_min` 拉到 0，使尾块从 key 轴起点
+开始扫描。该污染只扩大覆盖区间（`min` 只会更小、`max` 只会更大），不漏写有效
+区间，且随后 BoltOPs mask kernel 把 `[0,start) ∪ [end,keys)` 置 `-inf`，故不影响
+正确性。本轮改为行号钳制 `Starts[T.min(row_base+qi, rows-1)]`，对块内有效行做
+精确归约，避免空转；未采用 review 建议的“越界行 starts 取大整型、ends 取 0”，
+因实测钳制方案逐元素一致且更快（sentinel 在 rows=512 时反而慢于修改前）。
+
+验证：新增 `tests/runtime/qwen4_qsa_split_key.py`。数值侧覆盖 rows=17/33/65/64、
+key_span=1024/2048/4096，与 torch 参考逐元素对比（atol/rtol 1e-4）并校验
+finite 单元数等于 `[start,end)` 单元数；源码侧断言生成的 `Starts`/`Ends` 载入
+带行钳制。红绿已复现：钳制回退后源码断言失败，恢复后5项通过。
+容器 `yht-pd-w4a8`、tilelang 0.1.15+dtk2604、单卡 HCU4 显式
+`HCU_PLUGIN_RUN_GPU_TESTS=1` 执行。性能侧独立探针（非仓库测试）测得
+rows=513/span=1024 由0.208ms降至0.149ms、rows=1025/span=1024 由0.298ms降至
+0.218ms、rows=2049/span=4096 由0.549ms降至0.414ms，rows为32倍数时无差异；
+该组数据来自探针而非服务，不能外推为端到端收益。
+
+未验证：未重跑全量GPU/Graph、模型精度、smoke或SLA；未重启容器、未改动在用
+服务源码。CPU discovery 结果与改动前一致（139 tests，1 failure + 2 errors
+来自 `sglang.srt.arg_groups.arg_utils` 缺 `field_names`，属既有环境缺失）；
+L0 通过，导览已重建并通过快照检查，生成页未做浏览器渲染复验。尚未push。
+

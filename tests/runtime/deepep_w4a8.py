@@ -382,5 +382,127 @@ class DeepEPW4A8Tests(unittest.TestCase):
                 object(), dispatch._replace(num_recv_tokens_per_expert=[255, 1])
             )
 
+class DeepEPContiguousWidthTests(unittest.TestCase):
+    def load_layer(self, n1, n2):
+        import deepgemm
+        from hcu_sglang.layers.moe import deepep_w4a8
+        from hcu_sglang.layers.quantization import slimquant_w4a8_marlin as quant
+
+        layer = torch.nn.Module()
+        layer.moe_runner_config = SimpleNamespace(activation="silu", swiglu_limit=None)
+        for name, tensor in (
+            ("w13_weight", torch.ones(2, n1, 32, dtype=torch.int8)),
+            ("w2_weight", torch.ones(2, n2, n1 // 4, dtype=torch.int8)),
+            ("w13_weight_scale", torch.ones(2, n1, 1)),
+            ("w2_weight_scale", torch.ones(2, n2, 1)),
+        ):
+            layer.register_parameter(name, torch.nn.Parameter(tensor, requires_grad=False))
+        method = object.__new__(quant.SlimQuantW4A8Int8MarlinMoEMethod)
+        method.use_deepep = True
+        seen = []
+
+        def pack(weight):
+            if weight.shape[1] % 512:
+                raise RuntimeError("W4A8 WASP mode 1006 requires N divisible by 512")
+            seen.append(weight.shape[1])
+            return weight
+
+        with (
+            patch.object(quant, "get_moe_a2a_backend", return_value=SimpleNamespace(is_megamoe=lambda: False)),
+            patch.object(quant, "_is_hcu", True),
+            patch.object(quant, "_use_lightop_w4a8_marlin_moe", False),
+            patch.object(quant, "get_bool_env_var", side_effect=lambda name: name == "SGLANG_USE_W4A8_CONTIGUOUS_HIPC"),
+            patch.object(deepgemm, "pack_w4a8_moe_hipc_weight", side_effect=pack),
+            patch.object(deepep_w4a8, "configure_hipc"),
+        ):
+            method.process_weights_after_loading(layer)
+        return layer, seen
+
+    def test_model_width_is_padded_before_vendor_pack(self):
+        layer, seen = self.load_layer(1280, 2560)
+        self.assertEqual(seen, [1536, 2560])
+        self.assertEqual(layer._hcu_w4a8_hipc_output_sizes, (1280, 2560))
+        self.assertTrue(torch.all(layer.w13_weight[:, :1280] == 1))
+        self.assertTrue(torch.all(layer.w13_weight[:, 1280:] == 0))
+        self.assertTrue(torch.all(layer.w13_weight_scale[:, :1280] == 1))
+        self.assertTrue(torch.all(layer.w13_weight_scale[:, 1280:] == 0))
+
+    def test_padding_is_removed_before_silu_and_weighted_gather(self):
+        import deepgemm
+        from hcu_sglang.layers.moe import deepep_w4a8
+
+        layer, seen = self.load_layer(1280, 64)
+        self.assertEqual(seen, [1536, 512])
+        x = torch.ones(2, 64, dtype=torch.int8)
+        ids = torch.tensor([[0, 1], [1, -1]])
+        weights = torch.tensor([[.25, .75], [1., 0.]])
+        dispatch = hooks.D.DeepEPNormalDispatchOutput(x, torch.ones(2, 1), ids, weights, [256, 256])
+        segments = torch.tensor([0] * 256 + [1] * 256, dtype=torch.int32)
+        index = torch.tensor([[0, 256], [257, -1]], dtype=torch.int32)
+
+        def gemm(a, b, out, m_indices):
+            self.assertIs(m_indices, segments)
+            out.fill_(float("nan"))
+            width = 1280 if out.shape[1] == 1536 else 64
+            out[:256, :width].fill_(2)
+            out[256:, :width].fill_(6)
+
+        def quantize(gateup):
+            self.assertEqual(gateup.shape, (512, 1280))
+            self.assertTrue(gateup.is_contiguous())
+            self.assertTrue(torch.isfinite(gateup).all())
+            return torch.ones(512, 640, dtype=torch.int8), torch.ones(512, 1)
+
+        def gather(down, topk_ids, topk_weights, output_index, result):
+            self.assertEqual(down.shape, (512, 64))
+            self.assertTrue(down.is_contiguous())
+            values = down[output_index.clamp_min(0)]
+            result.copy_((values * topk_weights.unsqueeze(-1)).sum(dim=1))
+
+        with (
+            patch.object(hooks, "get_offloader", return_value=SimpleNamespace(forbid_copy_engine_usage=True)),
+            patch.object(hooks, "copy_list_to_gpu_no_ce", return_value=torch.tensor([256, 256], dtype=torch.int32)),
+            patch.object(hooks, "_ep_scatter_with_optional_lightop", return_value=(segments, index)),
+            patch.object(hooks, "_ep_gather_with_optional_lightop", side_effect=gather),
+            patch.object(deepgemm, "m_grouped_w4a8_gemm_nt_contiguous_hipc", side_effect=gemm),
+            patch("lightop.activation.fuse_silu_mul_quant", side_effect=quantize),
+        ):
+            output = deepep_w4a8.run_contiguous_moe_core(layer, dispatch)
+        torch.testing.assert_close(output.hidden_states, torch.tensor([[5.] * 64, [6.] * 64], dtype=torch.bfloat16))
+
+
+    def test_aligned_weights_keep_their_widths(self):
+        layer, seen = self.load_layer(1024, 512)
+        self.assertEqual(seen, [1024, 512])
+        self.assertEqual(layer._hcu_w4a8_hipc_output_sizes, (1024, 512))
+
+    def test_auto_low_latency_removes_the_shared_weight_padding(self):
+        import deepgemm
+        from hcu_sglang.layers.moe import deepep_w4a8
+
+        layer, _ = self.load_layer(1280, 64)
+        x = torch.ones(2, 4, 64, dtype=torch.int8)
+        dispatch = hooks.D.DeepEPLLDispatchOutput(x, torch.ones(2, 4, 1), torch.tensor([[0, -1]]), torch.tensor([[1., 0.]]), torch.tensor([4, 0], dtype=torch.int32), 4)
+
+        def gemm(a, b, out, mask, expected):
+            out.fill_(float("nan"))
+            out[..., :1280 if out.shape[-1] == 1536 else 64].fill_(2)
+
+        def quantize(gateup, mask):
+            self.assertEqual(gateup.shape, (2, 4, 1280))
+            self.assertTrue(gateup.is_contiguous())
+            self.assertTrue(torch.isfinite(gateup).all())
+            return torch.ones(2, 4, 640, dtype=torch.int8), torch.ones(2, 4, 1)
+
+        with (
+            patch.object(deepgemm, "m_grouped_w4a8_gemm_nt_masked_hipc", side_effect=gemm),
+            patch("lightop.activation.fuse_silu_mul_quant_ep", side_effect=quantize),
+        ):
+            output = deepep_w4a8.run_masked_moe_core(layer, dispatch)
+        self.assertEqual(output.hidden_states.shape, (2, 4, 64))
+        self.assertTrue(output.hidden_states.is_contiguous())
+        torch.testing.assert_close(output.hidden_states, torch.full((2, 4, 64), 2, dtype=torch.bfloat16))
+
+
 if __name__ == "__main__":
     unittest.main()

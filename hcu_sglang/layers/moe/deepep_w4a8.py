@@ -9,6 +9,19 @@ from sglang.srt.layers.moe.token_dispatcher.deepep import (
 )
 
 
+def pad_contiguous_hipc_weights(layer):
+    sizes = tuple(getattr(layer, name + "_weight_scale").size(1) for name in ("w13", "w2"))
+    for name, width in zip(("w13", "w2"), sizes):
+        padding = (-width) % 512
+        if padding:
+            for suffix in ("_weight", "_weight_scale"):
+                attr = name + suffix
+                tensor = getattr(layer, attr)
+                padded = torch.nn.functional.pad(tensor.data, (0, 0, 0, padding))
+                setattr(layer, attr, torch.nn.Parameter(padded, requires_grad=False))
+    layer._hcu_w4a8_hipc_output_sizes = sizes
+
+
 def _hcu_deepep_dispatcher(layer):
     """Return the HCU DeepEPDispatcher that actually backs `layer`.
 
@@ -111,6 +124,10 @@ def run_masked_moe_core(layer, dispatch):
         expected_m,
     )
 
+    widths = getattr(layer, "_hcu_w4a8_hipc_output_sizes", None)
+    if widths is not None:
+        gateup = gateup[..., : widths[0]].contiguous()
+
     limit = layer.moe_runner_config.swiglu_limit
     if limit is None:
         quantized = fuse_silu_mul_quant_ep(gateup, masked_m)
@@ -131,6 +148,8 @@ def run_masked_moe_core(layer, dispatch):
         masked_m,
         expected_m,
     )
+    if widths is not None:
+        output = output[..., : widths[1]].contiguous()
     return DeepEPLLCombineInput(output, topk_ids, topk_weights)
 
 
@@ -179,6 +198,10 @@ def run_contiguous_moe_core(layer, dispatch):
     )
     del grouped_x, grouped_scales
 
+    widths = getattr(layer, "_hcu_w4a8_hipc_output_sizes", None)
+    if widths is not None:
+        gateup = gateup[:, : widths[0]].contiguous()
+
     limit = layer.moe_runner_config.swiglu_limit
     quantized = (
         fuse_silu_mul_quant(gateup)
@@ -187,10 +210,12 @@ def run_contiguous_moe_core(layer, dispatch):
     )
     del gateup
 
-    down = x.new_empty((total_rows, x.shape[1]), dtype=torch.bfloat16)
+    down = x.new_empty((total_rows, layer.w2_weight_scale.size(1)), dtype=torch.bfloat16)
     m_grouped_w4a8_gemm_nt_contiguous_hipc(
         quantized, (layer.w2_weight, layer.w2_weight_scale), down, m_indices
     )
+    if widths is not None:
+        down = down[:, : widths[1]].contiguous()
     result = x.new_empty(x.shape, dtype=torch.bfloat16)
     _ep_gather_with_optional_lightop(down, topk_ids, topk_weights, output_index, result)
     return DeepEPNormalCombineInput(result, topk_ids, topk_weights)

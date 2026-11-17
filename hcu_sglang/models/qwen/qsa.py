@@ -5,6 +5,35 @@ from sglang.srt.runtime_context import get_parallel
 from sglang.srt.layers.attention.qsa import qsa_indexer as N
 globals().update({name: value for name, value in vars(N).items() if not name.startswith("__")})
 
+from hcu_sglang.utils.detection import is_hcu
+
+
+def around_pending_ring_slots(
+    original,
+    *,
+    token_to_batch_idx,
+    req_pool_indices,
+    sequence_lengths,
+    logical_positions,
+    compress_ratio,
+    is_extend,
+):
+    if req_pool_indices is None and is_hcu():
+        if logical_positions.numel() == 0:
+            return logical_positions.new_empty((0,), dtype=torch.long)
+        raise RuntimeError(
+            "QSA req_pool_indices is None for a non-empty batch "
+            f"(tokens={logical_positions.numel()})"
+        )
+    return original(
+        token_to_batch_idx=token_to_batch_idx,
+        req_pool_indices=req_pool_indices,
+        sequence_lengths=sequence_lengths,
+        logical_positions=logical_positions,
+        compress_ratio=compress_ratio,
+        is_extend=is_extend,
+    )
+
 
 class PrefillPlan(msgspec.Struct, frozen=True):
     compressed_locs: object

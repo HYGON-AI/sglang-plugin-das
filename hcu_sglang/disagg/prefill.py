@@ -1574,6 +1574,8 @@ class SchedulerDisaggregationPrefillMixin:
         After a failed preparation, only new input or bootstrap arrivals retry
         during the wait; other readiness is checked after a result finishes.
         """
+        from hcu_sglang.disagg.prefill_drain import drain_mode, drain_previous_result
+        early_drain_mode = drain_mode()
         self.enable_continuous_input_polling = (
             self._is_continuous_input_polling_enabled()
         )
@@ -1604,6 +1606,8 @@ class SchedulerDisaggregationPrefillMixin:
             if not waiting_for_batch_result or received_inputs or bootstrapped_reqs:
                 skip_batch_creation = False
 
+            drained_result = False
+
             # Keep at most two batches in flight.
             if (
                 len(self.result_queue) < 2
@@ -1631,13 +1635,16 @@ class SchedulerDisaggregationPrefillMixin:
                 if batch:
                     if self.enable_staging:
                         self.maybe_prefetch_staging_for_batch(batch)
+                    drained_result = drain_previous_result(
+                        self, early_drain_mode, batch_result_completion_status
+                    )
                     batch_result = self.run_batch(batch)
                     self._apply_war_barrier()
                     self.result_queue.append((batch.copy(), batch_result))
                 else:
                     batch_result = None
 
-            if self.last_batch:
+            if self.last_batch and not drained_result:
                 if self.enable_continuous_input_polling:
                     # Resume intake until the oldest result is ready on all TP ranks.
                     oldest_batch_result = self.result_queue[0][1]
@@ -1653,7 +1660,7 @@ class SchedulerDisaggregationPrefillMixin:
                 # Process the oldest batch result.
                 oldest_batch, oldest_batch_result = self.result_queue.popleft()
                 self.process_batch_result(oldest_batch, oldest_batch_result)
-            elif batch is None:
+            elif batch is None and not self.last_batch:
                 # When the server is idle, do self-check and re-init some states
                 self.on_idle()
 
@@ -3303,6 +3310,8 @@ def register_hooks():
         return
     from sglang.srt.disaggregation import prefill as native
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+    from hcu_sglang.disagg.prefill_pairing import around_negotiate
+    HookRegistry.register("sglang.srt.managers.prefill_delayer.PrefillDelayer._negotiate_should_allow_prefill_pure", around_negotiate, HookType.AROUND)
     native.trace_disagg_prefill = trace_disagg_prefill
     native.clear_pd_hidden_request_state = clear_pd_hidden_request_state
     HookRegistry.register("sglang.srt.disaggregation.prefill.maybe_release_metadata_buffer", maybe_release_metadata_buffer, HookType.REPLACE)
