@@ -2477,3 +2477,11 @@ DTK 26.10 容器通过 CPU 页规划检查，覆盖逻辑页去重、verify 尾 
 `SGLANG_MINIMAX_FLASH_MLA_FP8_VERIFY_SPLITS=0` 在重启后恢复 wheel 自动选路，1/2/4/8 用于受控复测。BF16 和普通 Decode 继续使用 wheel 原调用参数。Adapter 与官方源码无需变更。
 
 DTK 26.10 / Python 3.12 的三个 CPU 回归通过。覆盖 8、9、10 路 FP8 Verify 的实际 provider 调用、CPU int32 载体、自动策略、BF16、单 query 与无效配置。已确认 cp312 wheel 暴露 `num_splits`。gfx938 Graph replay、真实接受长度与 HiSparse 大 batch 性能待验证。
+
+## 2026-11-18 MiniMax channel INT8 Draft KV-only
+
+迁移 DAS `06f20fbeec`，在 `DSparkMiniMaxAttention.kv_proj_only` 的实际上下文注入入口，只投影 K/V 对应通道。该入口支持当前专用插件组合下社区 compressed-tensors 的转置 `[K,N]` 视图，也支持 HCU method 3 的连续 `[N,K]`。两者复用当前 scheme 的 GEMM，切片来自当前权重、scale 和 bias。调用方仍负责 K norm、RoPE、缓存的写入与原生缓存 scale。
+
+仅 HCU、动态对称 channel INT8 及支持的布局启用默认路径。 `SGLANG_MINIMAX_DSPARK_INT8_KV_ONLY=0` 在重启后回退。其他量化方式和布局走原方法。通用 `W8A8_SUPPORT_METHODS`、官方框架和 Adapter 的默认值保持既有配置。
+
+三个 CPU 回归对比完整 QKV，覆盖两种布局、bias 和原方法回退。Hook 已登记且配置与固定 v0.5.23 目标签名已核对。屏蔽设备的完整模型导入会访问 HIP 设备属性，真实 Hook apply、GEMM、Graph 和接受长度待有卡验证。

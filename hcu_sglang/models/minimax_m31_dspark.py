@@ -1,8 +1,12 @@
+import os
 from functools import cache, wraps
-from types import FunctionType
+from types import FunctionType, SimpleNamespace
+
+from hcu_sglang.utils.detection import is_hcu
 
 _BASE_BACKENDS = ("none", "megamoe", "mori")
 _MINIMAX_ARCHES = {"MiniMaxM3SparseForConditionalGeneration", "MiniMaxM3SparseForCausalLM"}
+_INT8_KV_ONLY = os.getenv("SGLANG_MINIMAX_DSPARK_INT8_KV_ONLY", "1") == "1"
 
 
 @cache
@@ -116,6 +120,59 @@ def _scope_verify_hidden_commit(_result, worker, *args, **kwargs):
     executor.commit_hidden = commit_in_draft_scope
 
 
+def _draft_int8_kv_only(original, attention, hidden_states):
+    if not _INT8_KV_ONLY or not is_hcu():
+        return original(attention, hidden_states)
+
+    import torch
+
+    projection = attention.qkv_proj
+    weight = getattr(projection, "weight", None)
+    if weight is None or weight.dtype != torch.int8:
+        return original(attention, hidden_states)
+
+    from compressed_tensors.quantization import QuantizationStrategy
+    from sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_int8 import (
+        CompressedTensorsW8A8Int8,
+    )
+
+    scheme = getattr(projection, "scheme", None)
+    scales = getattr(projection, "weight_scale", None)
+    output_size = attention.q_size + 2 * attention.kv_size
+    if not (
+        type(scheme) is CompressedTensorsW8A8Int8
+        and scheme.strategy == QuantizationStrategy.CHANNEL
+        and not scheme.is_static_input_scheme
+        and scheme.input_symmetric
+        and scales is not None
+        and scales.shape == (output_size, 1)
+        and scales.dtype == torch.float32
+        and not projection.skip_bias_add
+    ):
+        return original(attention, hidden_states)
+
+    rows = slice(attention.q_size, output_size)
+    strategy = getattr(scheme, "w8a8_strategy", None)
+    hidden_size = attention.hidden_size
+    if strategy is None and (
+        weight.shape == (hidden_size, output_size)
+        and weight.stride() == (1, hidden_size)
+    ):
+        kv_weight = weight[:, rows]
+    elif strategy == 3 and (
+        weight.shape == (output_size, hidden_size) and weight.is_contiguous()
+    ):
+        kv_weight = weight[rows]
+    else:
+        return original(attention, hidden_states)
+    kv_projection = SimpleNamespace(weight=kv_weight, weight_scale=scales[rows])
+    bias = projection.bias
+    kv = scheme.apply_weights(
+        kv_projection, hidden_states, bias=bias[rows] if bias is not None else None
+    )
+    return kv.split(attention.kv_size, dim=-1)
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -146,4 +203,10 @@ def register_hooks() -> None:
         "sglang.srt.speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2.__init__",
         _scope_verify_hidden_commit,
         HookType.AFTER,
+    )
+
+    HookRegistry.register(
+        "sglang.srt.models.dspark_minimax.DSparkMiniMaxAttention.kv_proj_only",
+        _draft_int8_kv_only,
+        HookType.AROUND,
     )
