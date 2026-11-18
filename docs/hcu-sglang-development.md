@@ -2459,3 +2459,41 @@ Python 3.12 通过四个实际社区方法绑定、重复注册和记录次数�
 Decode 验证 PD、page-128、static DSpark verify8、FP8 KV、FlashMLA 和主机槽容量。插件协调器按页管理主机 KV 到四头 hot slot 的换入，DSpark 在 verify 前登记 scratch 并在接受 token 后提交主机 KV。常规配置沿用普通 MiniMax 注册路径。Fake PD 只用于合成容量和性能验证。
 
 DTK 26.10 容器通过 CPU 页规划检查，覆盖逻辑页去重、verify 尾 token 和空请求行。运行时注册检查、gfx938 JIT 和 Graph 检查、配对服务、性能以及 EvalScope 需要实跑；本记录不将源仓结果计作本次验证。
+
+## 2026-11-18 MiniMax 普通 IFB 的 DSpark Draft TP 修复
+
+社区 v0.5.23 的 DSpark Verify 在提交 target hidden 到 Draft KV 时调用 Draft FC。DP attention 下 Draft FC 按 Draft TP 组加载，投影结果的 gather 使用调用时的 TP 组。单请求预热时，其他 DP rank 可能处于空闲状态，无法参与主模型 TP 组的 gather。
+
+基于插件 `91dab4b`，在 MiniMax SlimQuant HIP 的普通 IFB DSpark worker 构造完成后，为该 worker 的 `commit_hidden` 进入已有的 Draft TP scope。HiSparse 继续通过自身的 hook 进入 Draft TP scope。调用方沿用 `hcu_minimax_m31` 入口。Decode 启动脚本通过 `PYTHONPATH` 加载工作区下 `minimax-sh/merged-runtime/flashmla-dtk2610-cp312` 的 FlashMLA，启动参数 `--max-total-tokens` 为 1,192,960。
+
+隔离补丁在 nmz18 八卡通过单请求 prefill/verify warmup 和 8 条分配到各 DP rank 的不同输出长度请求。全量 Decode Graph、DeepEP、原生 FlashMLA 和 INT8 DSpark 均启用，KV 池上限为 262,144 token。每条并发请求完成 3–5 次 Verify。部署完整 KV 池的容量与性能待验证。
+
+仓库工作区通过 Bash 语法检查、FlashMLA 六个 ABI 入口导入、MiniMax 插件入口发现与构造 Hook 的 TP8 → TP1 → TP8 检查。
+
+## 2026-11-18 MiniMax FP8 target Verify split-KV
+
+从 DAS `7fe4de4f00` 迁移原生 MSA128 主注意力的显式 split-KV。社区 v0.5.23 在 target verify 调用处传入成组的 `packed_queries`，普通 Decode 使用宽度 1。MiniMax Plugin 的原生 FP8 多 query 路径默认给 wheel 传 CPU int32 标量 8，避免自动策略随本地请求数切换 reduction 方式。HiSparse 的分段 Verify 保持同一个 query 宽度，因此使用同一策略。
+
+`SGLANG_MINIMAX_FLASH_MLA_FP8_VERIFY_SPLITS=0` 在重启后恢复 wheel 自动选路，1/2/4/8 用于受控复测。BF16 和普通 Decode 继续使用 wheel 原调用参数。Adapter 与官方源码无需变更。
+
+DTK 26.10 / Python 3.12 的三个 CPU 回归通过。覆盖 8、9、10 路 FP8 Verify 的实际 provider 调用、CPU int32 载体、自动策略、BF16、单 query 与无效配置。已确认 cp312 wheel 暴露 `num_splits`。gfx938 Graph replay、真实接受长度与 HiSparse 大 batch 性能待验证。
+
+## 2026-11-18 MiniMax channel INT8 Draft KV-only
+
+迁移 DAS `06f20fbeec`，在 `DSparkMiniMaxAttention.kv_proj_only` 的实际上下文注入入口，只投影 K/V 对应通道。该入口支持当前专用插件组合下社区 compressed-tensors 的转置 `[K,N]` 视图，也支持 HCU method 3 的连续 `[N,K]`。两者复用当前 scheme 的 GEMM，切片来自当前权重、scale 和 bias。调用方仍负责 K norm、RoPE、缓存的写入与原生缓存 scale。
+
+仅 HCU、动态对称 channel INT8 及支持的布局启用默认路径。 `SGLANG_MINIMAX_DSPARK_INT8_KV_ONLY=0` 在重启后回退。其他量化方式和布局走原方法。通用 `W8A8_SUPPORT_METHODS`、官方框架和 Adapter 的默认值保持既有配置。
+
+三个 CPU 回归对比完整 QKV，覆盖两种布局、bias 和原方法回退。Hook 已登记且配置与固定 v0.5.23 目标签名已核对。屏蔽设备的完整模型导入会访问 HIP 设备属性，真实 Hook apply、GEMM、Graph 和接受长度待有卡验证。
+
+## 2026-11-18 MiniMax CP Prefill 静态 EPLB 接入
+
+旧 CP8 W4A8 配方用固定 PT、8 个冗余专家和 `locality_fair`。在 MiniMax 专用入口的 HCU Prefill CP 注册分支接入现有 placement Hook，覆盖 CLI、seed、静态算法校验与 logical-to-physical 映射。通用 placement 的默认策略继续为 `nearest`，由 Prefill 部署参数显式选择 `locality_fair`。
+
+在 DTK 26.10 / Python 3.12 隐藏设备的独立进程中模拟 HCU 判定，核实 CP 关闭时未注册、CP 开启时五个真实框架目标成功 apply，并用实际 Prefill 启动参数通过官方解析器。验证了 CP8 / EP8 / attention DP1、64K chunk、8 冗余专家及 `locality_fair`。8 卡 CP、DeepEP、布局映射、输出与 TTFT 待验证。旧 FP8 CP exchange / scatter 仍按后续优化单独迁移。
+
+## 2026-11-18 排除 HiSparse 的重复 Draft TP scope
+
+PR #82 的普通 IFB DSpark commit 包装在 worker 构造时读取生效后的 `get_memory().enable_hisparse`。HiSparse 的 Decode Hook 在 commit 处已有 #71 的 Draft TP scope。通过配置判断可以覆盖 coordinator 尚未挂载的构造时序。原有 MiniMax、HIP、DP 和普通 IFB 条件继续生效。
+
+无卡回归在修改前模拟 HiSparse 调用方已进入 Draft TP，再调用被包装的 executor，复现第二次进入失败。修改后普通 IFB DP 和 HiSparse 的模拟 commit 均只进入一次，并恢复外层作用域。当前 MiniMax HiSparse 启动校验要求 PD Decode。上机验证按普通 IFB 和受支持的 HiSparse PD Decode 分别执行。
