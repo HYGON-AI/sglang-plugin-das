@@ -9,6 +9,17 @@ from hcu_sglang.utils.detection import is_hcu
 
 
 _ENV_SPECS: dict[str, tuple[type, Any]] = {
+    "SGLANG_MOE_C_NATIVE_SORT": (EnvBool, False),
+    "SGLANG_QWEN4_COMPACT_PREFILL": (EnvBool, False),
+    "SGLANG_QWEN4_LOCAL_ROUTING": (EnvBool, False),
+    "SGLANG_QWEN4_ROUTED_INT8": (EnvBool, False),
+    "SGLANG_QWEN4_SPLIT_HC_MIX": (EnvBool, False),
+    "SGLANG_QWEN4_FLAT_STATE_SCATTER": (EnvBool, False),
+    "SGLANG_QWEN4_PREFILL_DIAGNOSTICS": (EnvBool, False),
+    "SGLANG_ENABLE_DP_GATHER_INT8": (EnvBool, False),
+    "SGLANG_PLE_ETP_REDUCE_SCATTER": (EnvBool, True),
+    "SGLANG_PLE_ETP_REDUCE_SCATTER_MIN_TOKENS": (EnvInt, 2048),
+
     'SGLANG_DP_USE_MAX_LEN': (EnvBool, False),
     'SGLANG_EXPERIMENTAL_DSV4_DECODE_RADIX_CACHE': (EnvBool, False),
     'SGLANG_MOONCAKE_FINAL_POLL_TIMEOUT_MS': (EnvFloat, 0.0),
@@ -37,6 +48,9 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_HCU_GLM53_FP8_KV_ROPE_STORE": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16_SO": (EnvStr, None),
+    "SGLANG_HCU_GLM_CT_BF16_ROUTER": (EnvBool, False),
+    "SGLANG_HCU_USE_LIGHTOP_ROPE": (EnvBool, False),
+    "SGLANG_HCU_W8A8_USE_LIGHTOP": (EnvBool, False),
     "SGLANG_HCU_GLM_CT_BF16_ROUTER": (EnvBool, False),
     "SGLANG_LIGHTOP_KVALLOC_KERNEL": (EnvBool, False),
     "SGLANG_USE_FUSED_SILU_MUL_CLAMP_QUANT": (EnvBool, False),

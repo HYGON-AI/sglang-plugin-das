@@ -4,7 +4,7 @@
 
 ## 1. 当前阶段
 
-V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构、文档组织、使用与协作规范。2026-10-28 起本仓同时维护 `hcu_sglang/`，迁入、提交与实际验证见 [开发迁移记录](hcu-sglang-development.md)；外部运行时 V3 的实现与指定 MiniMax TP4 验证已完成，见 [最终交付](hcu-sglang-development.md#2026-10-26-8-最终交付与需求验收)。托管 CI、其他模型及 adapter 组合验收仍按独立任务推进。
+V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构、文档组织、使用与协作规范。2026-10-28 起本仓同时维护 `hcu_sglang/`，迁入、提交与实际验证见 [开发迁移记录](hcu-sglang-development.md)；外部运行时 V3 的实现与指定 MiniMax TP4 验证已完成，见 [最终交付](hcu-sglang-development-202610.md#2026-10-26-8-最终交付与需求验收)。托管 CI、其他模型及 adapter 组合验收仍按独立任务推进。
 
 ## 2. 建设路线
 
@@ -39,7 +39,7 @@ V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构
 
 ## 5. plugin-v3-1028 全量迁移执行
 
-状态：in-progress。固定来源、阶段与实际结果见 [开发迁移记录](hcu-sglang-development.md#6-2026-10-29-分阶段继续迁移)，逐路径范围见 [执行台账](../plans/sglang-das-execution.json)。2026-10-29 已完成当前包工具支持、HCU 标准分发哨兵修复及源码/wheel/embedded 加载复验；全量源码与行为处置仍未闭合。
+状态：in-progress。固定来源、阶段与实际结果见 [开发迁移记录](hcu-sglang-development-202610.md#6-2026-10-29-分阶段继续迁移)，逐路径范围见 [执行台账](../plans/sglang-das-execution.json)。2026-10-29 已完成当前包工具支持、HCU 标准分发哨兵修复及源码/wheel/embedded 加载复验；全量源码与行为处置仍未闭合。
 
 下一阶段先审查 DeepSeek V4 平台类拆分和当前 `current_v4` profile，随后按领域继续审阅 Attention/KV、量化/通信、GLM5-next/Muse Spark 与扩展功能。每项补充行为、实现、支持/回退及 CPU/GPU/Graph/模型证据；只有实际满足该阶段退出条件才更新状态。保持用户要求：提交本地仓库，不推送远程。
 
@@ -53,3 +53,8 @@ V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构
 | 基线与工作树 | main 起始 `1eb4abaa3a3ad5bb7bbc9a8b758488639f4db1c7`，插件工作树含本轮及并行运行时修改，未提交；DAS `15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e`、官方 `baa9befa381511cd4d56f83980951e5a45fffc6d`，来源只读 |
 | 依赖与下一步 | 运行时领域补 GLM 五个专用模块及 Muse kernels/layers/config/processor 后，模型侧更新 import 对应并复验完整导入；599 项严格 loader 尚无本轮通过证据；GPU/模型 A/B 由独立测试负责人统一执行 |
 | 证据与交接 | [模型开发记录](hcu-sglang-development.md#2026-11-05-glm5-next-与-muse-spark-owned-模型迁入)、[V4 修复记录](hcu-sglang-development.md#2026-11-05-v4-平台类与方法同步模型侧)、[交付边界](delivery-validation.md#2026-11-05-模型侧阶段记录)；来源及状态见执行台账，不宣称全模块迁移完成 |
+## 6. HCU KV 与 GDN 单流策略（2026-11-04）
+
+ID：hcu-single-stream-kv-gdn；负责人：本次提交作者；状态：in-progress（提交评审，未合入）。用户本轮明确授权推送并创建 PR；第 5 节“不推送”仅适用于其历史迁移任务。
+
+行为与接受条件：保留 HCU KV 布局、有效 original 链和数学实现；KV 写入与 Qwen3.5 GDN 投影使用当前流；验证构造签名、非 HCU 回退、数值/变输入 Graph、TP2 真实输出及 MTP 预热 A/B。基线、依赖、分支及未覆盖范围见 [本次开发记录](hcu-sglang-development.md#2026-11-04-kv-与-gdn-单流提交验证)，实际复验见 [交付记录](delivery-validation.md#2026-11-04-hcu-kv-与-gdn-单流策略)。后续：评审后按仓库 squash-only 策略合入；本轮只创建 PR。

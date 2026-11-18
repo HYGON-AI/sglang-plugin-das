@@ -576,7 +576,7 @@ def forward_groupgemm_w8a8_fp8_masked(
     from deepgemm import m_grouped_fp8_gemm_nt_masked
 
     m_grouped_fp8_gemm_nt_masked(
-        (hidden_states, hidden_states_scale),
+        (hidden_states, hidden_states_scale.contiguous()),
         (w13_weight, w13_scales),
         gateup_output,
         masked_m,
@@ -605,7 +605,7 @@ def forward_groupgemm_w8a8_fp8_masked(
         )
 
     m_grouped_fp8_gemm_nt_masked(
-        (q_a2_all, q_a2_scale),
+        (q_a2_all, q_a2_scale.contiguous()),
         (w2_weight, w2_scales),
         down_output,
         masked_m,
@@ -654,6 +654,20 @@ def around_run_moe_core(original, layer, dispatch_output, *args, **kwargs):
     if _is_hcu and getattr(getattr(layer, "quant_method", None), "hcu_w4a8_hipc", False):
         from hcu_sglang.layers.moe.ct_w4a8 import run_moe_core
         return run_moe_core(layer, dispatch_output)
+    if _is_hcu and getattr(layer, "_hcu_slimquant_w4a8_hipc", False):
+        from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker
+
+        if DispatchOutputChecker.format_is_deepep_ll(dispatch_output):
+            from hcu_sglang.layers.moe.deepep_w4a8 import run_masked_moe_core
+
+            return run_masked_moe_core(layer, dispatch_output)
+    if _is_hcu and getattr(layer, "_hcu_slimquant_w4a8_contiguous_hipc", False):
+        from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker
+
+        if DispatchOutputChecker.format_is_deepep_normal(dispatch_output):
+            from hcu_sglang.layers.moe.deepep_w4a8 import run_contiguous_moe_core
+
+            return run_contiguous_moe_core(layer, dispatch_output)
     if _is_hcu and getattr(layer, "use_int8_w8a8_deepgemm", False):
         from hcu_sglang.layers.moe.deepep_int8 import run_moe_core
         return run_moe_core(layer, dispatch_output)
