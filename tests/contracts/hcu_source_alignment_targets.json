@@ -625,6 +625,8 @@
     "sglang.srt.models.minimax_m2.MiniMaxM2QKRMSNorm.forward",
     "sglang.srt.models.minimax_m2.MiniMaxM2RMSNormTP.__init__",
     "sglang.srt.models.minimax_m2.MiniMaxM2RMSNormTP.weight_loader",
+    "sglang.srt.models.minimax_m3.MiniMaxM3Attention._aiter_sparse_qknorm_cache",
+    "sglang.srt.models.minimax_m3.MiniMaxM3Attention._sparse_qk_index_norm_rope_cache",
     "sglang.srt.models.minimax_m3.MiniMaxM3MoE._compute_router_logits",
     "sglang.srt.models.minimax_m3.MiniMaxM3MoE.forward_deepep",
     "sglang.srt.models.qwen2.Qwen2Attention.__init__",

@@ -2523,3 +2523,9 @@ CPU 测试覆盖 148,608 边界、Verify 预留、空批与缺失 mirror、PD/Hi
 迁移 DAS `49e4209eda`、`db67498b68` 的 DeepEP low-latency receive hook。DP8/EP8 MiniMax W4A8 HIPC、普通 IFB 的 Decode/Verify 在 dispatch 发送后计算 shared gate/up，在 combine 发送后做激活和 shared down。沿用当前 MLP 的 MXFP8/普通激活选择及 routed 输出加和。仅在调用内启用 recv hook，退出或异常都清理回调并恢复 dispatcher 模式。SBO、TBO、Prefill、HiSparse 和其他模型继续走原入口。
 
 `SGLANG_MINIMAX_DECODE_SHARED_OVERLAP=0` 回退。CPU 回归检查发送、shared 计算、接收顺序、尾部加和和异常清理。八卡 graph、数据和 TPOT 待验证。
+
+## 2026-11-18 MiniMax IFB Decode 融合 QK norm、RoPE 和 FP8 cache 写入
+
+移植 DAS `e380d55a79` 的 Triton producer。当前模型的 packed QKV 路径先调用 `_aiter_sparse_qknorm_cache`，分开投影的路径调用 `_sparse_qk_index_norm_rope_cache`，两者共用 HCU FP8 producer。普通 W4A8 IFB Decode/Verify 的 K-only sparse 层对 Q、K、index Q、index K 做 Gemma norm/RoPE，写主 K/V 和 index K 缓存，并返回 FP8 查询。调用上游已有的 precache 标记，避免 attention 重复写缓存。限定单位 scale、gfx938、FlashMLA FP8 ABI、DP 本地物理 slot 和 token-major 的 E4M3FN 布局。Prefill、PD、HiSparse、非单位 scale、index V 与其他布局走原 producer。
+
+`SGLANG_M3_OPTIMIZE_SPARSE_ATTN_PREP=0` 回退。真机前已完成 packed QKV 切分与回退的 CPU 回归，并离线编译 gfx938 HSACO。上机须核对 norm/RoPE 数值、实际 cache 写入、Verify Graph 和接受长度。

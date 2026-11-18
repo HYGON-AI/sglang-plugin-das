@@ -28,11 +28,13 @@ def register() -> None:
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_FLASHMLA", "0") == "1":
         from hcu_sglang.layers.attention import (
             minimax_m31_decode_graph,
+            minimax_m31_fp8_prepare,
             minimax_m31_sparse,
         )
 
         minimax_m31_sparse.register_hooks()
         minimax_m31_decode_graph.register_hooks()
+        minimax_m31_fp8_prepare.register_hooks()
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_HISPARSE") == "1":
         from hcu_sglang.models import minimax_m31_hisparse
