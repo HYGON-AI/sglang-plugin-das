@@ -1,5 +1,8 @@
 import logging
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from functools import cache
 from inspect import signature
 
@@ -8,6 +11,41 @@ import torch
 from hcu_sglang.layers.attention import minimax_m31_flashmla as native
 
 LOG = logging.getLogger(__name__)
+
+
+@dataclass
+class _PrefillMetadata:
+    prefix_lens: torch.Tensor
+    page_table: torch.Tensor | None = None
+    index_metadata: tuple[torch.Tensor, torch.Tensor] | None = None
+
+
+_cp_prefill_metadata = ContextVar("minimax_m31_cp_prefill_metadata", default=None)
+
+
+@contextmanager
+def cp_prefill_metadata(meta, segment, lengths, q_lengths):
+    if (
+        os.getenv("SGLANG_MINIMAX_CACHE_PREFILL_INDEX_METADATA", "1") != "1"
+        or (lengths.is_cuda and torch.cuda.is_current_stream_capturing())
+    ):
+        yield lengths - q_lengths
+        return
+
+    by_segment = getattr(meta, "_minimax_cp_prefill_metadata", None)
+    if by_segment is None:
+        by_segment = meta._minimax_cp_prefill_metadata = {}
+    stream = torch.cuda.current_stream(lengths.device).cuda_stream if lengths.is_cuda else None
+    key = (lengths.device, stream, segment)
+    plan = by_segment.get(key)
+    if plan is None:
+        plan = by_segment[key] = _PrefillMetadata(lengths - q_lengths)
+
+    token = _cp_prefill_metadata.set(plan)
+    try:
+        yield plan.prefix_lens
+    finally:
+        _cp_prefill_metadata.reset(token)
 
 
 @cache
@@ -78,17 +116,26 @@ def _prefill(original, *args, **kwargs):
 
     _announce("prefill")
     cu, lengths, prefix = p["cu_seqlens"], p["seq_lens"], p["prefix_lens"]
-    table = _page_table(p, p["slot_ids"], lengths, p["max_seqlen_k"])
+    metadata = _cp_prefill_metadata.get()
+    if metadata is None:
+        metadata = _PrefillMetadata(prefix)
+    if metadata.page_table is None:
+        metadata.page_table = _page_table(p, p["slot_ids"], lengths, p["max_seqlen_k"])
+    table = metadata.page_table
     topk = p["cached_topk_idx"]
     if topk is None:
         idx_k = p["idx_k_cache"].view(-1, 1, 128)
         idx_q = _query(p["idx_q"], idx_k, p["idx_q_scale"])
+        if metadata.index_metadata is None:
+            k_end = native.build_flash_mla_sparse_prefill_k_end(
+                cu, prefix, lengths - prefix, idx_q.shape[0], idx_q.device
+            )
+            metadata.index_metadata = k_end, table.clamp_min(0).reshape(-1).contiguous()
+        k_end, safe_pages = metadata.index_metadata
         topk = native.flash_mla_sparse_prefill_indexer(
             idx_q, idx_k, table, cu, prefix, p["seqlens_cpu"], 128, 16,
             p["init_blocks"], p["local_blocks"],
-            k_end=native.build_flash_mla_sparse_prefill_k_end(
-                cu, prefix, lengths - prefix, idx_q.shape[0], idx_q.device
-            ),
+            k_end=k_end, safe_pages=safe_pages,
             index_scales=(p["idx_q_scale"], p["idx_k_scale"]),
         )
     k, v = p["k_cache"].view(-1, 4, 128), p["v_cache"].view(-1, 4, 128)

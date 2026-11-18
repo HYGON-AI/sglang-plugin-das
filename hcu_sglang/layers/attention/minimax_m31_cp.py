@@ -4,6 +4,7 @@ from functools import cache
 import torch
 
 from .minimax_m31_cp_kv import try_store_cp_kv
+from .minimax_m31_sparse import cp_prefill_metadata
 
 LOG = logging.getLogger(__name__)
 
@@ -77,41 +78,43 @@ def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=Tru
     )
     outputs = []
     index_outputs = []
-    for start, end, cu, lengths, q_lengths, q_lengths_cpu, kv_lengths_cpu in pieces:
+    for segment, piece in enumerate(pieces):
+        start, end, cu, lengths, q_lengths, q_lengths_cpu, kv_lengths_cpu = piece
         if start == end:
             continue
-        idx_o, o = minimax_sparse_prefill(
-            q=q[start:end],
-            k_cache=k_cache,
-            v_cache=v_cache,
-            sink=None,
-            idx_q=idx_q[start:end],
-            idx_k_cache=index_k,
-            idx_v_cache=index_v,
-            idx_sink=None,
-            req_to_token=self.req_to_token,
-            slot_ids=forward_batch.req_pool_indices,
-            cu_seqlens=cu,
-            seq_lens=lengths,
-            prefix_lens=lengths - q_lengths,
-            max_seqlen_q=max(q_lengths_cpu),
-            max_seqlen_k=max(kv_lengths_cpu),
-            block_size_q=min(self.block_size_q, max(1, 128 // (q.shape[1] // k_cache.shape[-2]))),
-            block_size_k=self.block_size_k,
-            topk=self.topk_blocks,
-            init_blocks=self.init_blocks,
-            local_blocks=self.local_blocks,
-            score_type=self.score_type,
-            disable_index_value=disable_value,
-            seqlens_cpu=q_lengths_cpu,
-            q_scale=layer.q_scale_float,
-            k_scale=layer.k_scale_float,
-            v_scale=layer.v_scale_float,
-            idx_q_scale=layer.idx_q_scale_float,
-            idx_k_scale=layer.idx_k_scale_float,
-            idx_v_scale=layer.idx_v_scale_float,
-            page_size=self.page_size,
-        )
+        with cp_prefill_metadata(meta, segment, lengths, q_lengths) as prefix:
+            idx_o, o = minimax_sparse_prefill(
+                q=q[start:end],
+                k_cache=k_cache,
+                v_cache=v_cache,
+                sink=None,
+                idx_q=idx_q[start:end],
+                idx_k_cache=index_k,
+                idx_v_cache=index_v,
+                idx_sink=None,
+                req_to_token=self.req_to_token,
+                slot_ids=forward_batch.req_pool_indices,
+                cu_seqlens=cu,
+                seq_lens=lengths,
+                prefix_lens=prefix,
+                max_seqlen_q=max(q_lengths_cpu),
+                max_seqlen_k=max(kv_lengths_cpu),
+                block_size_q=min(self.block_size_q, max(1, 128 // (q.shape[1] // k_cache.shape[-2]))),
+                block_size_k=self.block_size_k,
+                topk=self.topk_blocks,
+                init_blocks=self.init_blocks,
+                local_blocks=self.local_blocks,
+                score_type=self.score_type,
+                disable_index_value=disable_value,
+                seqlens_cpu=q_lengths_cpu,
+                q_scale=layer.q_scale_float,
+                k_scale=layer.k_scale_float,
+                v_scale=layer.v_scale_float,
+                idx_q_scale=layer.idx_q_scale_float,
+                idx_k_scale=layer.idx_k_scale_float,
+                idx_v_scale=layer.idx_v_scale_float,
+                page_size=self.page_size,
+            )
         outputs.append(o.flatten(1))
         if idx_o is not None:
             index_outputs.append(idx_o.flatten(1))
