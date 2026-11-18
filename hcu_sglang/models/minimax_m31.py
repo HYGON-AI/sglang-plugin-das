@@ -21,9 +21,10 @@ def register() -> None:
             add_quantization_method_choices([SLIMQUANT_MARLIN_NAME])
         register_hooks()
 
-    from hcu_sglang.models import minimax_m31_dspark
+    from hcu_sglang.models import minimax_m31_dspark, minimax_m31_seq_lens
 
     minimax_m31_dspark.register_hooks()
+    minimax_m31_seq_lens.register_hooks()
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_FLASHMLA", "0") == "1":
         from hcu_sglang.layers.attention import (

@@ -2529,3 +2529,9 @@ CPU 测试覆盖 148,608 边界、Verify 预留、空批与缺失 mirror、PD/Hi
 移植 DAS `e380d55a79` 的 Triton producer。当前模型的 packed QKV 路径先调用 `_aiter_sparse_qknorm_cache`，分开投影的路径调用 `_sparse_qk_index_norm_rope_cache`，两者共用 HCU FP8 producer。普通 W4A8 IFB Decode/Verify 的 K-only sparse 层对 Q、K、index Q、index K 做 Gemma norm/RoPE，写主 K/V 和 index K 缓存，并返回 FP8 查询。调用上游已有的 precache 标记，避免 attention 重复写缓存。限定单位 scale、gfx938、FlashMLA FP8 ABI、DP 本地物理 slot 和 token-major 的 E4M3FN 布局。Prefill、PD、HiSparse、非单位 scale、index V 与其他布局走原 producer。
 
 `SGLANG_M3_OPTIMIZE_SPARSE_ATTN_PREP=0` 回退。真机前已完成 packed QKV 切分与回退的 CPU 回归，并离线编译 gfx938 HSACO。上机须核对 norm/RoPE 数值、实际 cache 写入、Verify Graph 和接受长度。
+
+## 2026-11-18 MiniMax IFB Decode 的 DSpark 序列长度异步 D2H
+
+迁移 DAS `d619ad0d5e` 的 pinned host mirror。普通 HIP MiniMax W4A8 IFB 的 PP1 overlap 路径在 publish 后在 forward stream 发起异步复制并记录 event。下一步 scheduler 可以先准备输入，在 forward stream 按 future indices gather GPU 长度。当前官方 Verify window planner 用 CPU 长度确定读表大小，因此在 DSpark `_forward_decode` 入口同步并读取 host mirror。Scheduler 隔离恢复后保留本轮实际消费的 CPU 长度。mixed、bootstrap、缺 mirror、confidence relay、HiSparse、PD、debug consume 检查和非 overlap 走现有 resolve。
+
+`SGLANG_HCU_ASYNC_SEQ_LENS_D2H=0` 回退。CPU 回归覆盖消费顺序、避免重复消费、按请求顺序取长度和隔离恢复。HIP 多 stream 运行和 TPOT 待验证。

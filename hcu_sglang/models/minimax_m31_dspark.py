@@ -76,6 +76,16 @@ def _hip_future_map(original, relay, *args, **kwargs):
     return original(relay, *args, **kwargs)
 
 
+def _hip_resolve_seq_lens(original, relay, batch, stream_ordered=False):
+    if _minimax_hip_dspark():
+        from .minimax_m31_seq_lens import defer_resolution
+
+        if defer_resolution(relay, batch, stream_ordered):
+            return None
+        original = _with_native_hip(original)
+    return original(relay, batch, stream_ordered=stream_ordered)
+
+
 @cache
 def _with_hip_scheduler(original):
     return FunctionType(
@@ -190,7 +200,7 @@ def register_hooks() -> None:
     )
     HookRegistry.register(
         "sglang.srt.managers.overlap_utils.FutureMap.resolve_seq_lens_cpu",
-        _hip_future_map,
+        _hip_resolve_seq_lens,
         HookType.AROUND,
     )
 
