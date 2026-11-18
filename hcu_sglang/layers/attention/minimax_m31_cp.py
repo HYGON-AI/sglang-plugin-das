@@ -3,6 +3,9 @@ from functools import cache
 
 import torch
 
+from .minimax_m31_cp_kv import try_store_cp_kv
+from .minimax_m31_sparse import cp_prefill_metadata
+
 LOG = logging.getLogger(__name__)
 
 
@@ -42,21 +45,28 @@ def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=Tru
     from sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse import minimax_sparse_prefill
 
     disable_value = layer.layer_id in self.disable_value_layer_ids
-    k, v, idx_k, idx_v = _gather_kv(
-        forward_batch, strategy, k, v, idx_k, None if disable_value else idx_v
-    )
-    loc = forward_batch.out_cache_loc
-    if loc.numel() != k.shape[0]:
-        raise ValueError(f"MiniMax CP gathered {k.shape[0]} KV rows for {loc.numel()} slots")
-    self.kv_pool.set_fused_kv_index_buffer(
-        layer, loc, k, v, idx_k, idx_v,
-        layer.k_scale_float, layer.v_scale_float, layer.idx_k_scale_float, layer.idx_v_scale_float,
-    )
-    k_cache, v_cache = self.kv_pool.get_kv_buffer(layer.layer_id)
+    caches = None
     if disable_value:
-        index_k, index_v = self.kv_pool.get_index_k_buffer(layer.layer_id), None
+        caches = try_store_cp_kv(self.kv_pool, layer, forward_batch, strategy, k, v, idx_k)
+    index_v = None
+    if caches is not None:
+        k_cache, v_cache, index_k = caches
     else:
-        index_k, index_v = self.kv_pool.get_index_kv_buffer(layer.layer_id)
+        k, v, idx_k, idx_v = _gather_kv(
+            forward_batch, strategy, k, v, idx_k, None if disable_value else idx_v
+        )
+        loc = forward_batch.out_cache_loc
+        if loc.numel() != k.shape[0]:
+            raise ValueError(f"MiniMax CP gathered {k.shape[0]} KV rows for {loc.numel()} slots")
+        self.kv_pool.set_fused_kv_index_buffer(
+            layer, loc, k, v, idx_k, idx_v, layer.k_scale_float, layer.v_scale_float,
+            layer.idx_k_scale_float, layer.idx_v_scale_float,
+        )
+        k_cache, v_cache = self.kv_pool.get_kv_buffer(layer.layer_id)
+        if disable_value:
+            index_k = self.kv_pool.get_index_k_buffer(layer.layer_id)
+        else:
+            index_k, index_v = self.kv_pool.get_index_kv_buffer(layer.layer_id)
     meta = forward_batch.attn_cp_metadata
     pieces = (
         (0, meta.total_q_prev_tokens, meta.cu_seqlens_q_prev_tensor,
@@ -68,41 +78,43 @@ def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=Tru
     )
     outputs = []
     index_outputs = []
-    for start, end, cu, lengths, q_lengths, q_lengths_cpu, kv_lengths_cpu in pieces:
+    for segment, piece in enumerate(pieces):
+        start, end, cu, lengths, q_lengths, q_lengths_cpu, kv_lengths_cpu = piece
         if start == end:
             continue
-        idx_o, o = minimax_sparse_prefill(
-            q=q[start:end],
-            k_cache=k_cache,
-            v_cache=v_cache,
-            sink=None,
-            idx_q=idx_q[start:end],
-            idx_k_cache=index_k,
-            idx_v_cache=index_v,
-            idx_sink=None,
-            req_to_token=self.req_to_token,
-            slot_ids=forward_batch.req_pool_indices,
-            cu_seqlens=cu,
-            seq_lens=lengths,
-            prefix_lens=lengths - q_lengths,
-            max_seqlen_q=max(q_lengths_cpu),
-            max_seqlen_k=max(kv_lengths_cpu),
-            block_size_q=min(self.block_size_q, max(1, 128 // (q.shape[1] // k_cache.shape[-2]))),
-            block_size_k=self.block_size_k,
-            topk=self.topk_blocks,
-            init_blocks=self.init_blocks,
-            local_blocks=self.local_blocks,
-            score_type=self.score_type,
-            disable_index_value=disable_value,
-            seqlens_cpu=q_lengths_cpu,
-            q_scale=layer.q_scale_float,
-            k_scale=layer.k_scale_float,
-            v_scale=layer.v_scale_float,
-            idx_q_scale=layer.idx_q_scale_float,
-            idx_k_scale=layer.idx_k_scale_float,
-            idx_v_scale=layer.idx_v_scale_float,
-            page_size=self.page_size,
-        )
+        with cp_prefill_metadata(meta, segment, lengths, q_lengths) as prefix:
+            idx_o, o = minimax_sparse_prefill(
+                q=q[start:end],
+                k_cache=k_cache,
+                v_cache=v_cache,
+                sink=None,
+                idx_q=idx_q[start:end],
+                idx_k_cache=index_k,
+                idx_v_cache=index_v,
+                idx_sink=None,
+                req_to_token=self.req_to_token,
+                slot_ids=forward_batch.req_pool_indices,
+                cu_seqlens=cu,
+                seq_lens=lengths,
+                prefix_lens=prefix,
+                max_seqlen_q=max(q_lengths_cpu),
+                max_seqlen_k=max(kv_lengths_cpu),
+                block_size_q=min(self.block_size_q, max(1, 128 // (q.shape[1] // k_cache.shape[-2]))),
+                block_size_k=self.block_size_k,
+                topk=self.topk_blocks,
+                init_blocks=self.init_blocks,
+                local_blocks=self.local_blocks,
+                score_type=self.score_type,
+                disable_index_value=disable_value,
+                seqlens_cpu=q_lengths_cpu,
+                q_scale=layer.q_scale_float,
+                k_scale=layer.k_scale_float,
+                v_scale=layer.v_scale_float,
+                idx_q_scale=layer.idx_q_scale_float,
+                idx_k_scale=layer.idx_k_scale_float,
+                idx_v_scale=layer.idx_v_scale_float,
+                page_size=self.page_size,
+            )
         outputs.append(o.flatten(1))
         if idx_o is not None:
             index_outputs.append(idx_o.flatten(1))
