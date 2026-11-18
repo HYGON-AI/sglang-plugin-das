@@ -3842,3 +3842,30 @@ L0 通过，导览已重建并通过快照检查，生成页未做浏览器渲�
 
 
 
+## 2026-11-17 FA 查询准备钩子与 silu 回退
+
+**问题来源**：从交付分支 `qwen3.8-27b-perf` 拆出独立的平台适配改动，形成独立 PR（分支 `qwen3.8-27b-perf-misc`，基线 `main` `289b7fb`）。
+
+**改动范围**：
+
+- `hcu_sglang/layers/attention/flashattention_backend.py`：新增 `prepare_paged_mha_query` AROUND 钩子，0.5.22 下补 fp8 KV 的 k/v descale tile；`around_init` 同步改写模块级 `flash_attn_varlen_func`/`flash_attn_with_kvcache`，否则 forward 仍调用上游模块全局、插件路由不生效。
+- `hcu_sglang/layers/attention/flashattention_interface.py`：fp8 查询缺省 descale 补 1.0（与 backend 的 k/v descale tile 配套；三者缺一 wheel 会拒绝 varlen）。
+- `hcu_sglang/layers/norm_activation.py`：`lightop` 不可导入时回退官方 `SiluAndMul` 实现。
+
+**未纳入**：HND page-major 池识别（本栈未启用 `SGLANG_USE_HND_KVCACHE`，`SGLANG_HCU_FA_PAGED_BSHD` 无消费方，已移除）；`server_args_hooks.py` 的 `hasattr` 清理；`speculative_compat.py` 的 EAGLE rejection-sampling 默认（本栈走 NEXTN，且上游已有 HIP 策略）。交付分支 `pyproject.toml` 的 package-data 差异和线性注意力相关环境变量属于另一个 PR，本 PR 不包含。
+
+**集成栈验证（2026-11-17）**：
+
+- 40 请求 × 2k/2k、TEMP=0、radix cache 开启、mamba 160、mem 0.89、
+  `SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK=1`，全部加速项开启：40/40，
+  **1231.48 tok/s / Mean TPOT 25.05 ms / Mean TTFT 12.40 s**，
+  `#running-req: 40 / #queue-req: 0`。
+- 同配置基线树：40/40，1195.23 tok/s / Mean TPOT 25.92 ms。
+- HumanEval：163/164 = 99.4%（evalscope，2026-11-16，Qwen3.8-27B）。
+- 错题 9×4 复跑（radix 修复树）：28/36 通过（77.8%），与无 radix 基线 29/36 同档。
+- `python3 -m py_compile` 通过；`python3 ci/l0_gate.py` passed（755 个 Python 文件，8 个 skill）。
+
+**未验证项**：
+
+- 未在真实 HCU 设备上运行模型；fp8 descale tile 与 lightop 回退缺少实机/整模型验证。
+- 未运行 GitHub CI。
