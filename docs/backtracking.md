@@ -124,7 +124,7 @@ python3 tools/verify_reconstruction.py \
 | 来源保真 | 当前 HCU 的对应符号、native/package-data 与实际输出 | 发现迁移遗漏或错误来源，不能只核对输出自写 manifest |
 | 行为一致性 | 构造/装饰器/receiver、全局别名、状态、collective owner、公开调用与实际生成 | 对适配差异给出证据；无法证明的范围明确保留未验证 |
 
-整个 fork 与官方基础结构可不同。按 caller/consumer 比较行为，保留有证据的接口适配差异；不能为文本相等引入重复 norm、KV store 或归约。源码哈希、selected AST 等价和 loader apply 不足以证明整个 fork 逻辑等价。本轮实例及未覆盖项见 [2026-10-26 实施记录](hcu-sglang-development.md#2026-10-26-4-源码内嵌与-hcu-逻辑对照)。
+整个 fork 与官方基础结构可不同。按 caller/consumer 比较行为，保留有证据的接口适配差异；不能为文本相等引入重复 norm、KV store 或归约。源码哈希、selected AST 等价和 loader apply 不足以证明整个 fork 逻辑等价。本轮实例及未覆盖项见 [2026-10-26 实施记录](hcu-sglang-development-202610.md#2026-10-26-4-源码内嵌与-hcu-逻辑对照)。
 
 
 ## 9. 来源索引保护

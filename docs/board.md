@@ -4,7 +4,7 @@
 
 ## 1. 当前阶段
 
-V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构、文档组织、使用与协作规范。2026-10-28 起本仓同时维护 `hcu_sglang/`，迁入、提交与实际验证见 [开发迁移记录](hcu-sglang-development.md)；外部运行时 V3 的实现与指定 MiniMax TP4 验证已完成，见 [最终交付](hcu-sglang-development.md#2026-10-26-8-最终交付与需求验收)。托管 CI、其他模型及 adapter 组合验收仍按独立任务推进。
+V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构、文档组织、使用与协作规范。2026-10-28 起本仓同时维护 `hcu_sglang/`，迁入、提交与实际验证见 [开发迁移记录](hcu-sglang-development.md)；外部运行时 V3 的实现与指定 MiniMax TP4 验证已完成，见 [最终交付](hcu-sglang-development-202610.md#2026-10-26-8-最终交付与需求验收)。托管 CI、其他模型及 adapter 组合验收仍按独立任务推进。
 
 ## 2. 建设路线
 
@@ -39,7 +39,7 @@ V1 已建立方法、Skill、审计/回溯工具和 CPU 测试；V2 重整架构
 
 ## 5. plugin-v3-1028 全量迁移执行
 
-状态：in-progress。固定来源、阶段与实际结果见 [开发迁移记录](hcu-sglang-development.md#6-2026-10-29-分阶段继续迁移)，逐路径范围见 [执行台账](../plans/sglang-das-execution.json)。2026-10-29 已完成当前包工具支持、HCU 标准分发哨兵修复及源码/wheel/embedded 加载复验；全量源码与行为处置仍未闭合。
+状态：in-progress。固定来源、阶段与实际结果见 [开发迁移记录](hcu-sglang-development-202610.md#6-2026-10-29-分阶段继续迁移)，逐路径范围见 [执行台账](../plans/sglang-das-execution.json)。2026-10-29 已完成当前包工具支持、HCU 标准分发哨兵修复及源码/wheel/embedded 加载复验；全量源码与行为处置仍未闭合。
 
 下一阶段先审查 DeepSeek V4 平台类拆分和当前 `current_v4` profile，随后按领域继续审阅 Attention/KV、量化/通信、GLM5-next/Muse Spark 与扩展功能。每项补充行为、实现、支持/回退及 CPU/GPU/Graph/模型证据；只有实际满足该阶段退出条件才更新状态。保持用户要求：提交本地仓库，不推送远程。
 
