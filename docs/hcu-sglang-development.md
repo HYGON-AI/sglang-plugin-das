@@ -3964,3 +3964,65 @@ NEXTN steps=4 adaptive、decode graph 批次 1..40、`--disable-radix-cache`。
 
 - 未在真实 HCU 设备上运行模型；fp8 descale tile 与 lightop 回退缺少实机/整模型验证。
 - 未运行 GitHub CI。
+
+## 2026-11-17 MTP fp8 草稿 lm_head：SGLang 0.5.22 适配
+
+用途：把 MTP 草稿模型的 lm_head 换成 fp8 打包权重，降低 decode 最宽 GEMM 的带宽；
+只替换草稿头的 quant_method，target 头保持 bf16。归属判据：新增算法与 provider 消费者
+属于 plugin。
+
+### 代码与组合边界
+
+- plugin 基线 `main` @ `289b7fbc56377c4e8bb44b48dfc54f93c70cb5fb`；本 PR 基于
+  GEMM 分支 `qwen3.8-27b-perf-gemm`，须在其后合入。
+- `models/mtp_lmhead_quant.py` 负责量化方案、`DraftHeadQuantMethod` 与只替换
+  `quant_method` 的 proxy；`models/qwen3_5_mtp_lmhead_quant.py` 负责模型侧安装/还原 hook。
+- GEMM 侧通过 `backend.prepare_quant_head()` 取打包 GEMM；本 PR 不含 backends 实现。
+
+### 已有设备与模型证据（2026-11-17）
+
+同 §GEMM 的环境与协议；交付配置含 fp8 草稿头。
+
+- HumanEval 完整 164 题 163/164；已知错题 9×4 复跑 29/36。
+- 40/40：1300.07 tok/s / Mean TPOT 23.34 ms。隔离 A/B（`PERF_RECORD.md`）：
+  bf16 头 1091.55/26.26 vs fp8 头 1133.35/25.48。
+- `tests/test_mtp_fp8_wide_rows.py` 通过；L0 passed。
+
+- HumanEval 精度报告（evalscope，2026-11-16 15:44:08）：
+
+  | Model | Dataset | Metric | Subset | Num | Score |
+  |---|---|---|---|---:|---:|
+  | Qwen3.8-27B | HumanEval | Accuracy ↑ | openai_humaneval | 163 | 99.4% |
+  | Qwen3.8-27B | HumanEval | Pass@k ↑ · k 1 | openai_humaneval | 163 | 99.4% |
+
+  运行记录：`Evaluating[humaneval] 100%| 164/164 [1:00:39]`，
+  `predictions complete, aggregating scores...`，Accuracy 163/164 = 99.4%。
+
+### 测试方法与本 PR 的贡献
+
+- 40/40 复现命令：`PORT=9160 TAG=<tag> bash /workspace/clean-stack/bench_verified.sh`
+  （内部调用 `vllm_bench_driver.py --backend openai --base-url http://localhost:9160
+  --endpoint /v1/completions --model /data/Qwen3.8-27B --dataset-name random
+  --random-input-len 2048 --random-output-len 2048 --num-prompts 40
+  --max-concurrency 40 --ignore-eos --seed 42 --temperature 0`；
+  脚本在 40/40 全部成功前拒绝出数）。
+- fp8 草稿头隔离 A/B（fp8 KV、splitkv 臂）：bf16 头 1091.55 / TPOT 26.26 vs fp8 头
+  **1133.35 / 25.48**，即 **+3.8%** 吞吐、TPOT **−0.78 ms**。
+
+### fp8 草稿头的三个 GEMM 后端
+
+- 选择：`SGLANG_QUANT_HEAD_BACKEND=auto|hbird|lightop|torch`；`auto` 顺序为
+  hbird → lightop → torch。三者都不可用时草稿头保持 bf16，不再依赖 hbird。
+- hbird：packed tiles，支持 `out=`；lightop：`hipblaslt_w8a8_channelwise_gemm`
+  （`transpose_flag="NT"`，权重 `[N,K]` 直接匹配）；torch：`torch._scaled_mm`
+  （`weight_q.t()` 的 `[K,N]` column-major + `scale_b[1,N]`）。
+- lightop/torch 没有 `out=`，适配层把结果 `copy_` 进调用方预分配 buffer；默认后端仍是
+  hbird（唯一支持 `out=`、避免 graph 内分配）。
+- 实测（M=45 / N=4096 / K=5120，fp8 e4m3 W8A8，对 fp32 参考）：lightop 与 torch 的
+  maxerr 均为 3.9e-3（bf16 舍入量级），且 `out` 返回调用方 buffer；
+  `tests/test_mtp_quant_backend_select.py` 5/5 通过（选择顺序与回退）。
+
+### 依赖、回退及证据
+
+- 依赖 GEMM PR；GPU 安装与量化数值同交付分支 `qwen3.8-27b-perf` @ `e7a0da6`。
+- 回退：`SGLANG_MTP_LMHEAD_FP8=0`，安装函数直接返回 False，草稿头保持 bf16。

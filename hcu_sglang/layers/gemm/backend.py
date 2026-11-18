@@ -154,6 +154,10 @@ def provider():
     """The bf16 GEMM backend, or None."""
     return _provider_for(selected_name())
 
+def provider_for(name):
+    """Resolve one provider by name, independent of the BF16 selection."""
+    return _provider_for(name)
+
 def quant_head_provider():
     """The provider whose packed tiles serve the head; the GEMM one for auto."""
     name = quant_head_name()
