@@ -3,6 +3,8 @@ from functools import cache
 
 import torch
 
+from .minimax_m31_cp_kv import try_store_cp_kv
+
 LOG = logging.getLogger(__name__)
 
 
@@ -42,21 +44,28 @@ def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=Tru
     from sglang.srt.layers.attention.minimax_sparse_ops.minimax_sparse import minimax_sparse_prefill
 
     disable_value = layer.layer_id in self.disable_value_layer_ids
-    k, v, idx_k, idx_v = _gather_kv(
-        forward_batch, strategy, k, v, idx_k, None if disable_value else idx_v
-    )
-    loc = forward_batch.out_cache_loc
-    if loc.numel() != k.shape[0]:
-        raise ValueError(f"MiniMax CP gathered {k.shape[0]} KV rows for {loc.numel()} slots")
-    self.kv_pool.set_fused_kv_index_buffer(
-        layer, loc, k, v, idx_k, idx_v,
-        layer.k_scale_float, layer.v_scale_float, layer.idx_k_scale_float, layer.idx_v_scale_float,
-    )
-    k_cache, v_cache = self.kv_pool.get_kv_buffer(layer.layer_id)
+    caches = None
     if disable_value:
-        index_k, index_v = self.kv_pool.get_index_k_buffer(layer.layer_id), None
+        caches = try_store_cp_kv(self.kv_pool, layer, forward_batch, strategy, k, v, idx_k)
+    index_v = None
+    if caches is not None:
+        k_cache, v_cache, index_k = caches
     else:
-        index_k, index_v = self.kv_pool.get_index_kv_buffer(layer.layer_id)
+        k, v, idx_k, idx_v = _gather_kv(
+            forward_batch, strategy, k, v, idx_k, None if disable_value else idx_v
+        )
+        loc = forward_batch.out_cache_loc
+        if loc.numel() != k.shape[0]:
+            raise ValueError(f"MiniMax CP gathered {k.shape[0]} KV rows for {loc.numel()} slots")
+        self.kv_pool.set_fused_kv_index_buffer(
+            layer, loc, k, v, idx_k, idx_v, layer.k_scale_float, layer.v_scale_float,
+            layer.idx_k_scale_float, layer.idx_v_scale_float,
+        )
+        k_cache, v_cache = self.kv_pool.get_kv_buffer(layer.layer_id)
+        if disable_value:
+            index_k = self.kv_pool.get_index_k_buffer(layer.layer_id)
+        else:
+            index_k, index_v = self.kv_pool.get_index_kv_buffer(layer.layer_id)
     meta = forward_batch.attn_cp_metadata
     pieces = (
         (0, meta.total_q_prev_tokens, meta.cu_seqlens_q_prev_tensor,

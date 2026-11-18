@@ -2497,3 +2497,11 @@ DTK 26.10 / Python 3.12 的三个 CPU 回归通过。覆盖 8、9、10 路 FP8 V
 PR #82 的普通 IFB DSpark commit 包装在 worker 构造时读取生效后的 `get_memory().enable_hisparse`。HiSparse 的 Decode Hook 在 commit 处已有 #71 的 Draft TP scope。通过配置判断可以覆盖 coordinator 尚未挂载的构造时序。原有 MiniMax、HIP、DP 和普通 IFB 条件继续生效。
 
 无卡回归在修改前模拟 HiSparse 调用方已进入 Draft TP，再调用被包装的 executor，复现第二次进入失败。修改后普通 IFB DP 和 HiSparse 的模拟 commit 均只进入一次，并恢复外层作用域。当前 MiniMax HiSparse 启动校验要求 PD Decode。上机验证按普通 IFB 和受支持的 HiSparse PD Decode 分别执行。
+
+## 2026-11-18 MiniMax CP Prefill KV 交换与写入
+
+移植 DAS `ae857a2513` 的 KV packet 路径和 `24dbb66086`、`d89004c08b` 的 Triton scatter。只在 MiniMax Zigzag Prefill 的 K-only 稀疏层启用。K/V 和 index K 为 E4M3FN 且使用单位 scale 时，传输 2304 bytes/token 的 BF16 packet，Triton 将重排、转换与写入合为一次 kernel。index K 缓存为 BF16 时，传输 1280 bytes/token 的 LightOp packet，K/V 在发送前按其 scale 转为 E4M3FN，index K 保留原字节。两条路径复用同一 batch 和 stream 的发送、接收及 rank-major 行号表。位置由官方 Zigzag 元数据与 `out_cache_loc` 决定。
+
+`SGLANG_MINIMAX_CP_FP8_KV_EXCHANGE=0` 重启后恢复本分支父提交使用的通用 gather 与 KV writer。index V、HiSparse、不支持的缓存布局、FP8 index 非单位 scale、图捕获以及 LightOp ABI 缺失时沿用该路径。普通 Decode、官方仓库及 Adapter 无需改动。
+
+DTK 26.10 / Python 3.12 无卡回归覆盖多请求 Zigzag 顺序、ragged rank、padding、空 rank、K/V 与 index K 的列顺序以及跨层复用。Triton scatter 已离线编译为 gfx938 HSACO，镜像中的两个 LightOp native 入口均可导入。实际缓存字节、8 卡 collective、GSM8K 20 题与 RSC BS4 的 TTFT、八 rank profile 待实机验证。
