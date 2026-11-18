@@ -2535,3 +2535,9 @@ CPU 测试覆盖 148,608 边界、Verify 预留、空批与缺失 mirror、PD/Hi
 迁移 DAS `d619ad0d5e` 的 pinned host mirror。普通 HIP MiniMax W4A8 IFB 的 PP1 overlap 路径在 publish 后在 forward stream 发起异步复制并记录 event。下一步 scheduler 可以先准备输入，在 forward stream 按 future indices gather GPU 长度。当前官方 Verify window planner 用 CPU 长度确定读表大小，因此在 DSpark `_forward_decode` 入口同步并读取 host mirror。Scheduler 隔离恢复后保留本轮实际消费的 CPU 长度。mixed、bootstrap、缺 mirror、confidence relay、HiSparse、PD、debug consume 检查和非 overlap 走现有 resolve。
 
 `SGLANG_HCU_ASYNC_SEQ_LENS_D2H=0` 回退。CPU 回归覆盖消费顺序、避免重复消费、按请求顺序取长度和隔离恢复。HIP 多 stream 运行和 TPOT 待验证。
+
+## 2026-11-18 MiniMax IFB Decode 的 DSpark Draft SWA split-KV
+
+从 DAS `d636f025de` 移植 causal SWA 的分段前缀和合并 kernel。挂在 Triton backend 已有的 grouped target-verify seam，限定 gfx938、MiniMax DSpark Draft、线性 verify、4096 token 窗口（官方 `window_left=4095`）、7 个 query token、64/4 个 Q/KV head 和 128 head dim。当前官方的 Draft KV 参数是 3-D slot-major 张量，按其实际 stride 取页和 head。沿用旧源码的 causal window mask 和空 split 的数值保护。支持 BF16/FP8 缓存，保留原来的 verify/extend 作为不匹配时的回退。
+
+`SGLANG_MINIMAX_M31_DRAFT_SPLITKV=0` 回退。旧 4-D page64 的 launch 特调不用于当前 3-D 布局。CPU 检查不支持的输入回退。FP8/BF16 prefix 与 combine 均已离线编译到 gfx938。上机须做独立 causal SWA oracle 对拍、Graph replay 和实际 kernel/TPOT 核验。
