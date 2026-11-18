@@ -11,6 +11,79 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGET = "sglang.srt.models.qwen3_5.Qwen3_5AttentionDecoderLayer.self_attention"
 
 
+def _constant_str(node: ast.AST, aliases: dict[str, str]) -> str | None:
+    """Best-effort evaluation of a string expression, following module aliases."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return aliases.get(node.id)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _constant_str(node.left, aliases)
+        right = _constant_str(node.right, aliases)
+        if left is not None and right is not None:
+            return left + right
+        return None
+    if isinstance(node, ast.JoinedStr):
+        parts = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            elif isinstance(value, ast.FormattedValue):
+                resolved = _constant_str(value.value, aliases)
+                if resolved is None:
+                    return None
+                parts.append(resolved)
+            else:
+                return None
+        return "".join(parts)
+    return None
+
+
+def _module_string_aliases(tree: ast.Module) -> dict[str, str]:
+    """Collect module-level string assignments such as ``_TARGET = "..."``."""
+    aliases: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            value_node = node.value
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            value_node = node.value
+            targets = [node.target]
+        else:
+            continue
+        value = _constant_str(value_node, aliases)
+        if value is None:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                aliases[target.id] = value
+    return aliases
+
+
+def _registered_targets(source: str) -> list[str]:
+    """Resolve the first argument of every ``register(...)`` call in ``source``.
+
+    Following module-level aliases is what catches the old passthrough
+    registration, which passed ``_TARGET`` instead of a literal string.
+    """
+    tree = ast.parse(source)
+    aliases = _module_string_aliases(tree)
+    targets = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        function = node.func
+        name = function.attr if isinstance(function, ast.Attribute) else getattr(
+            function, "id", None
+        )
+        if name != "register":
+            continue
+        value = _constant_str(node.args[0], aliases)
+        if value is not None:
+            targets.append(value)
+    return targets
+
+
 class Qwen35HookRemovedTests(unittest.TestCase):
     def test_plugin_entry_does_not_register_the_passthrough_hook(self):
         text = (ROOT / "hcu_sglang/__init__.py").read_text()
@@ -21,13 +94,28 @@ class Qwen35HookRemovedTests(unittest.TestCase):
     def test_no_module_registers_the_passthrough_self_attention_target(self):
         offenders = []
         for path in (ROOT / "hcu_sglang").rglob("*.py"):
-            for node in ast.walk(ast.parse(path.read_text())):
-                if not isinstance(node, ast.Call) or not node.args:
-                    continue
-                value = node.args[0]
-                if isinstance(value, ast.Constant) and value.value == TARGET:
-                    offenders.append(str(path.relative_to(ROOT)))
+            if TARGET in _registered_targets(path.read_text()):
+                offenders.append(str(path.relative_to(ROOT)))
         self.assertEqual(offenders, [])
+
+    def test_detector_flags_module_level_alias_registration(self):
+        # Regression for the old qwen3_5 module: the target lived in a
+        # module-level alias, so a literal-only scan missed it.
+        old_source = '''
+_TARGET = "sglang.srt.models.qwen3_5.Qwen3_5AttentionDecoderLayer.self_attention"
+_MODULE = "sglang.srt.models.qwen3_5"
+_GDN_INIT_TARGET = _MODULE + ".Qwen3_5GatedDeltaNet.__init__"
+
+
+def register() -> None:
+    HookRegistry.register(_TARGET, replacement_self_attention, HookType.AROUND)
+    HookRegistry.register(_GDN_INIT_TARGET, around_gdn_init, HookType.AROUND)
+'''
+        registered = _registered_targets(old_source)
+        self.assertIn(TARGET, registered)
+        self.assertIn(
+            "sglang.srt.models.qwen3_5.Qwen3_5GatedDeltaNet.__init__", registered
+        )
 
     def test_declared_target_contract_no_longer_lists_it(self):
         import json
