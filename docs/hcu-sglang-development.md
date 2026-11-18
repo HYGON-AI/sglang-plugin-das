@@ -2469,3 +2469,11 @@ DTK 26.10 容器通过 CPU 页规划检查，覆盖逻辑页去重、verify 尾 
 隔离补丁在 nmz18 八卡通过单请求 prefill/verify warmup 和 8 条分配到各 DP rank 的不同输出长度请求。全量 Decode Graph、DeepEP、原生 FlashMLA 和 INT8 DSpark 均启用，KV 池上限为 262,144 token。每条并发请求完成 3–5 次 Verify。部署完整 KV 池的容量与性能待验证。
 
 仓库工作区通过 Bash 语法检查、FlashMLA 六个 ABI 入口导入、MiniMax 插件入口发现与构造 Hook 的 TP8 → TP1 → TP8 检查。
+
+## 2026-11-18 MiniMax FP8 target Verify split-KV
+
+从 DAS `7fe4de4f00` 迁移原生 MSA128 主注意力的显式 split-KV。社区 v0.5.23 在 target verify 调用处传入成组的 `packed_queries`，普通 Decode 使用宽度 1。MiniMax Plugin 的原生 FP8 多 query 路径默认给 wheel 传 CPU int32 标量 8，避免自动策略随本地请求数切换 reduction 方式。HiSparse 的分段 Verify 保持同一个 query 宽度，因此使用同一策略。
+
+`SGLANG_MINIMAX_FLASH_MLA_FP8_VERIFY_SPLITS=0` 在重启后恢复 wheel 自动选路，1/2/4/8 用于受控复测。BF16 和普通 Decode 继续使用 wheel 原调用参数。Adapter 与官方源码无需变更。
+
+DTK 26.10 / Python 3.12 的三个 CPU 回归通过。覆盖 8、9、10 路 FP8 Verify 的实际 provider 调用、CPU int32 载体、自动策略、BF16、单 query 与无效配置。已确认 cp312 wheel 暴露 `num_splits`。gfx938 Graph replay、真实接受长度与 HiSparse 大 batch 性能待验证。

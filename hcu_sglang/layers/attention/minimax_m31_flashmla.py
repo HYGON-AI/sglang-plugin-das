@@ -80,6 +80,15 @@ def _cpu_i32(values: tuple[int, ...]) -> torch.Tensor:
     return torch.tensor(values, dtype=torch.int32)
 
 
+@functools.lru_cache(maxsize=1)
+def _fp8_verify_split_override() -> Optional[torch.Tensor]:
+    name = "SGLANG_MINIMAX_FLASH_MLA_FP8_VERIFY_SPLITS"
+    splits = int(os.getenv(name, "8"))
+    if splits not in (0, 1, 2, 4, 8):
+        raise ValueError(f"{name} must be one of 0, 1, 2, 4, 8, got {splits}")
+    return _cpu_i32((splits,)) if splits else None
+
+
 @functools.lru_cache(maxsize=None)
 def _fp8_scale_tensor(value: float, device: torch.device) -> torch.Tensor:
     # Device fill is capture-safe even if a new immutable scale is first used
@@ -718,6 +727,10 @@ def flash_mla_sparse_decode_main(
     if not is_fp8:
         scale *= unit_scale(q_scale) * unit_scale(k_scale)
     fp8_scales = _fp8_scales(q, q_scale, k_scale, v_scale) if is_fp8 else {}
+    if is_fp8 and verify_group_size > 1:
+        num_splits = _fp8_verify_split_override()
+        if num_splits is not None:
+            fp8_scales["num_splits"] = num_splits
     output, _ = flash_mla_with_kvcache(
         q_grouped,
         k_paged,
