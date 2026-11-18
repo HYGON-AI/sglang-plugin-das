@@ -6,9 +6,15 @@ import logging
 import sys
 import types
 
+import torch
+
+
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 from hcu_sglang.models.fused_rotary import has_fused_kv_store
 from hcu_sglang.utils.detection import is_hcu
+
+# Largest head dim the fa3 fp8 path builds a descale tile for.
+FA3_MAX_DESCALE_HEAD_DIM = 256
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +30,10 @@ _INIT_TARGET = (
     "sglang.srt.layers.attention.flashattention_backend."
     "FlashAttentionBackend.__init__"
 )
+_PREPARE_TARGET = (
+    "sglang.srt.layers.attention.flashattention_backend."
+    "FlashAttentionBackend.prepare_paged_mha_query"
+)
 
 
 def register() -> None:
@@ -33,6 +43,7 @@ def register() -> None:
         ("sglang.srt.layers.attention.flashattention_backend.FlashAttentionBackend.get_paged_mha_kv_cache", around_get_paged_mha_kv_cache),
         (_FORWARD_EXTEND_TARGET, around_forward_extend),
         (_FORWARD_DECODE_TARGET, around_forward_decode),
+        (_PREPARE_TARGET, prepare_paged_mha_query),
     )
     for target, hook in hooks:
         logger.info("[hcu_sglang] register AROUND hook: %s", target)
@@ -74,8 +85,17 @@ def around_init(original_fn, backend, *args, **kwargs):
             sys.modules.pop(module_name, None)
         else:
             sys.modules[module_name] = previous
-    backend.flash_attn_varlen_func = flash_attn_varlen_func
-    backend.flash_attn_with_kvcache = flash_attn_with_kvcache
+    # 0.5.22 binds both names at module import and the forward methods call
+    # those module globals. Assign the module's current values, not the raw
+    # plugin functions: the registry's wrapper chain (BEFORE/AFTER hooks) must
+    # stay in front of the plugin AROUND hook.
+    fb_module = sys.modules.get("sglang.srt.layers.attention.flashattention_backend")
+    if fb_module is not None:
+        backend.flash_attn_varlen_func = fb_module.flash_attn_varlen_func
+        backend.flash_attn_with_kvcache = fb_module.flash_attn_with_kvcache
+    else:
+        backend.flash_attn_varlen_func = flash_attn_varlen_func
+        backend.flash_attn_with_kvcache = flash_attn_with_kvcache
     backend._get_scheduler_metadata = None
     backend._get_fa_runtime_policy = None
     from hcu_sglang.utils.detection import get_gcn_arch
@@ -203,3 +223,59 @@ def around_get_paged_mha_kv_cache(original_fn, backend, layer, *, head_group_num
     # immediately before the native HCU call; a permute here would corrupt it.
     return (key.view(-1, page, layer.tp_k_head_num // head_group_num, layer.head_dim),
             value.view(-1, page, layer.tp_v_head_num // head_group_num, layer.v_head_dim))
+
+
+def _descale_tile(scale, shape, device):
+    """Per-row descale tile, 1.0 when the model carries no scale."""
+    if scale is None:
+        return torch.ones(shape, dtype=torch.float32, device=device)
+    try:
+        return scale.expand(shape)
+    except RuntimeError:  # stored as [1]
+        return scale.reshape(-1)[:1].expand(shape)
+
+
+def prepare_paged_mha_query(
+    wrapped,
+    self,
+    q,
+    q_rope,
+    k_rope,
+    layer,
+    *,
+    logical_batch_size,
+    kv_head_num,
+    is_prefill,
+):
+    """Fill fp8 KV descales when the upstream path leaves them unset.
+
+    0.5.18 fell back to the backend-level k_scale/v_scale; 0.5.22 only uses
+    ``layer.k_scale``. The fa3 varlen entry requires q/k/v descales for an
+    fp8 prefix decode, so fill the missing ones (1.0 when no scale is set).
+    """
+    out = wrapped(
+        self,
+        q,
+        q_rope,
+        k_rope,
+        layer,
+        logical_batch_size=logical_batch_size,
+        kv_head_num=kv_head_num,
+        is_prefill=is_prefill,
+    )
+    if out[3] is not None or self.kv_cache_dtype_str == "auto":
+        return out
+    if (
+        layer.head_dim > FA3_MAX_DESCALE_HEAD_DIM
+        or logical_batch_size <= 0
+        or kv_head_num <= 0
+    ):
+        return out
+    shape = (int(logical_batch_size), int(kv_head_num))
+    return (
+        out[0],
+        out[1],
+        out[2],
+        _descale_tile(layer.k_scale, shape, q.device),
+        _descale_tile(layer.v_scale, shape, q.device),
+    )

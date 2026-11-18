@@ -153,6 +153,18 @@ def flash_attn_with_kvcache(
             if max_seqlen_k is None and page_table is not None
             else max_seqlen_k
         )
+        # The paged-query hook supplies k/v descale; the wheel needs q too.
+        if q_descale is None and q.dtype in (torch.float8_e4m3fn, torch.float8_e5m2):
+            # The wheel's varlen FP8 entry wants (batch, num_heads_k), not a
+            # scalar. Pull both from the paged pool / query lengths.
+            if cu_seqlens_q is not None:
+                heads_k = k_cache.shape[1] if _layout_enabled() else k_cache.shape[2]
+                q_descale = torch.ones(
+                    (int(cu_seqlens_q.numel()) - 1, int(heads_k)),
+                    dtype=torch.float32, device=q.device,
+                )
+            else:
+                q_descale = torch.ones(1, dtype=torch.float32, device=q.device)
         # The wheel takes both page layouts; declare the one actually
         # carried: BHSD pages with the HCU layout flag ([NP, H, PS, D]),
         # BSHD pages on the default official pool ([NP, PS, H, D]). A
