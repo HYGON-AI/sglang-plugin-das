@@ -2511,3 +2511,4 @@ DTK 26.10 / Python 3.12 无卡回归覆盖多请求 Zigzag 顺序、ragged rank�
 补齐 DAS `ae857a2513` 在原生稀疏 Prefill 路径的跨层准备。按 Zigzag 的前后两段、设备和 HIP stream 隔离，在当前 batch 元数据上保存 `prefix_lens`、page table、safe pages 和逐 query 的 `k_end`。原生 FlashMLA Hook 在第一层实际需要这些张量时创建，后续层复用。TopK 仍按各层的 Q、K 计算。Graph 捕获以及 CP 作用域外保持逐调用准备。
 
 复用随 MiniMax Zigzag Prefill 默认开启。已有的 `SGLANG_MINIMAX_CACHE_PREFILL_INDEX_METADATA=0` 可关闭复用与 `repeat_interleave` 长度提示。Stage 1 异步 H2D 仍走当前 cp312 wheel。Prefill BS4 用同一份 RSC 请求同时验收 CP KV 写入、元数据复用、Stage 1 H2D、LightOp scatter/激活与 EPLB 布局命中，分段核对八个 rank 的 profile。CPU 测试覆盖跨层、跨 segment、换 batch 与关闭开关。nmz16 实际 KV 池 596,992 token。上一轮 EvalScope 保存的 20 条 GSM8K 请求复放为 19/20，错题相同且零截断。RSC BS4 每条命中 131,072 token，新增 16,384 token，输出 1。无 profile 的首轮 mean TTFT 2907.48 ms，另一次抓取 profile 的 mean TTFT 2124.80 ms。每个 rank 记录 120 次融合 scatter 和 240 次 Stage 1，CPU trace 每 rank 有 16 条 repeat_interleave 事件。两轮观察包含不同预热状态，收益归因需要同机 A/B。
+>>>>>>> origin/proj/minimax-m3.1
