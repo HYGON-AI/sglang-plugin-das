@@ -3842,3 +3842,60 @@ L0 通过，导览已重建并通过快照检查，生成页未做浏览器渲�
 
 
 
+## 2026-11-17 GEMM 后端可插拔与量化头通用接缝：SGLang 0.5.22 适配
+
+用途：把 bf16 linear、未量化 lm_head，以及量化 lm_head 的 provider 接缝收进一个可选择的接缝，
+让 hbird 只是其中一种实现，换后端不改模型代码。归属判据：新增 provider 与框架适配
+属于 plugin；本 PR 不修改上游。
+
+### 代码与组合边界
+
+- 官方 SGLang 固定为 v0.5.22；plugin 基线 `main` @ `289b7fbc56377c4e8bb44b48dfc54f93c70cb5fb`。
+- 本 PR 自交付分支 `qwen3.8-27b-perf` @ `e7a0da6` 拆出；设备证据同该交付候选。
+- `layers/gemm/backend.py` 是唯一接缝：`GemmProvider` 协议、后端选择、`convert_model`、
+  `lm_head_linear`、`prepare_quant_head`、`install_shim`，日志统一 `[gemm]`。
+- 选择按能力拆分：`SGLANG_GEMM_BACKEND` 管 bf16 linear 与未量化 lm_head
+  （legacy `HBIRD_GEMM_SGLANG=1` 等价 hbird）；`SGLANG_QUANT_HEAD_BACKEND` 只选量化
+  lm_head 的 provider，缺省 `auto` 跟随 `SGLANG_GEMM_BACKEND`。`quant_lm_head.py` 是
+  转发薄壳；具体模型的 FP8 草稿头量化不在本 PR，属于后续 MTP 量化分支。
+
+### 已有设备与模型证据（2026-11-17）
+
+单卡 gfx938，模型 `/data/Qwen3.8-27B`，TP1/PP1，`fa3`、page 64、fp8 e4m3 KV、
+NEXTN steps=4 adaptive、decode graph 批次 1..40、`--disable-radix-cache`。
+
+- 40/40（c40/2k2k，`TEMP=0`）：**1300.07 tok/s / Mean TPOT 23.34 ms**
+  （`logs/bench_final_e7a0da6.log`）。
+- HumanEval 完整 164 题：**163/164**（基线 161–163）；已知错题 9×4 复跑 29/36
+  （上一臂 30/36），差异在长思考噪声内。
+- L0 passed。
+
+- HumanEval 精度报告（evalscope，2026-11-16 15:44:08）：
+
+  | Model | Dataset | Metric | Subset | Num | Score |
+  |---|---|---|---|---:|---:|
+  | Qwen3.8-27B | HumanEval | Accuracy ↑ | openai_humaneval | 163 | 99.4% |
+  | Qwen3.8-27B | HumanEval | Pass@k ↑ · k 1 | openai_humaneval | 163 | 99.4% |
+
+  运行记录：`Evaluating[humaneval] 100%| 164/164 [1:00:39]`，
+  `predictions complete, aggregating scores...`，Accuracy 163/164 = 99.4%。
+
+### 测试方法与本 PR 的贡献
+
+- 40/40 复现命令：`PORT=9160 TAG=<tag> bash /workspace/clean-stack/bench_verified.sh`
+  （内部调用 `vllm_bench_driver.py --backend openai --base-url http://localhost:9160
+  --endpoint /v1/completions --model /data/Qwen3.8-27B --dataset-name random
+  --random-input-len 2048 --random-output-len 2048 --num-prompts 40
+  --max-concurrency 40 --ignore-eos --seed 42 --temperature 0`；
+  脚本在 40/40 全部成功前拒绝出数）。
+- 早期同卡 c40/2k2k A/B（`PERF_RECORD.md`、`perf/c40_step*.txt`）：hbird lm_head 快路径
+  **+5.0%**（677.90→711.80 tok/s），线性层打包 **+16.4%**（相对 step2，累计 **+24.6%**）；
+  交付整栈对产线 0.5.18 为 **+5.1%**（1300.07 vs 1236.93 tok/s，TPOT −0.86 ms）。
+
+### 依赖、回退及证据
+
+- lightop/torch 选择器已接受但暂无实现：告警并保持上游 GEMM；量化头依赖 provider
+  提供 packed-tile 能力，本 PR 只交付接缝与薄壳，不包含模型侧 FP8 草稿头。
+- 回退：`SGLANG_GEMM_BACKEND=none`（或 `HBIRD_GEMM_SGLANG=0`）全部回上游 GEMM，
+  草稿头保持 bf16。
+- 设备证据来自交付分支 `qwen3.8-27b-perf` @ `e7a0da6`。
