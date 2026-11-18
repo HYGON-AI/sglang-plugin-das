@@ -2517,3 +2517,9 @@ DTK 26.10 / Python 3.12 无卡回归覆盖多请求 Zigzag 顺序、ragged rank�
 迁移 DAS `3a135acad3` 的 FlashMLA Stage 1 compact/full 图选路。沿用官方 attention graph 变体工厂与插件现有 `msa_stage1_cap_*` 内核接口。只在专用 MiniMax W4A8 IFB 且使用支持该 ABI 的 gfx938 FlashMLA 时接入。当前 Decode 部署脚本已有 `M31_STAGE1_GRAPH_MAX_KV_LEN=148608`。请求长度从 CPU mirror 读取，并为 Verify 保留整组 query 宽度。超过边界、空批或 CPU mirror 缺失时选择全长图。HiSparse、PD 和 Draft worker 沿用原图策略。
 
 CPU 测试覆盖 148,608 边界、Verify 预留、空批与缺失 mirror、PD/HiSparse 和关闭开关。nmz16 的 gfx938 + cp312 FlashMLA 实际捕获 compact/full 两张 Stage 1 FP8 图。以更新后的 KV 长度 replay，覆盖刚好到达 cap、改变 live 页和超限回退，TopK 与全长 eager 逐项一致。完整 DP8 服务的内存增量、真实接受长度及 RSC BS64 性能待验证。
+
+## 2026-11-18 MiniMax IFB Decode 的 shared expert overlap
+
+迁移 DAS `49e4209eda`、`db67498b68` 的 DeepEP low-latency receive hook。DP8/EP8 MiniMax W4A8 HIPC、普通 IFB 的 Decode/Verify 在 dispatch 发送后计算 shared gate/up，在 combine 发送后做激活和 shared down。沿用当前 MLP 的 MXFP8/普通激活选择及 routed 输出加和。仅在调用内启用 recv hook，退出或异常都清理回调并恢复 dispatcher 模式。SBO、TBO、Prefill、HiSparse 和其他模型继续走原入口。
+
+`SGLANG_MINIMAX_DECODE_SHARED_OVERLAP=0` 回退。CPU 回归检查发送、shared 计算、接收顺序、尾部加和和异常清理。八卡 graph、数据和 TPOT 待验证。
