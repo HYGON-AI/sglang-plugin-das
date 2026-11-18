@@ -105,6 +105,7 @@
     "sglang.srt.arg_groups.deepseek_v4_hook.validate_deepseek_v4_cp",
     "sglang.srt.arg_groups.parallel_hook.handle_eplb_and_dispatch",
     "sglang.srt.arg_groups.speculative_hook._handle_dspark",
+    "sglang.srt.speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2.__init__",
     "sglang.srt.managers.overlap_utils.FutureMap.__init__",
     "sglang.srt.managers.overlap_utils.FutureMap.resolve_seq_lens_cpu",
     "sglang.srt.managers.scheduler.Scheduler.run_event_loop",

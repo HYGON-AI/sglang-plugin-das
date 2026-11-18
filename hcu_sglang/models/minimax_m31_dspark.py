@@ -1,4 +1,4 @@
-from functools import cache
+from functools import cache, wraps
 from types import FunctionType
 
 _BASE_BACKENDS = ("none", "megamoe", "mori")
@@ -92,6 +92,30 @@ def _hip_scheduler_loop(original, scheduler):
     return original(scheduler)
 
 
+def _scope_verify_hidden_commit(_result, worker, *args, **kwargs):
+    from sglang.srt.runtime_context import get_disagg, get_parallel
+
+    if not (
+        _minimax_hip_dspark()
+        and worker._hosts_draft
+        and get_parallel().attn_dp_enabled
+        and get_disagg().disaggregation_mode == "null"
+        and worker.model_runner.model_config.hf_config.architectures[0]
+        in _MINIMAX_ARCHES
+    ):
+        return
+
+    executor = worker._verify_executor
+    commit_hidden = executor.commit_hidden
+
+    @wraps(commit_hidden)
+    def commit_in_draft_scope(**commit_kwargs):
+        with worker._draft_context():
+            return commit_hidden(**commit_kwargs)
+
+    executor.commit_hidden = commit_in_draft_scope
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -116,4 +140,10 @@ def register_hooks() -> None:
         "sglang.srt.managers.scheduler.Scheduler.run_event_loop",
         _hip_scheduler_loop,
         HookType.AROUND,
+    )
+
+    HookRegistry.register(
+        "sglang.srt.speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2.__init__",
+        _scope_verify_hidden_commit,
+        HookType.AFTER,
     )

@@ -2459,3 +2459,13 @@ Python 3.12 通过四个实际社区方法绑定、重复注册和记录次数�
 Decode 验证 PD、page-128、static DSpark verify8、FP8 KV、FlashMLA 和主机槽容量。插件协调器按页管理主机 KV 到四头 hot slot 的换入，DSpark 在 verify 前登记 scratch 并在接受 token 后提交主机 KV。常规配置沿用普通 MiniMax 注册路径。Fake PD 只用于合成容量和性能验证。
 
 DTK 26.10 容器通过 CPU 页规划检查，覆盖逻辑页去重、verify 尾 token 和空请求行。运行时注册检查、gfx938 JIT 和 Graph 检查、配对服务、性能以及 EvalScope 需要实跑；本记录不将源仓结果计作本次验证。
+
+## 2026-11-18 MiniMax 普通 IFB 的 DSpark Draft TP 修复
+
+社区 v0.5.23 的 DSpark Verify 在提交 target hidden 到 Draft KV 时调用 Draft FC。DP attention 下 Draft FC 按 Draft TP 组加载，投影结果的 gather 使用调用时的 TP 组。单请求预热时，其他 DP rank 可能处于空闲状态，无法参与主模型 TP 组的 gather。
+
+基于插件 `91dab4b`，在 MiniMax SlimQuant HIP 的普通 IFB DSpark worker 构造完成后，为该 worker 的 `commit_hidden` 进入已有的 Draft TP scope。HiSparse 继续通过自身的 hook 进入 Draft TP scope。调用方沿用 `hcu_minimax_m31` 入口。Decode 启动脚本通过 `PYTHONPATH` 加载工作区下 `minimax-sh/merged-runtime/flashmla-dtk2610-cp312` 的 FlashMLA，启动参数 `--max-total-tokens` 为 1,192,960。
+
+隔离补丁在 nmz18 八卡通过单请求 prefill/verify warmup 和 8 条分配到各 DP rank 的不同输出长度请求。全量 Decode Graph、DeepEP、原生 FlashMLA 和 INT8 DSpark 均启用，KV 池上限为 262,144 token。每条并发请求完成 3–5 次 Verify。部署完整 KV 池的容量与性能待验证。
+
+仓库工作区通过 Bash 语法检查、FlashMLA 六个 ABI 入口导入、MiniMax 插件入口发现与构造 Hook 的 TP8 → TP1 → TP8 检查。
