@@ -100,7 +100,7 @@ class InterleaveCPStrategy(ContextParallelStrategy):
         metadata = forward_batch.attn_cp_metadata
         if metadata.moe_local_token_count is None:
             lengths = metadata.per_rank_logical_token or metadata.per_rank_actual_token
-            metadata.moe_local_token_count = torch.tensor(lengths[self.cp_rank], dtype=torch.int32, device=forward_batch.input_ids.device)
+            metadata.moe_local_token_count = torch.full((), lengths[self.cp_rank], dtype=torch.int32, device=forward_batch.input_ids.device)
         return metadata.moe_local_token_count
 
     def can_apply(self, num_tokens: int, forward_batch) -> bool:

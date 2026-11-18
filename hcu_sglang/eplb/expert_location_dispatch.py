@@ -183,7 +183,15 @@ def _topk_ids_logical_to_physical_probability(
             f"LP dispatch requires CUDA tensors; got topk_ids on {topk_ids.device}."
         )
     from sglang.kernels.ops.lplb import cuda_solver
+    from sglang.srt.eplb.lplb_solver import get_global_lplb_solver
 
+    layer_id = getattr(info, "layer_id", None)
+    solver = get_global_lplb_solver(layer_id) if layer_id is not None else None
+    dispatch_map = getattr(solver, "static_dispatch_map", None)
+    if dispatch_map is None:
+        dispatch_map = info.partial_logical_to_all_physical_map
+    if dispatch_map.shape != log2phy_prob.shape:
+        raise ValueError("LP probabilities and replica map must have the same shape")
     return cuda_solver.dispatch_probability(
-        topk_ids, log2phy_prob, info.partial_logical_to_all_physical_map
+        topk_ids, log2phy_prob, dispatch_map
     )

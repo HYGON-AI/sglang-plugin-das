@@ -15,11 +15,12 @@
 from __future__ import annotations
 
 import torch
-import deepgemm
+from hcu_sglang.layers.glm53_decode import fp8_gemm, try_o_proj_quant
 from sglang.srt.layers.quantization import fp8_utils as N
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.layers.quantization.fp8_fallback import _apply_fallback_scaled_mm
 from hcu_sglang.layers.quantization.fp8_scaled_mm import triton_scaled_mm
+from sglang.srt.runtime_context import get_disagg
 
 _is_hcu = is_hcu()
 _sglang_enable_torch_compile = N.get_bool_env_var("SGLANG_ENABLE_TORCH_COMPILE")
@@ -56,7 +57,7 @@ def apply_fp8_linear(
         if x_scale.dim() > 2:
             x_scale = x_scale.view(-1, x_scale.shape[-1])
         output = torch.empty((qinput.shape[0], weight.shape[1]), device=qinput.device, dtype=pre_quant_output_dtype or torch.bfloat16)
-        deepgemm.fp8_gemm((qinput, x_scale), (weight, weight_scale), output)
+        fp8_gemm(qinput, x_scale, weight, weight_scale, output)
         if bias is not None:
             output += bias
 
@@ -111,6 +112,27 @@ def apply_fp8_linear(
             x_scale = input_scale.repeat(input_2d.shape[0]).view(-1, 1)
         else:
             x_scale = input_scale
+    elif (
+        _is_hcu
+        and N.envs.SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS.get()
+        and get_disagg().disaggregation_mode == "decode"
+        and input_scale is None
+        and input_scale_ub is None
+        and use_per_token_if_dynamic
+        and input_2d.dtype == torch.bfloat16
+        and weight.dtype == torch.float8_e4m3fn
+        and weight_scale.dtype == torch.float32
+        and weight_scale.numel() == weight.shape[1]
+    ):
+        from lightop.quant import per_token_quant_fp8
+
+        quant_input = input_2d.contiguous()
+        qinput = torch.empty_like(quant_input, dtype=torch.float8_e4m3fn)
+        x_scale = torch.empty((quant_input.shape[0], 1), dtype=torch.float32, device=quant_input.device)
+        if not try_o_proj_quant(quant_input, qinput, x_scale):
+            qinput, x_scale = per_token_quant_fp8(
+                quant_input, dtype=torch.float8_e4m3fn, out_q=qinput, out_scale=x_scale
+            )
     elif compressed_tensor_quant:
         # Maybe apply padding to output, see comment in __init__
         num_token_padding = output_padding
@@ -182,7 +204,7 @@ def apply_fp8_linear(
         if x_scale.dim() > 2:
             x_scale = x_scale.view(-1, x_scale.shape[-1])
         output = torch.empty((qinput.shape[0], weight.shape[1]), device=input.device, dtype=output_dtype)
-        deepgemm.fp8_gemm((qinput, x_scale), (weight, weight_scale), output)
+        fp8_gemm(qinput, x_scale, weight, weight_scale, output)
         output = torch.narrow(output, 0, 0, input_2d.shape[0])
         if bias is not None:
             output += bias

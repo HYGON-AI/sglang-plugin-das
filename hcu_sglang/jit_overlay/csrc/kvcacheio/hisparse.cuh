@@ -24,6 +24,30 @@ constexpr int WARP_SIZE = 32;
 using BallotMask = unsigned int;
 constexpr BallotMask FULL_WARP_MASK = 0xFFFFFFFFu;
 #endif
+__device__ __forceinline__ BallotMask hcu_hisparse_ballot(bool predicate) {
+#ifdef USE_ROCM
+  return __ballot(predicate);
+#else
+  return __ballot_sync(FULL_WARP_MASK, predicate);
+#endif
+}
+
+__device__ __forceinline__ int hcu_hisparse_shfl_up(int value, unsigned int delta) {
+#ifdef USE_ROCM
+  return __shfl_up(value, delta, WARP_SIZE);
+#else
+  return __shfl_up_sync(FULL_WARP_MASK, value, delta);
+#endif
+}
+
+__device__ __forceinline__ int hcu_hisparse_shfl(int value, int lane) {
+#ifdef USE_ROCM
+  return __shfl(value, lane, WARP_SIZE);
+#else
+  return __shfl_sync(FULL_WARP_MASK, value, lane);
+#endif
+}
+
 constexpr int32_t TOKEN_HIT = 0xFFFFFFFF;
 constexpr int32_t HASH_EMPTY = -1;
 
@@ -286,14 +310,14 @@ __device__ __forceinline__ int warp_inclusive_scan(int* s_data, int lane_id, int
 
 #pragma unroll
   for (int i = 1; i < WARP_SIZE; i *= 2) {
-    int n = __shfl_up_sync(FULL_WARP_MASK, val, i);
+    int n = hcu_hisparse_shfl_up(val, i);
     if (lane_id >= i) val += n;
   }
   val += accumulator;
   if (idx < count) {
     s_data[idx] = val;
   }
-  accumulator = __shfl_sync(FULL_WARP_MASK, val, WARP_SIZE - 1);
+  accumulator = hcu_hisparse_shfl(val, WARP_SIZE - 1);
   return accumulator;
 }
 
@@ -546,8 +570,8 @@ __global__ void load_cache_to_device_buffer_kernel(
     int local_hit_offset = 0;
     int local_evict_offset = 0;
     if (has_valid_chunk) {
-      const BallotMask hit_mask = __ballot_sync(FULL_WARP_MASK, is_hit);
-      const BallotMask evict_mask = __ballot_sync(FULL_WARP_MASK, is_evictable);
+      const BallotMask hit_mask = hcu_hisparse_ballot(is_hit);
+      const BallotMask evict_mask = hcu_hisparse_ballot(is_evictable);
       local_hit_offset = popc_mask(hit_mask & lanes_before);
       local_evict_offset = popc_mask(evict_mask & lanes_before);
       if (lane_id == 0) {
@@ -623,7 +647,7 @@ __global__ void load_cache_to_device_buffer_kernel(
     }
 
     if (has_valid_chunk) {
-      const BallotMask miss_mask = __ballot_sync(FULL_WARP_MASK, is_miss);
+      const BallotMask miss_mask = hcu_hisparse_ballot(is_miss);
       local_miss_offset = popc_mask(miss_mask & lanes_before);
       const int warp_miss_count = popc_mask(miss_mask);
       if (lane_id == 0) {
@@ -917,7 +941,7 @@ __global__ __launch_bounds__(BLOCK_SIZE, 1) void copy_cache_planned_kernel(
     const int cnt_lane = (r_lane < real) ? miss_counts[r_lane] : 0;
     const int window = (real - base < WARP_SIZE) ? (real - base) : WARP_SIZE;
     for (int j = 0; j < window; ++j) {
-      const int cnt = __shfl_sync(FULL_WARP_MASK, cnt_lane, j);
+      const int cnt = hcu_hisparse_shfl(cnt_lane, j);
       if (cnt == 0) continue;
       int m0 = (warp_global - start) % total_warps;
       if (m0 < 0) m0 += total_warps;

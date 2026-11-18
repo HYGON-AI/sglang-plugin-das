@@ -2,8 +2,112 @@
 
 from __future__ import annotations
 
+import hashlib
+from functools import lru_cache
+from pathlib import Path
+
 from hcu_sglang.models.deepseek.deepseek_common import constants as C
 from hcu_sglang.models.deepseek.deepseek_common.methods._runtime import *  # noqa: F403
+
+
+@lru_cache(maxsize=8)
+def _glm53_fp8_config_matches(path, size, mtime_ns):
+    del size, mtime_ns
+    try:
+        return hashlib.sha256(Path(path).read_bytes()).hexdigest() == (
+            "bc21bd68d92085465810c3da72c4b8a43b16c65c2c8f55f52547045f36c1abbf"
+        )
+    except OSError:
+        return False
+
+
+def _glm53_fp8_channel_kv_weight(owner, self_attn, weight, weight_scale, is_nextn):
+    if (
+        not _is_hcu
+        or _is_fp8_fnuz
+        or weight.dtype != torch.float8_e4m3fn
+        or tuple(weight.shape) != (28672, 512)
+        or not weight.is_contiguous()
+        or weight_scale.dtype != torch.float32
+        or tuple(weight_scale.shape) != (28672, 1)
+        or not weight_scale.is_contiguous()
+        or weight.device != weight_scale.device
+        or self_attn.qk_nope_head_dim != 192
+        or self_attn.v_head_dim != 256
+    ):
+        return False
+
+    from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
+    from sglang.srt.layers.quantization.compressed_tensors.compressed_tensors import (
+        CompressedTensorsConfig,
+    )
+    from sglang.srt.layers.quantization.compressed_tensors.schemes.compressed_tensors_w8a8_fp8 import (
+        CompressedTensorsW8A8Fp8,
+    )
+    from sglang.srt.runtime_context import get_server_args
+
+    config = owner.config
+    quant = owner.quant_config
+    scheme = getattr(self_attn.kv_b_proj, "scheme", None)
+    if (
+        tuple(getattr(config, "architectures", None) or ())
+        not in (("GlmMoeDsaForCausalLM",), ("GlmMoeDsaForCausalLMNextN",))
+        or getattr(config, "model_type", None) != "glm_moe_dsa"
+        or getattr(config, "num_hidden_layers", None) != 78
+        or getattr(config, "hidden_size", None) != 6144
+        or getattr(config, "n_routed_experts", None) != 256
+        or getattr(config, "num_experts_per_tok", None) != 8
+        or getattr(config, "moe_intermediate_size", None) != 2048
+        or getattr(config, "first_k_dense_replace", None) != 3
+        or getattr(config, "num_attention_heads", None) != 64
+        or getattr(config, "kv_lora_rank", None) != 512
+        or type(quant) is not CompressedTensorsConfig
+        or quant.linear_fp8_config is not None
+        or type(scheme) is not CompressedTensorsW8A8Fp8
+        or scheme.strategy != QuantizationStrategy.CHANNEL
+        or scheme.weight_quant.type != QuantizationType.FLOAT
+        or scheme.weight_quant.num_bits != 8
+        or scheme.weight_block_size is not None
+        or scheme.is_static_input_scheme
+    ):
+        return False
+
+    raw = quant.config
+    if not isinstance(raw, dict) or raw.get("format") != "float-quantized":
+        return False
+    groups = raw.get("config_groups")
+    if not isinstance(groups, dict) or set(groups) != {"FP8_DYNAMIC"}:
+        return False
+    group = groups["FP8_DYNAMIC"]
+    if not isinstance(group, dict) or group.get("targets") != ["Linear"]:
+        return False
+    weight_config = group.get("weights") or {}
+    activation_config = group.get("input_activations") or {}
+    if (
+        weight_config.get("type") != "float"
+        or weight_config.get("num_bits") != 8
+        or weight_config.get("strategy") != "channel"
+        or weight_config.get("dynamic") is not False
+        or weight_config.get("block_structure") is not None
+        or activation_config.get("type") != "float"
+        or activation_config.get("num_bits") != 8
+        or activation_config.get("strategy") != "token"
+        or activation_config.get("dynamic") is not True
+    ):
+        return False
+    try:
+        args = get_server_args()
+        path = (
+            getattr(args, "speculative_draft_model_path", None) or args.model_path
+            if is_nextn
+            else args.model_path
+        )
+        config_path = Path(path) / "config.json"
+        stat = config_path.stat()
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+    return _glm53_fp8_config_matches(str(config_path), stat.st_size, stat.st_mtime_ns)
+
 
 def do_load_weights(
         self,
@@ -447,7 +551,14 @@ def post_load_weights(
                     if weight_scale.dim() == 1:
                         weight_scale = weight_scale.view(-1, 1)
 
-                w, scale = channel_quant_to_tensor_quant(weight, weight_scale)
+                if _glm53_fp8_channel_kv_weight(
+                    self, self_attn, weight, weight_scale, is_nextn
+                ):
+                    w, scale = input_to_float8(
+                        weight.to(torch.float32) * weight_scale, dtype=weight.dtype
+                    )
+                else:
+                    w, scale = channel_quant_to_tensor_quant(weight, weight_scale)
                 self_attn.w_scale = scale
 
         if w.dtype == torch.int8:
