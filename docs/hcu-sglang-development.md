@@ -2485,3 +2485,9 @@ DTK 26.10 / Python 3.12 的三个 CPU 回归通过。覆盖 8、9、10 路 FP8 V
 仅 HCU、动态对称 channel INT8 及支持的布局启用默认路径。 `SGLANG_MINIMAX_DSPARK_INT8_KV_ONLY=0` 在重启后回退。其他量化方式和布局走原方法。通用 `W8A8_SUPPORT_METHODS`、官方框架和 Adapter 的默认值保持既有配置。
 
 三个 CPU 回归对比完整 QKV，覆盖两种布局、bias 和原方法回退。Hook 已登记且配置与固定 v0.5.23 目标签名已核对。屏蔽设备的完整模型导入会访问 HIP 设备属性，真实 Hook apply、GEMM、Graph 和接受长度待有卡验证。
+
+## 2026-11-18 MiniMax CP Prefill 静态 EPLB 接入
+
+旧 CP8 W4A8 配方用固定 PT、8 个冗余专家和 `locality_fair`。在 MiniMax 专用入口的 HCU Prefill CP 注册分支接入现有 placement Hook，覆盖 CLI、seed、静态算法校验与 logical-to-physical 映射。通用 placement 的默认策略继续为 `nearest`，由 Prefill 部署参数显式选择 `locality_fair`。
+
+在 DTK 26.10 / Python 3.12 隐藏设备的独立进程中模拟 HCU 判定，核实 CP 关闭时未注册、CP 开启时五个真实框架目标成功 apply，并用实际 Prefill 启动参数通过官方解析器。验证了 CP8 / EP8 / attention DP1、64K chunk、8 冗余专家及 `locality_fair`。8 卡 CP、DeepEP、布局映射、输出与 TTFT 待验证。旧 FP8 CP exchange / scatter 仍按后续优化单独迁移。

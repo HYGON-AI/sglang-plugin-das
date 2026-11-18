@@ -36,9 +36,11 @@ def register() -> None:
         minimax_m31_hisparse.register_hooks()
 
     if os.getenv("HCU_PREFILL_CP", "0") == "1":
+        from hcu_sglang.eplb import placement
         from hcu_sglang.layers.attention import minimax_m31_cp
 
         minimax_m31_cp.register_hooks()
+        placement.register_hooks()
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_DEEPEP", "0") == "1":
         from hcu_sglang import deepep_graph
