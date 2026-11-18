@@ -2491,3 +2491,9 @@ DTK 26.10 / Python 3.12 的三个 CPU 回归通过。覆盖 8、9、10 路 FP8 V
 旧 CP8 W4A8 配方用固定 PT、8 个冗余专家和 `locality_fair`。在 MiniMax 专用入口的 HCU Prefill CP 注册分支接入现有 placement Hook，覆盖 CLI、seed、静态算法校验与 logical-to-physical 映射。通用 placement 的默认策略继续为 `nearest`，由 Prefill 部署参数显式选择 `locality_fair`。
 
 在 DTK 26.10 / Python 3.12 隐藏设备的独立进程中模拟 HCU 判定，核实 CP 关闭时未注册、CP 开启时五个真实框架目标成功 apply，并用实际 Prefill 启动参数通过官方解析器。验证了 CP8 / EP8 / attention DP1、64K chunk、8 冗余专家及 `locality_fair`。8 卡 CP、DeepEP、布局映射、输出与 TTFT 待验证。旧 FP8 CP exchange / scatter 仍按后续优化单独迁移。
+
+## 2026-11-18 排除 HiSparse 的重复 Draft TP scope
+
+PR #82 的普通 IFB DSpark commit 包装在 worker 构造时读取生效后的 `get_memory().enable_hisparse`。HiSparse 的 Decode Hook 在 commit 处已有 #71 的 Draft TP scope。通过配置判断可以覆盖 coordinator 尚未挂载的构造时序。原有 MiniMax、HIP、DP 和普通 IFB 条件继续生效。
+
+无卡回归在修改前模拟 HiSparse 调用方已进入 Draft TP，再调用被包装的 executor，复现第二次进入失败。修改后普通 IFB DP 和 HiSparse 的模拟 commit 均只进入一次，并恢复外层作用域。当前 MiniMax HiSparse 启动校验要求 PD Decode。上机验证按普通 IFB 和受支持的 HiSparse PD Decode 分别执行。
