@@ -72,7 +72,7 @@ def register() -> None:
     from hcu_sglang.models import minimax_m2
     from hcu_sglang.models import utils as model_utils
     from hcu_sglang.models.deepseek import register_hooks as register_deepseek
-    from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_moe
+    from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_moe, qwen3_5
 
     jit_overlay_loader.register_hooks()
     configs.register_hooks()

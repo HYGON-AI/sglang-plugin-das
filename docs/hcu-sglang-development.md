@@ -2192,6 +2192,7 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 - `_inflight_held_since` 采用首次访问惰性初始化，未在 `init_disaggregation` 中预置；与 `no-getattr-defensive` 风格建议不一致，保留原 patch 写法。
 
 **与健康探针改动的关系**：同目录 `修改方案.md` 的改动 A/B/C 处理 `health_generate` 超时不下发 abort、以及 scheduler 忙时丢弃探针 abort 的问题，本次 patch 不包含；本次只处理 inflight 队列的 rank 一致性与假 sender 回收。两者互补，不能互相替代。
+
 ## 2026-11-04 HCU MHA KV 单流构造试验
 
 **用途与范围**：在 gfx936、Qwen3.8-27B BF16、TP2、decode full CUDA Graph、batch=1 的既有组合上，试验让 HCU MHA pool 的 K/V 写入共用当前计算流。保留 adapter 的 CUDA 平台语义、GDN 辅助投影流及 HCU K/V 页布局，不改官方 SGLang 源码。
@@ -3842,3 +3843,40 @@ L0 通过，导览已重建并通过快照检查，生成页未做浏览器渲�
 
 
 
+## GDN B+ commit 链与 lightop.gdn 适配
+
+### 做了什么
+
+- B+ commit handoff：verify 只写全接受快照行，commit 用指针交接、只重放被截断的行，跳过 6 GiB 整状态 scatter。
+- radix extra_buffer：按 interval 跨界步补写 track 行，跳过环形快照列与截断重放列；过期 stash 条目丢弃不再提交。
+- verify conv：HIP twin 拒绝 intermediate-window 参数时回退 Triton；`SGLANG_GDN_HIP` 单开关，旧分项变量告警忽略。
+- target verify overlay + HCU causal_conv1d；prefill/decode 保持 upstream。
+
+### 最终性能对比
+
+| 场景 | 基线 | 本 PR | 变化 |
+|---|---:|---:|---:|
+| handoff 全栈 vs plain 集成（radix ON，40/40 单波） | 1234.96 tok/s / 24.99 ms | 1314.08 tok/s / 22.92 ms | +6.4% / −2.07 ms |
+| GDN 开 vs 全关（radix ON，同配置） | 1052.37 tok/s / 28.29 ms | 1231.48 tok/s / 25.05 ms | +17.0% / −3.24 ms |
+| aicc vs hipcc 构建（交付口径，radix OFF） | 1201.88 tok/s（accept 0.890） | 1300.61 tok/s（accept 0.946） | +8.2% |
+
+### 正确性证据
+
+- GDN 单测全过（test_gdn*.py：commit/handoff step/radix track/stash/conv/overlay/fork/resync）。
+- 集成副本 l0 gate passed；handoff vs plain 固定 8 prompt、greedy c=1 逐字节 8/8 一致。
+- HumanEval（164 题，T=0.2/top_p=0.95/rep=1.1/thinking/batch 64，无 seed，max_tokens 100900）：handoff 修正版（radix ON，40 请求/0.87）161/164、159/164、162/164（98.8%，失败仅 #145 题面测试缺陷与 #147 抽取为空）、原子化降级与环形列 track 暂存修复后 163/164（99.4%，唯一失败 #145）；plain 同配置 160/164，另 0.89/48 配置 162/164；历史 163/164 基线（radix OFF）唯一失败 #145。其余轮次失败为长思考空输出（#99/#108/#146 撞 max_tokens）、代码逻辑（#47/#93/#116/#148）、缺 join/括号（#86/#38）与 #145 题面陷阱；同配置 handoff 与 plain 均值相当，未见 handoff 相关数值回退。
+- 注：HumanEval 单轮 T=0.2 采样噪声 σ≈2.2 题；历史 99.4% 基线为 163/164（radix OFF，唯一失败 #145），复测见 PR 讨论。
+- 200k 全量复跑（handoff，streaming，max_tokens 200000、context 262144、timeout 3600s、并发 64）：160/164；失败 #99（finish_reason=length，生成 119743 tokens，受 KV 池 120064 上限限制而非 max_tokens）、#47/#158（finish_reason=stop；同 9 题三臂中多数 2/2，非稳定失败）、#145（题面）。无超时与输出解析失败；相对 100k 轮的 161，#116 FAIL→PASS，#47/#158 PASS→FAIL。同 9 题三臂各 2 次（handoff/plain/GDN-off）为 14/16、14/16、11/16（均不计 #145）：GDN 全关未修复 #47/#158（两题在三臂中多数 2/2），且因 #99/#116/#146 失败降至 11/16。
+
+- replay 路径的 layer cache 解析抽成 `_layer_replay_src`，行为不变；GDN 单测与 l0 gate 通过。
+
+### 回退与边界
+
+- `SGLANG_GDN_HIP=0` 回到上游 Triton；lightop 缺失时同一开关不生效；旧分项变量告警忽略。
+- radix ON 时启动需 `SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK=1`，mamba 160 + mem 0.89 下 c40（160//4）。
+- 未验证：PP/多卡、mamba dtype 变体；干净上游对照还需关 `SGLANG_USE_CAUSAL_CONV1D`、`SGLANG_HCU_FUSE_QKVZBA_VERIFY`、`SGLANG_GDN_ZBA_STRIDED`。
+
+### 依赖
+
+- lightop 侧 GDN 预编译库：HYGON-AI/lightop#171。
+- FA 的 varlen layout：HYGON-AI/flash-attention-das#2。
