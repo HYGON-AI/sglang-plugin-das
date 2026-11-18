@@ -2511,4 +2511,9 @@ DTK 26.10 / Python 3.12 无卡回归覆盖多请求 Zigzag 顺序、ragged rank�
 补齐 DAS `ae857a2513` 在原生稀疏 Prefill 路径的跨层准备。按 Zigzag 的前后两段、设备和 HIP stream 隔离，在当前 batch 元数据上保存 `prefix_lens`、page table、safe pages 和逐 query 的 `k_end`。原生 FlashMLA Hook 在第一层实际需要这些张量时创建，后续层复用。TopK 仍按各层的 Q、K 计算。Graph 捕获以及 CP 作用域外保持逐调用准备。
 
 复用随 MiniMax Zigzag Prefill 默认开启。已有的 `SGLANG_MINIMAX_CACHE_PREFILL_INDEX_METADATA=0` 可关闭复用与 `repeat_interleave` 长度提示。Stage 1 异步 H2D 仍走当前 cp312 wheel。Prefill BS4 用同一份 RSC 请求同时验收 CP KV 写入、元数据复用、Stage 1 H2D、LightOp scatter/激活与 EPLB 布局命中，分段核对八个 rank 的 profile。CPU 测试覆盖跨层、跨 segment、换 batch 与关闭开关。nmz16 实际 KV 池 596,992 token。上一轮 EvalScope 保存的 20 条 GSM8K 请求复放为 19/20，错题相同且零截断。RSC BS4 每条命中 131,072 token，新增 16,384 token，输出 1。无 profile 的首轮 mean TTFT 2907.48 ms，另一次抓取 profile 的 mean TTFT 2124.80 ms。每个 rank 记录 120 次融合 scatter 和 240 次 Stage 1，CPU trace 每 rank 有 16 条 repeat_interleave 事件。两轮观察包含不同预热状态，收益归因需要同机 A/B。
->>>>>>> origin/proj/minimax-m3.1
+
+## 2026-11-18 MiniMax 普通 IFB Decode 的 Stage 1 图长度分桶
+
+迁移 DAS `3a135acad3` 的 FlashMLA Stage 1 compact/full 图选路。沿用官方 attention graph 变体工厂与插件现有 `msa_stage1_cap_*` 内核接口。只在专用 MiniMax W4A8 IFB 且使用支持该 ABI 的 gfx938 FlashMLA 时接入。当前 Decode 部署脚本已有 `M31_STAGE1_GRAPH_MAX_KV_LEN=148608`。请求长度从 CPU mirror 读取，并为 Verify 保留整组 query 宽度。超过边界、空批或 CPU mirror 缺失时选择全长图。HiSparse、PD 和 Draft worker 沿用原图策略。
+
+CPU 测试覆盖 148,608 边界、Verify 预留、空批与缺失 mirror、PD/HiSparse 和关闭开关。nmz16 的 gfx938 + cp312 FlashMLA 实际捕获 compact/full 两张 Stage 1 FP8 图。以更新后的 KV 长度 replay，覆盖刚好到达 cap、改变 live 页和超限回退，TopK 与全长 eager 逐项一致。完整 DP8 服务的内存增量、真实接受长度及 RSC BS64 性能待验证。
