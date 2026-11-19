@@ -132,7 +132,7 @@ def try_store_cp_kv(pool, layer, batch, strategy, k, v, index_k):
         pack, scatter = None, scatter_fp8_kv
         packet_dtype, width = torch.bfloat16, 1152
         if os.environ.get("HCU_MINIMAX_CP_PACK_FP8") == "1":
-            from hcu_adapter.kernels.cp_fp8_packet import pack_unit_scale_fp8_kv
+            from hcu_adapter.kernels.cp_fp8_packet_triton import pack_unit_scale_fp8_kv
             from ...kernels.minimax_cp_cache import scatter_packed_fp8_kv
 
             pack, scatter = pack_unit_scale_fp8_kv, scatter_packed_fp8_kv

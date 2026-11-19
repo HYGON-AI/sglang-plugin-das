@@ -2196,7 +2196,7 @@ hcu_sglang/mem_cache/cpu_cache_methods.py       extracted_files，9 个来源，
 
 **二、真缺口表与 `separate_component` 不再双记**
 
-原 `mem-cache-no-coverage-20261106.json` 的 36 条与 decisions 状态冲突：13 条同时被记为缺口又被关闭为配置范围外，且**所有条目都没有待办字段**。新增 [gap-ledger v2](../artifacts/kv-cpu-20261105/gap-ledger-20261106-v2.json)（schema 2）分两栏，36 = **open 23 + closed 13**：
+原 `mem-cache-no-coverage-20261106.json` 的 36 条与 decisions 状态冲突：13 条同时被记为缺口又被关闭为配置范围外，且**所有条目都没有待办字段**。新增 `artifacts/kv-cpu-20261105/gap-ledger-20261106-v2.json`（schema 2）分两栏，36 = **open 23 + closed 13**：
 
 ```text
 open_gaps 23  = 22 pending + 1 in_progress；每条带 todo，且 open/closed 交集为 0
@@ -2515,6 +2515,6 @@ DTK 26.10 / Python 3.12 无卡回归覆盖多请求 Zigzag 顺序、ragged rank�
 
 ## 2026-11-19 MiniMax CP Prefill 的 FP8 通信包
 
-基于 0d77762 的 CP Prefill KV 交换，CP8 zigzag 的单位 scale E4M3FN K、V 和 index K 可通过 `HCU_MINIMAX_CP_PACK_FP8=1` 在发送端量化并按字节 AllGather。插件在接收端使用原有重排、slot mask 和 Triton scatter 写缓存。Adapter 提交 `a3cfef3` 提供发送端 kernel，启用前应先安装含该提交的 adapter。关闭开关并重启可恢复此分支上的 BF16 AllGather 和接收端量化。社区 SGLang 固定在 `297e54fd10`。
+基于 0d77762 的 CP Prefill KV 交换，CP8 zigzag 的单位 scale E4M3FN K、V 和 index K 可通过 `HCU_MINIMAX_CP_PACK_FP8=1` 在发送端量化并按字节 AllGather。插件在接收端使用原有重排、slot mask 和 Triton scatter 写缓存。Adapter 提交 `a3cfef3` 和 `20c2f20` 提供发送端 kernel，启用前应先安装含该提交的 adapter。关闭开关并重启可恢复此分支上的 BF16 AllGather 和接收端量化。社区 SGLang 固定在 `297e54fd10`。
 
 nmz18 的 8 张 96 GB HCU 在 DTK 26.10 / Python 3.12 下完成逐字节检查。检查覆盖 1、19 和 128 行、行顺序重排、保留 slot 0 与特殊浮点值。单机 Prefill BS4，每条命中 128K 缓存并新增 16K token，输出 1。每行传输从 2304 B 降至 1152 B。八个 rank 的 CP KV AllGather 累计 GPU 时间中位数为 84.54 → 59.46 ms。三轮无 profiler 测量的平均 TTFT 中位数为 1841.92 → 1832.34 ms，新增输入吞吐为 22398.55 → 22675.33 token/s。两组顺序执行，端到端差值需要交替复测。真实双机 PD、Decode 和数据集精度尚待验证。
