@@ -62,7 +62,7 @@ def __init__(
         N.envs.SGLANG_HCU_GLM_CT_BF16_ROUTER.get()
         and N.is_glm_moe_dsa(config)
         and quant_config is not None
-        and quant_config.get_name() == "compressed_tensors"
+        and quant_config.get_name() in ("compressed_tensors", "slimquant_w4a8", "slimquant_w4a8_marlin")
         and not is_hash_moe
         and not self.is_deepseek_v4
     )
