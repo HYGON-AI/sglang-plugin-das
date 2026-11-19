@@ -113,7 +113,7 @@ def _scope_verify_hidden_commit(_result, worker, *args, **kwargs):
         _minimax_hip_dspark()
         and worker._hosts_draft
         and get_parallel().attn_dp_enabled
-        and get_disagg().disaggregation_mode == "null"
+        and get_disagg().disaggregation_mode in ("null", "decode")
         and not get_memory().enable_hisparse
         and worker.model_runner.model_config.hf_config.architectures[0]
         in _MINIMAX_ARCHES

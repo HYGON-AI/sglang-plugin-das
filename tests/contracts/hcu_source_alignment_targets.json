@@ -633,6 +633,7 @@
     "sglang.srt.models.minimax_m3.MiniMaxM3Attention._sparse_qk_index_norm_rope_cache",
     "sglang.srt.models.minimax_m3.MiniMaxM3MoE._compute_router_logits",
     "sglang.srt.models.minimax_m3.MiniMaxM3MoE.forward_deepep",
+    "sglang.srt.models.minimax_m3.MiniMaxM3Model.forward",
     "sglang.srt.models.qwen2.Qwen2Attention.__init__",
     "sglang.srt.models.qwen2.Qwen2Attention.forward",
     "sglang.srt.models.qwen3.Qwen3Attention.__init__",

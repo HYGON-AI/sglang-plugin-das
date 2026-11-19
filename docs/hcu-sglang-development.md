@@ -2541,3 +2541,13 @@ CPU 测试覆盖 148,608 边界、Verify 预留、空批与缺失 mirror、PD/Hi
 从 DAS `d636f025de` 移植 causal SWA 的分段前缀和合并 kernel。挂在 Triton backend 已有的 grouped target-verify seam，限定 gfx938、MiniMax DSpark Draft、线性 verify、4096 token 窗口（官方 `window_left=4095`）、7 个 query token、64/4 个 Q/KV head 和 128 head dim。当前官方的 Draft KV 参数是 3-D slot-major 张量，按其实际 stride 取页和 head。沿用旧源码的 causal window mask 和空 split 的数值保护。支持 BF16/FP8 缓存，保留原来的 verify/extend 作为不匹配时的回退。
 
 `SGLANG_MINIMAX_M31_DRAFT_SPLITKV=0` 回退。旧 4-D page64 的 launch 特调不用于当前 3-D 布局。CPU 检查不支持的输入回退。FP8/BF16 prefix 与 combine 均已离线编译到 gfx938。上机须做独立 causal SWA oracle 对拍、Graph replay 和实际 kernel/TPOT 核验。
+
+## 2026-11-19 MiniMax 普通 Decode 的 INT8 注册、Draft TP 与索引元数据
+
+MiniMax 专用入口在量化启用时注册已有的 compressed-tensors INT8 hooks，使 INT8 DSpark 可选用 `W8A8_SUPPORT_METHODS=3`。同时选择通用 `hcu` 入口时继续由通用入口注册。
+
+普通 PD Decode 在 attention DP 下提交 DSpark Draft KV 时使用 Draft TP 组。这沿用普通 IFB 的 executor 作用域。HiSparse 的 commit 继续走其专用作用域。
+
+原生 FlashMLA 的 Decode / Target Verify 在同一次模型前向内复用请求页表、Stage 1 live-page 索引和 INT32 逐 query 长度。输入张量、KV 长度上限或 Verify 宽度变化时重建。捕获的图在每次回放仍按本步输入更新一次。TopK、KV 写入和 FlashMLA scheduler 元数据继续按层计算。TBO 和 HiSparse Verify 使用原路径。`SGLANG_MINIMAX_CACHE_DECODE_INDEX_METADATA=0` 可关闭复用。
+
+无卡回归覆盖跨层复用、换输入和换 forward、IFB 与 PD 的 Draft TP 作用域，以及 HiSparse 独立作用域。此前联合候选的性能数据同时包含本 PR 的其他 Decode 优化。当前提交尚需上机回归真实请求精度。

@@ -147,6 +147,65 @@ def _prefill(original, *args, **kwargs):
     return (None, result, topk) if p["return_topk_idx"] else (None, result)
 
 
+@dataclass
+class _DecodeMetadata:
+    req_to_token: torch.Tensor
+    slot_ids: torch.Tensor
+    seq_lens: torch.Tensor
+    max_seqlen: int
+    group: int
+    slots: torch.Tensor
+    table: torch.Tensor
+    k_end: torch.Tensor
+
+
+_decode_metadata = ContextVar("minimax_m31_decode_metadata", default=None)
+
+
+def _model_forward(original, model, input_ids, positions, forward_batch, *args, **kwargs):
+    mode = forward_batch.forward_mode
+    if (
+        not (mode.is_decode() or mode.is_target_verify())
+        or forward_batch.can_run_tbo
+        or os.getenv("SGLANG_MINIMAX_CACHE_DECODE_INDEX_METADATA", "1") != "1"
+    ):
+        return original(model, input_ids, positions, forward_batch, *args, **kwargs)
+    token = _decode_metadata.set([])
+    try:
+        return original(model, input_ids, positions, forward_batch, *args, **kwargs)
+    finally:
+        _decode_metadata.reset(token)
+
+
+def _decode_plan(p, *, reuse):
+    cached = _decode_metadata.get() if reuse else None
+    req_to_token = p["req_to_token"]
+    slot_ids = p["slot_ids"]
+    seq_lens = p["seq_lens"]
+    extent, group = p["max_seqlen"], p["packed_queries"]
+    if cached:
+        plan = cached[0]
+        if (
+            plan.req_to_token is req_to_token
+            and plan.slot_ids is slot_ids
+            and plan.seq_lens is seq_lens
+            and plan.max_seqlen == extent
+            and plan.group == group
+        ):
+            return plan
+
+    slots = slot_ids.reshape(-1, group)[:, 0].contiguous()
+    lengths = seq_lens.reshape(-1, group)[:, -1].contiguous()
+    table = _page_table(p, slots, lengths, extent)
+    plan = _DecodeMetadata(
+        req_to_token, slot_ids, seq_lens, extent, group, slots, table,
+        seq_lens.to(torch.int32).contiguous(),
+    )
+    if cached is not None:
+        cached[:] = [plan]
+    return plan
+
+
 def _decode(original, *args, **kwargs):
     from hcu_sglang.models.minimax_m31_hisparse import verify_context
 
@@ -159,16 +218,16 @@ def _decode(original, *args, **kwargs):
 
     _announce("decode")
     group = p["packed_queries"]
-    lengths = p["seq_lens"].reshape(-1, group)[:, -1].contiguous()
-    slots = p["slot_ids"].reshape(-1, group)[:, 0].contiguous()
-    table = _page_table(p, slots, lengths, p["max_seqlen"])
+    plan = _decode_plan(p, reuse=context is None)
+    slots, table = plan.slots, plan.table
     topk = p["cached_topk_idx"]
     if topk is None:
-        native.pack_live_stage1_pages(table, lengths, 128)
+        if not hasattr(table, "_live_stage1"):
+            native.pack_live_stage1_pages(table, plan.k_end.reshape(-1, group)[:, -1], 128)
         idx_k = p["idx_k_cache"].view(-1, 1, 128)
         idx_q = _query(p["idx_q"], idx_k, p["idx_q_scale"])
         topk = native.flash_mla_sparse_decode_indexer(
-            idx_q, idx_k, table, p["seq_lens"], 128, 16, p["init_blocks"], p["local_blocks"],
+            idx_q, idx_k, table, plan.k_end, 128, 16, p["init_blocks"], p["local_blocks"],
             verify_group_size=group, is_verify=group > 1,
             index_scales=(p["idx_q_scale"], p["idx_k_scale"]),
         )
@@ -246,6 +305,11 @@ def _restore_hip_verify(_result, backend, runner):
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    HookRegistry.register(
+        "sglang.srt.models.minimax_m3.MiniMaxM3Model.forward",
+        _model_forward,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.srt.layers.attention.minimax_sparse_backend.MiniMaxSparseAttnBackend.__init__",
         _restore_hip_verify,

@@ -15,11 +15,13 @@ def register() -> None:
             add_quantization_method_choices,
         )
 
+        from hcu_sglang.layers.quantization import compressed_int8
         from hcu_sglang.layers.quantization.registry import SLIMQUANT_MARLIN_NAME
 
         if SLIMQUANT_MARLIN_NAME not in QUANTIZATION_CHOICES:
             add_quantization_method_choices([SLIMQUANT_MARLIN_NAME])
         register_hooks()
+        compressed_int8.register_hooks()
 
     from hcu_sglang.models import minimax_m31_dspark, minimax_m31_seq_lens
 
