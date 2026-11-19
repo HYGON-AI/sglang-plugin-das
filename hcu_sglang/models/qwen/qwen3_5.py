@@ -3,6 +3,11 @@
 import logging
 
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+from hcu_sglang.models.fused_rotary import (
+    fused_rms_rotary_kv_store,
+    use_fused_rms_rotary,
+)
+from hcu_sglang.layers import qwen_rms_int8
 from hcu_sglang.utils.detection import is_hcu
 
 logger = logging.getLogger(__name__)
@@ -19,6 +24,16 @@ def register() -> None:
         around_prepare_cuda_fused,
         HookType.AROUND,
     )
+    if qwen_rms_int8.enabled:
+        for target in (
+            "sglang.srt.models.qwen3_5.Qwen3_5AttentionDecoderLayer.forward",
+            "sglang.srt.models.qwen3_5.Qwen3_5LinearDecoderLayer.forward",
+        ):
+            HookRegistry.register(
+                target,
+                qwen_rms_int8.around_decoder_forward,
+                HookType.AROUND,
+            )
 
 
 def around_gdn_init(original, self, *args, **kwargs):
