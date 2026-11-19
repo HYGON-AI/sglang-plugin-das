@@ -2511,7 +2511,60 @@ DTK 26.10 / Python 3.12 无卡回归覆盖多请求 Zigzag 顺序、ragged rank�
 补齐 DAS `ae857a2513` 在原生稀疏 Prefill 路径的跨层准备。按 Zigzag 的前后两段、设备和 HIP stream 隔离，在当前 batch 元数据上保存 `prefix_lens`、page table、safe pages 和逐 query 的 `k_end`。原生 FlashMLA Hook 在第一层实际需要这些张量时创建，后续层复用。TopK 仍按各层的 Q、K 计算。Graph 捕获以及 CP 作用域外保持逐调用准备。
 
 复用随 MiniMax Zigzag Prefill 默认开启。已有的 `SGLANG_MINIMAX_CACHE_PREFILL_INDEX_METADATA=0` 可关闭复用与 `repeat_interleave` 长度提示。Stage 1 异步 H2D 仍走当前 cp312 wheel。Prefill BS4 用同一份 RSC 请求同时验收 CP KV 写入、元数据复用、Stage 1 H2D、LightOp scatter/激活与 EPLB 布局命中，分段核对八个 rank 的 profile。CPU 测试覆盖跨层、跨 segment、换 batch 与关闭开关。nmz16 实际 KV 池 596,992 token。上一轮 EvalScope 保存的 20 条 GSM8K 请求复放为 19/20，错题相同且零截断。RSC BS4 每条命中 131,072 token，新增 16,384 token，输出 1。无 profile 的首轮 mean TTFT 2907.48 ms，另一次抓取 profile 的 mean TTFT 2124.80 ms。每个 rank 记录 120 次融合 scatter 和 240 次 Stage 1，CPU trace 每 rank 有 16 条 repeat_interleave 事件。两轮观察包含不同预热状态，收益归因需要同机 A/B。
->>>>>>> origin/proj/minimax-m3.1
+
+## 2026-11-18 MiniMax 普通 IFB Decode 的 Stage 1 图长度分桶
+
+迁移 DAS `3a135acad3` 的 FlashMLA Stage 1 compact/full 图选路。沿用官方 attention graph 变体工厂与插件现有 `msa_stage1_cap_*` 内核接口。只在专用 MiniMax W4A8 IFB 且使用支持该 ABI 的 gfx938 FlashMLA 时接入。当前 Decode 部署脚本已有 `M31_STAGE1_GRAPH_MAX_KV_LEN=148608`。请求长度从 CPU mirror 读取，并为 Verify 保留整组 query 宽度。超过边界、空批或 CPU mirror 缺失时选择全长图。HiSparse、PD 和 Draft worker 沿用原图策略。
+
+CPU 测试覆盖 148,608 边界、Verify 预留、空批与缺失 mirror、PD/HiSparse 和关闭开关。nmz16 的 gfx938 + cp312 FlashMLA 实际捕获 compact/full 两张 Stage 1 FP8 图。以更新后的 KV 长度 replay，覆盖刚好到达 cap、改变 live 页和超限回退，TopK 与全长 eager 逐项一致。完整 DP8 服务的内存增量、真实接受长度及 RSC BS64 性能待验证。
+
+## 2026-11-18 MiniMax IFB Decode 的 shared expert overlap
+
+迁移 DAS `49e4209eda`、`db67498b68` 的 DeepEP low-latency receive hook。DP8/EP8 MiniMax W4A8 HIPC、普通 IFB 的 Decode/Verify 在 dispatch 发送后计算 shared gate/up，在 combine 发送后做激活和 shared down。沿用当前 MLP 的 MXFP8/普通激活选择及 routed 输出加和。仅在调用内启用 recv hook，退出或异常都清理回调并恢复 dispatcher 模式。SBO、TBO、Prefill、HiSparse 和其他模型继续走原入口。
+
+`SGLANG_MINIMAX_DECODE_SHARED_OVERLAP=0` 回退。CPU 回归检查发送、shared 计算、接收顺序、尾部加和和异常清理。八卡 graph、数据和 TPOT 待验证。
+
+## 2026-11-18 MiniMax IFB Decode 融合 QK norm、RoPE 和 FP8 cache 写入
+
+移植 DAS `e380d55a79` 的 Triton producer。当前模型的 packed QKV 路径先调用 `_aiter_sparse_qknorm_cache`，分开投影的路径调用 `_sparse_qk_index_norm_rope_cache`，两者共用 HCU FP8 producer。普通 W4A8 IFB Decode/Verify 的 K-only sparse 层对 Q、K、index Q、index K 做 Gemma norm/RoPE，写主 K/V 和 index K 缓存，并返回 FP8 查询。调用上游已有的 precache 标记，避免 attention 重复写缓存。限定单位 scale、gfx938、FlashMLA FP8 ABI、DP 本地物理 slot 和 token-major 的 E4M3FN 布局。Prefill、PD、HiSparse、非单位 scale、index V 与其他布局走原 producer。
+
+`SGLANG_M3_OPTIMIZE_SPARSE_ATTN_PREP=0` 回退。真机前已完成 packed QKV 切分与回退的 CPU 回归，并离线编译 gfx938 HSACO。上机须核对 norm/RoPE 数值、实际 cache 写入、Verify Graph 和接受长度。
+
+## 2026-11-18 MiniMax IFB Decode 的 DSpark 序列长度异步 D2H
+
+迁移 DAS `d619ad0d5e` 的 pinned host mirror。普通 HIP MiniMax W4A8 IFB 的 PP1 overlap 路径在 publish 后在 forward stream 发起异步复制并记录 event。下一步 scheduler 可以先准备输入，在 forward stream 按 future indices gather GPU 长度。当前官方 Verify window planner 用 CPU 长度确定读表大小，因此在 DSpark `_forward_decode` 入口同步并读取 host mirror。Scheduler 隔离恢复后保留本轮实际消费的 CPU 长度。mixed、bootstrap、缺 mirror、confidence relay、HiSparse、PD、debug consume 检查和非 overlap 走现有 resolve。
+
+`SGLANG_HCU_ASYNC_SEQ_LENS_D2H=0` 回退。CPU 回归覆盖消费顺序、避免重复消费、按请求顺序取长度和隔离恢复。HIP 多 stream 运行和 TPOT 待验证。
+
+## 2026-11-18 MiniMax IFB Decode 的 DSpark Draft SWA split-KV
+
+从 DAS `d636f025de` 移植 causal SWA 的分段前缀和合并 kernel。挂在 Triton backend 已有的 grouped target-verify seam，限定 gfx938、MiniMax DSpark Draft、线性 verify、4096 token 窗口（官方 `window_left=4095`）、7 个 query token、64/4 个 Q/KV head 和 128 head dim。当前官方的 Draft KV 参数是 3-D slot-major 张量，按其实际 stride 取页和 head。沿用旧源码的 causal window mask 和空 split 的数值保护。支持 BF16/FP8 缓存，保留原来的 verify/extend 作为不匹配时的回退。
+
+`SGLANG_MINIMAX_M31_DRAFT_SPLITKV=0` 回退。旧 4-D page64 的 launch 特调不用于当前 3-D 布局。CPU 检查不支持的输入回退。FP8/BF16 prefix 与 combine 均已离线编译到 gfx938。上机须做独立 causal SWA oracle 对拍、Graph replay 和实际 kernel/TPOT 核验。
+
+## 2026-11-19 MiniMax 普通 Decode 的 INT8 注册、Draft TP 与索引元数据
+
+MiniMax 专用入口在量化启用时注册已有的 compressed-tensors INT8 hooks，使 INT8 DSpark 可选用 `W8A8_SUPPORT_METHODS=3`。同时选择通用 `hcu` 入口时继续由通用入口注册。
+
+普通 PD Decode 在 attention DP 下提交 DSpark Draft KV 时使用 Draft TP 组。这沿用普通 IFB 的 executor 作用域。HiSparse 的 commit 继续走其专用作用域。
+
+原生 FlashMLA 的 Decode / Target Verify 在同一次模型前向内复用请求页表、Stage 1 live-page 索引和 INT32 逐 query 长度。输入张量、KV 长度上限或 Verify 宽度变化时重建。捕获的图在每次回放仍按本步输入更新一次。TopK、KV 写入和 FlashMLA scheduler 元数据继续按层计算。TBO 和 HiSparse Verify 使用原路径。`SGLANG_MINIMAX_CACHE_DECODE_INDEX_METADATA=0` 可关闭复用。
+
+无卡回归覆盖跨层复用、换输入和换 forward、IFB 与 PD 的 Draft TP 作用域，以及 HiSparse 独立作用域。此前联合候选的性能数据同时包含本 PR 的其他 Decode 优化。当前提交尚需上机回归真实请求精度。
+
+## 2026-11-19 MiniMax 普通 PD Decode 复用 FlashMLA 与 DeepEP 优化
+
+普通 Decode 和 Target Verify 选择实际 attention backend，再判断 Stage 1 紧凑图与 FP8 稀疏准备是否适用。对未打包的 INT8 QKV，在满足原生 FP8 稀疏准备约束时复用同一个融合入口，并在退出时恢复每层原有准备标志。存在 CP、槽映射、HiSparse、非单位 scale 或 wheel 缺少对应入口时保留原路径。
+
+DeepEP shared-expert overlap 按 Decode / Verify、DP8 EP8、W4A8 HIPC 和 low-latency dispatcher 条件启用。异步长度镜像的消费依赖 DSpark Decode batch、overlap scheduler 和有效的 CPU 请求索引。各入口保留已有的布局、调度与 HiSparse 回退条件。
+
+无卡用例覆盖混合 attention backend 的 Decode / Verify 选择，以及未打包 INT8 QKV 进入融合后的异常恢复。GPU 证据来自此前联合候选的普通 fake PD，当前分支待上机回归。
+
+## 2026-11-19 MiniMax DSpark 双向 Draft SWA split-KV
+
+普通 IFB 与 PD Decode 的 Draft Verify 共用 split-KV。插件向 kernel 传递 Triton backend 的 `is_causal`，支持 MiniMax DSpark 把 Draft block 标为 `ENCODER_ONLY` 时的块内双向可见性。自定义 mask 和不符合 kernel 形状的输入沿用现有回退。CPU 回归覆盖双向参数和自定义 mask 透传。
+
+此前联合候选在 nmz22 测了 HiSparse OFF、原生 random fake-prefill、BS64、输入 147,456、输出 1,024、接受长度期望 3.6。八 rank 的 8 step trace 确认 FP8 稀疏融合每 rank 480 次和 Draft SWA 每 rank 80 次。独立配置目录加入旧 CU64 HIPC 调优文件后，两次常规性能的中位数为 2,484.75 tok/s、20.44 ms；旧 DAS 同机五轮中位数为 2,535.90 tok/s、20.00 ms。另一次诊断 prof 展开 Graph 子算子用于比对。上述数据属于联合候选，fake-prefill 不用于精度结论。
 
 ## 2026-11-19 MiniMax CP Prefill 的 FP8 通信包
 

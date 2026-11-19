@@ -62,6 +62,9 @@ class TestMiniMaxDSparkCommitScope(unittest.TestCase):
     def test_ifb_enters_draft_scope_around_commit(self):
         self._run_commit(hisparse=False, mode="null")
 
+    def test_pd_decode_without_hisparse_uses_draft_scope(self):
+        self._run_commit(hisparse=False, mode="decode")
+
     def test_hisparse_commit_uses_its_existing_scope(self):
         for mode in ("null", "decode"):
             with self.subTest(mode=mode):

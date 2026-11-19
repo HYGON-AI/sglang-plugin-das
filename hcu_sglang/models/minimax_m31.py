@@ -15,20 +15,31 @@ def register() -> None:
             add_quantization_method_choices,
         )
 
+        from hcu_sglang.layers.quantization import compressed_int8
         from hcu_sglang.layers.quantization.registry import SLIMQUANT_MARLIN_NAME
 
         if SLIMQUANT_MARLIN_NAME not in QUANTIZATION_CHOICES:
             add_quantization_method_choices([SLIMQUANT_MARLIN_NAME])
         register_hooks()
+        compressed_int8.register_hooks()
 
-    from hcu_sglang.models import minimax_m31_dspark
+    from hcu_sglang.models import minimax_m31_dspark, minimax_m31_seq_lens
 
     minimax_m31_dspark.register_hooks()
+    minimax_m31_seq_lens.register_hooks()
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_FLASHMLA", "0") == "1":
-        from hcu_sglang.layers.attention import minimax_m31_sparse
+        from hcu_sglang.layers.attention import (
+            minimax_m31_decode_graph,
+            minimax_m31_draft_swa,
+            minimax_m31_fp8_prepare,
+            minimax_m31_sparse,
+        )
 
         minimax_m31_sparse.register_hooks()
+        minimax_m31_decode_graph.register_hooks()
+        minimax_m31_draft_swa.register_hooks()
+        minimax_m31_fp8_prepare.register_hooks()
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_HISPARSE") == "1":
         from hcu_sglang.models import minimax_m31_hisparse
@@ -44,11 +55,12 @@ def register() -> None:
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_DEEPEP", "0") == "1":
         from hcu_sglang import deepep_graph
-        from hcu_sglang.layers.moe import deepep_current, deepep_fp8
+        from hcu_sglang.layers.moe import deepep_current, deepep_fp8, minimax_m31_shared_overlap
 
         deepep_current.register_hooks()
         deepep_fp8.register_ep_runtime_hooks()
         deepep_graph.register_minimax_hooks()
+        minimax_m31_shared_overlap.register_hooks()
 
     if os.getenv("M31_DIAG_DECODE") == "1":
         from hcu_sglang.models import minimax_m31_decode_diagnostics

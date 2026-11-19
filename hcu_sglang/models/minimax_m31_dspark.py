@@ -76,6 +76,16 @@ def _hip_future_map(original, relay, *args, **kwargs):
     return original(relay, *args, **kwargs)
 
 
+def _hip_resolve_seq_lens(original, relay, batch, stream_ordered=False):
+    if _minimax_hip_dspark():
+        from .minimax_m31_seq_lens import defer_resolution
+
+        if defer_resolution(relay, batch, stream_ordered):
+            return None
+        original = _with_native_hip(original)
+    return original(relay, batch, stream_ordered=stream_ordered)
+
+
 @cache
 def _with_hip_scheduler(original):
     return FunctionType(
@@ -103,7 +113,7 @@ def _scope_verify_hidden_commit(_result, worker, *args, **kwargs):
         _minimax_hip_dspark()
         and worker._hosts_draft
         and get_parallel().attn_dp_enabled
-        and get_disagg().disaggregation_mode == "null"
+        and get_disagg().disaggregation_mode in ("null", "decode")
         and not get_memory().enable_hisparse
         and worker.model_runner.model_config.hf_config.architectures[0]
         in _MINIMAX_ARCHES
@@ -190,7 +200,7 @@ def register_hooks() -> None:
     )
     HookRegistry.register(
         "sglang.srt.managers.overlap_utils.FutureMap.resolve_seq_lens_cpu",
-        _hip_future_map,
+        _hip_resolve_seq_lens,
         HookType.AROUND,
     )
 
