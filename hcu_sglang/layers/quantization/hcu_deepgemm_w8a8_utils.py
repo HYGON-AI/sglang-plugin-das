@@ -19,8 +19,8 @@ def get_hcu_gfx_arch() -> str:
     return arch.split(":")[0].lower()
 
 
-def is_hcu_gfx936() -> bool:
-    return get_hcu_gfx_arch() == "gfx936"
+def is_hcu_pair32_int8() -> bool:
+    return get_hcu_gfx_arch() in ("gfx936", "gfx938")
 
 
 def _register_runtime_buffer(
@@ -95,7 +95,7 @@ def prepare_w8a8_int8_deepgemm_weights(layer: torch.nn.Module) -> None:
             )
 
         pack_masked_weight = _pack_w8a8_int8_asm_masked_weight
-    elif arch == "gfx936":
+    elif arch in ("gfx936", "gfx938"):
         need_contiguous_layout = deepep_mode.enable_normal()
         need_masked_layout = deepep_mode.enable_low_latency()
         shared_pair32_layout = True

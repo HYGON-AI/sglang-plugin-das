@@ -3994,3 +3994,9 @@ gfx936、DeepEP auto、ASM=0 使用包内公开 pair32 权重排列与 INT8 矩�
 用户要求保持 DAS 0.5.18 的布局默认行为。此前本分支需要外层设置 `SGLANG_KV_LAYOUT_HCU_FA=1`；现在在环境字段登记、KV 池、FA 读回和 Mooncake 传输四处同步改为默认 true，显式 0/false 仍关闭，不修改 FA 后端选择或推理参数。删除了与新默认值矛盾的原说明注释，没有新增源码或测试文件。
 
 回归复用 `tests/runtime/flashattention_interface_cpu.py`，核对未设置、显式 0、显式 1 时 FA 与 KV 池判断一致，并实际经过 KV 池选择入口。历史布局关闭时的通用叠加结果不外推到新默认值；需要官方布局的 Triton 配方显式关闭。本轮在未设置该变量的独立进程运行针对性回归，24 项通过（另排除一项已有 GPU 专用 CPU 用例），覆盖默认开启、显式 0/1 以及 KV 池选择。L0 与导览生成/快照检查通过；浏览器视觉复核未执行。没有重新启动完整模型或 PD 服务，完整模型结果仍对应此前显式 1 的组合。
+
+## 2026-11-19：gfx938 INT8 DeepGEMM 接口配套
+
+HY3 INT8、DeepEP auto、ASM=0 在 gfx938 上原先会调用新包已移除的低延迟权重打包入口，启动失败。将已有 gfx936 pair32 权重准备及两次 grouped GEMM 选择扩展到 gfx938；normal 与 low-latency 共用打包后的权重，显式 ASM 与其他架构保持原选择。没有修改 DeepGEMM 包、量化方式或启动参数。
+
+复用 `tests/runtime/compressed_int8.py`，本轮 16 项通过，覆盖两种架构、权重排列数值、存储共享、ASM 选择和两次 masked GEMM 接线。历史完整组合使用 gfx938/COV5 DeepGEMM core `2.1.0.post2+das.dtk2610.unknown`，原生库 SHA256 为 `82d924adb2d42e94b8a5f94d23f0365cc0251d8b38456e41532ee943b7f5c6b7`；wheel 是外部部署依赖，不纳入源码提交。本轮没有重新加载完整模型。

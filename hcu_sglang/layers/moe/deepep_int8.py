@@ -14,7 +14,7 @@ from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.layers.quantization.w8a8_int8 import W8A8Int8Config
 from hcu_sglang.layers.quantization.compressed_marlin import SlimQuantCompressedTensorsMarlinConfig
 from hcu_sglang.layers.quantization.hcu_deepgemm_w8a8_utils import (
-    is_hcu_gfx936, use_int8_deepgemm_asm, run_w8a8_int8_contiguous_gemm,
+    is_hcu_pair32_int8, use_int8_deepgemm_asm, run_w8a8_int8_contiguous_gemm,
 )
 from hcu_sglang.layers.moe.deepep_fp8 import (
     _ep_scatter_with_optional_lightop, _ep_gather_with_optional_lightop,
@@ -218,7 +218,7 @@ def forward_groupgemm_w8a8_int8_contiguous(
     if (
         self.deepep_mode.is_normal()
         or self.use_int8_w8a8_deepgemm_asm
-        or self.use_gfx936_w8a8_int8_deepgemm
+        or self.use_pair32_w8a8_int8_deepgemm
     ):
         run_w8a8_int8_contiguous_gemm(
             self,
@@ -256,7 +256,7 @@ def forward_groupgemm_w8a8_int8_contiguous(
     if (
         self.deepep_mode.is_normal()
         or self.use_int8_w8a8_deepgemm_asm
-        or self.use_gfx936_w8a8_int8_deepgemm
+        or self.use_pair32_w8a8_int8_deepgemm
     ):
         run_w8a8_int8_contiguous_gemm(
             self,
@@ -318,13 +318,13 @@ def forward_groupgemm_w8a8_int8_masked(
             masked_m,
             expected_m,
         )
-    elif self.use_gfx936_w8a8_int8_deepgemm:
+    elif self.use_pair32_w8a8_int8_deepgemm:
         from deepgemm import m_grouped_i8_gemm_nt_masked
 
         w13_weight_int8 = (self.w13_weight_deepgemm_masked, self.w13_weight_scale)
         if hidden_states.dtype != torch.int8 or w13_weight_int8[0].dtype != torch.int8:
             raise RuntimeError(
-                "gfx936 masked INT8 GEMM requires INT8 dispatch and weights, "
+                "pair32 masked INT8 GEMM requires INT8 dispatch and weights, "
                 f"got activation={hidden_states.dtype}, weight={w13_weight_int8[0].dtype}"
             )
         m_grouped_i8_gemm_nt_masked(
@@ -386,7 +386,7 @@ def forward_groupgemm_w8a8_int8_masked(
             masked_m,
             expected_m,
         )
-    elif self.use_gfx936_w8a8_int8_deepgemm:
+    elif self.use_pair32_w8a8_int8_deepgemm:
         from deepgemm import m_grouped_i8_gemm_nt_masked
 
         w2_weight_int8 = (self.w2_weight_deepgemm_masked, self.w2_weight_scale)
@@ -417,7 +417,7 @@ def configure_layer(layer, quant_config):
     layer.use_int8_w8a8_deepgemm = is_hcu() and get_bool_env_var("SGLANG_USE_DEEPGEMM_MOE") and _is_w8a8_int8_deepgemm_quant(layer, quant_config)
     if layer.use_int8_w8a8_deepgemm:
         layer.use_int8_w8a8_deepgemm_asm = use_int8_deepgemm_asm()
-        layer.use_gfx936_w8a8_int8_deepgemm = is_hcu_gfx936() and not layer.use_int8_w8a8_deepgemm_asm
+        layer.use_pair32_w8a8_int8_deepgemm = is_hcu_pair32_int8() and not layer.use_int8_w8a8_deepgemm_asm
         layer.use_w8a8_marlin = False
 
 
