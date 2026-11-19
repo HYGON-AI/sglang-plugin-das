@@ -3761,9 +3761,14 @@ FP8 的 packed KV、physical KV compact、Add RMS align16、K1 indirect
 和 EP K8 gather。两项 prefill 开关默认关闭。packed KV 的 CP all-gather 使用每行 656 字节的
 uint8 布局，逻辑长度等于物理长度时直接使用有效行。K8 和 Add RMS
 优先使用已有的显式扩展路径，随后尝试镜像中带对应参数的 LightOp 接口。
-K1 从 plugin 自带的 WASP 头文件和绑定编译。安装 wheel 后可运行
-`python -m hcu_sglang.layers.moe.build_glm53_fp8_k1_indirect --output <新目录>`。
-K1 按模型结构、量化方式和张量布局选择，加载扩展时检查 ABI 和导出入口。
+K1 从 plugin 自带的 WASP 头文件和绑定编译。设置
+`SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD=1` 后，符合条件的 GLM-5.3
+Channel FP8 prefill worker 在启动时编译或加载节点缓存。各 rank
+通过文件锁和原子发布共享产物。K1 仍按模型结构、量化方式和张量布局选择，
+加载扩展时检查 ABI 和导出入口。配置见 [K1 indirect-A](configuration.md#8-glm-53-fp8-prefill-的-k1-indirect-a-候选)。
+本地用替代编译进程核对八进程并发只生成一份产物、热启动复用、
+Python 或 DTK 变化后重新构建，以及编译失败后可重试。DCU 上的实际
+编译、服务启动和 K1 命中待验证。
 HCU dcp=1 在 FlashMLA KV 分发前使用匹配 page table 的有效 top-k 行，
 保留隔离试验带入的 padding 行裁剪逻辑。
 

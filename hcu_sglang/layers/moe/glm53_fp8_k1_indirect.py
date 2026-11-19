@@ -19,18 +19,18 @@ from compressed_tensors.quantization import QuantizationStrategy
 from sglang.srt.environ import envs
 
 from hcu_sglang.layers.attention.current_dsa.forward_batch_utils import effective_forward_mode
+from hcu_sglang.layers.moe.build_glm53_fp8_k1_indirect import _ARCH, _MODULE, cached_extension_path
 from hcu_sglang.utils.detection import is_hcu
 
 
-_MODULE = "hcu_sglang_glm53_fp8_k1_indirect"
 _IMAGE_MODULE = "r09plus_wasp_indirect"
 _IMAGE_ENV = "SGLANG_GLM_PREFILL_K1_INDIRECT_A_SO"
 _owner = ContextVar("hcu_glm53_fp8_k1_owner", default=None)
 _logger = logging.getLogger(__name__)
+_startup_extension = None
 
 
-def _model_matches(owner):
-    config = owner.config
+def _model_matches(config):
     return (
         tuple(getattr(config, "architectures", None) or ()) == ("GlmMoeDsaForCausalLM",)
         and getattr(config, "model_type", None) == "glm_moe_dsa"
@@ -40,7 +40,6 @@ def _model_matches(owner):
         and getattr(config, "num_experts_per_tok", None) == 8
         and getattr(config, "moe_intermediate_size", None) == 2048
         and getattr(config, "first_k_dense_replace", None) == 3
-        and not getattr(owner, "is_nextn", True)
     )
 
 
@@ -66,7 +65,8 @@ def _eligible_scope(owner, batch, hidden_states):
     parallel = get_parallel()
     server_args = get_server_args()
     if (
-        not _model_matches(owner)
+        not _model_matches(owner.config)
+        or getattr(owner, "is_nextn", True)
         or not get_moe_a2a_backend().is_deepep()
         or getattr(owner, "num_fused_shared_experts", None) != 0
         or getattr(owner, "is_hash", True)
@@ -165,9 +165,7 @@ def _load_extension(path):
         or manifest.get("python_abi") != sysconfig.get_config_var("SOABI")
         or manifest.get("torch") != torch.__version__
         or manifest.get("hip") != torch.version.hip
-        or manifest.get("dtk") != "26041"
-        or manifest.get("cxx11_abi") is not True
-        or not torch.compiled_with_cxx11_abi()
+        or manifest.get("cxx11_abi") != torch.compiled_with_cxx11_abi()
     ):
         raise RuntimeError("GLM-5.3 FP8 K1 extension manifest or runtime ABI mismatch")
     existing = sys.modules.get(_MODULE)
@@ -184,6 +182,52 @@ def _load_extension(path):
         raise RuntimeError("GLM-5.3 FP8 K1 extension entry points are missing")
     sys.modules[_MODULE] = module
     return module
+
+
+def _prepare_extension(runner, *args, **kwargs):
+    global _startup_extension
+    if runner.is_draft_worker or _startup_extension is not None:
+        return
+    config = runner.model_config.hf_config
+    if not _model_matches(config):
+        return
+    from hcu_sglang.layers.attention.hisparse import _matches_channel_fp8
+    from sglang.srt.layers.cp.base import is_interleave
+    from sglang.srt.layers.moe.utils import get_deepep_mode, get_moe_a2a_backend
+    from sglang.srt.runtime_context import get_disagg, get_parallel
+
+    parallel = get_parallel()
+    if (
+        not _matches_channel_fp8(config)
+        or get_disagg().disaggregation_mode == "decode"
+        or (parallel.tp_size, parallel.attn_cp_size, parallel.moe_ep_size, parallel.pp_size) != (8, 8, 8, 1)
+        or parallel.attn_dcp_size != 1
+        or parallel.enable_dsa_cache_layer_split
+        or not envs.SGLANG_ENABLE_CP_V2.get()
+        or not is_interleave()
+        or not get_moe_a2a_backend().is_deepep()
+        or not get_deepep_mode().enable_normal()
+        or torch.cuda.get_device_properties(runner.gpu_id).gcnArchName.split(":", 1)[0] != _ARCH
+    ):
+        return
+
+    path = envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT_SO.get()
+    if path:
+        _startup_extension = _load_extension(path)
+    elif os.environ.get(_IMAGE_ENV):
+        _startup_extension = _load_image_extension()
+    else:
+        _startup_extension = _load_extension(str(cached_extension_path(torch)))
+
+
+def register_hooks():
+    from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    HookRegistry.register(
+        "sglang.srt.model_executor.model_runner.ModelRunner.init_cuda_graphs",
+        _prepare_extension,
+        HookType.BEFORE,
+    )
 
 
 def try_indirect(layer, x, scale, topk, weights, counts, padded_counts, weight, n):
@@ -231,11 +275,13 @@ def try_indirect(layer, x, scale, topk, weights, counts, padded_counts, weight, 
         not all(t.is_cuda and t.device == x.device for t in tensors)
         or not all(t.is_contiguous() and t.data_ptr() % 16 == 0 for t in tensors)
         or len({t.untyped_storage().data_ptr() for t in tensors}) != len(tensors)
-        or torch.cuda.get_device_properties(x.device).gcnArchName.split(":", 1)[0] != "gfx938"
+        or torch.cuda.get_device_properties(x.device).gcnArchName.split(":", 1)[0] != _ARCH
     ):
         return None
-    path = envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT_SO.get()
-    module = _load_extension(path) if path else _load_image_extension()
+    module = _startup_extension
+    if module is None:
+        path = envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT_SO.get()
+        module = _load_extension(path) if path else _load_image_extension()
     if module is None:
         _warn_missing_extension()
         return None

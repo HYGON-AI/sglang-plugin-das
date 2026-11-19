@@ -91,6 +91,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_HCU_DRAFT_CONCAT": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_K1_INDIRECT": (EnvBool, False),
+    "SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_K1_INDIRECT_SO": (EnvStr, None),
     "SGLANG_HCU_GLM53_FP8_EXPERT_INVERSE": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_EXPERT_INVERSE_SO": (EnvStr, None),

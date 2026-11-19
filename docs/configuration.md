@@ -139,6 +139,15 @@ LightOp 自行选择 launch，不套用旧 sgl_kernel 的 256-thread head 分块
 
 ## 8. GLM-5.3 FP8 prefill 的 K1 indirect-A 候选
 
+`SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD=1` 单独启用 K1 启动编译，默认关闭。
+符合下述模型、并行和设备条件的 prefill worker 在初始化 Graph 前准备扩展。
+同节点 rank 使用同一个缓存目录时，由一个进程编译并发布，其余进程复用。
+缓存位于 `${XDG_CACHE_HOME:-~/.cache}/hcu_sglang/glm53-fp8-k1`，
+由源码、Python ABI、Torch、HIP、DTK 和目标架构等构建条件区分。
+更换 Python 或 DTK 后，首次启动会为新环境编译一次。缓存未命中时，
+服务环境需提供 DTK 的 `aicc`、Ninja 和配套头文件，编译失败会中止启动并输出错误。
+已显式配置扩展路径时沿用该路径。
+
 `SGLANG_HCU_GLM53_FP8_K1_INDIRECT` 为布尔开关，默认 `False`。`SGLANG_HCU_GLM53_FP8_K1_INDIRECT_SO` 指定独立扩展的绝对路径；仅在开关打开且当前请求满足全部门控条件时才加载。未配置路径时记录告警并使用现有路径；显式配置的扩展或其相邻 `build-manifest.json` 不匹配时抛出错误，已进入扩展后的编译、加载与 kernel 错误不会被吞掉。
 
 当前候选只覆盖固定 GLM-5.3 Channel FP8 配置、main-model 普通带前缀 EXTEND、DeepEP normal、TP8/CP8/EP8、CP interleave 和 `SGLANG_ENABLE_CP_V2=1` 的非 LayerSplit eager 路径；还要求 gfx938、固定 W8A8 channel/token 量化、E32/Top8/K6144/N4096 与规定的权重和 scale 布局。非目标模型、非前缀、LayerSplit、decode、MTP、graph、其他布局及未启用开关均使用已有分发。LayerSplit 是本候选尚未验证的范围限制，未来是否支持取决于实际路由与缓存对照，并非架构上不能共存。

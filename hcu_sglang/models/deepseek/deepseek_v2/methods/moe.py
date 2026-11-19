@@ -506,7 +506,9 @@ def forward(
     else:
         glm_opt_prefill = N0.envs.SGLANG_GLM_OPT_PREFILL.get()
         indirect_enabled = (
-            glm_opt_prefill or N0.envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+            glm_opt_prefill
+            or N0.envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+            or N0.envs.SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD.get()
         )
         prefill_ops_enabled = (
             glm_opt_prefill

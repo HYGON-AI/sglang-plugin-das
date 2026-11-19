@@ -420,6 +420,7 @@ def forward_groupgemm_w8a8_fp8_contiguous(
     indirect_enabled = (
         envs.SGLANG_GLM_OPT_PREFILL.get()
         or envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+        or envs.SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD.get()
     )
     input_tensor = None
     if not indirect_enabled:
