@@ -78,4 +78,4 @@ hcu-sglang-plugin 方法与工具抽取，2026-10-20。
 
 - `concat_mla_hcu.py` 随海光原生 `sglang-das` 的 `1a094374cc` 快照迁入，原路径为 `python/sglang/kernels/ops/attention/concat_mla_hcu.py`，迁入时文件内容一致。
 - `glm53_decode_mla.py` 改编了 [SGLang 的 ROCm MLA 准备函数](https://github.com/sgl-project/sglang/blob/baa9befa381511cd4d56f83980951e5a45fffc6d/python/sglang/srt/models/deepseek_common/attention_forward_methods/forward_mla_rocm.py)。`hisparse.py` 的 FP8 TileLang 调度改编自宿主的 `python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py`。两处均注明 SGLang 和海光的版权。
-- `lplb_dispatch.py`、`page_fusion.py`、`glm53_decode.py` 以及 K1 的构建脚本、加载器和 C++ 绑定是海光插件实现。K1 调用的 DeepGEMM WASP 头文件是单独取得的构建输入，其固定来源与分发约束见 [K1 源码清单](../hcu_sglang/layers/moe/csrc/glm53_fp8_k1_indirect.source.json)。
+- `lplb_dispatch.py`、`page_fusion.py`、`glm53_decode.py` 以及 K1 的构建脚本、加载器和 C++ 绑定是海光插件实现。[K1 WASP 内核](../hcu_sglang/layers/moe/csrc/glm53_fp8_k1_wasp.cuh) 来自 DeepGEMM MR 191（`ca0c569f424dd1b10a3f65e89c1f5e2b4bc502b2`），保留 plugin 私有命名空间、接收行和专家索引边界检查，随 wheel 分发。

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import logging
@@ -26,43 +25,23 @@ from hcu_sglang.utils.detection import is_hcu
 _MODULE = "hcu_sglang_glm53_fp8_k1_indirect"
 _IMAGE_MODULE = "r09plus_wasp_indirect"
 _IMAGE_ENV = "SGLANG_GLM_PREFILL_K1_INDIRECT_A_SO"
-_IMAGE_SHA256 = "e59ac60daff9ff6788bf05c91e48dbf4cf3e966d41f2079d6e652be4b30cac9d"
-_CONFIG_SHA256 = "bc21bd68d92085465810c3da72c4b8a43b16c65c2c8f55f52547045f36c1abbf"
-_SOURCE_COMMIT = "ca0c569f424dd1b10a3f65e89c1f5e2b4bc502b2"
-_HEADER_SHA256 = "7fd1262d9afa93dad3c5493b4432f15635431e893c1f2aa012e3bc3ae2a927ca"
 _owner = ContextVar("hcu_glm53_fp8_k1_owner", default=None)
 _logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=8)
-def _config_matches(path, size, mtime_ns):
-    del size, mtime_ns
-    try:
-        return hashlib.sha256(Path(path).read_bytes()).hexdigest() == _CONFIG_SHA256
-    except OSError:
-        return False
-
-
-def _model_matches(owner, server_args):
+def _model_matches(owner):
     config = owner.config
-    if (
-        tuple(getattr(config, "architectures", None) or ()) != ("GlmMoeDsaForCausalLM",)
-        or getattr(config, "model_type", None) != "glm_moe_dsa"
-        or getattr(config, "num_hidden_layers", None) != 78
-        or getattr(config, "hidden_size", None) != 6144
-        or getattr(config, "n_routed_experts", None) != 256
-        or getattr(config, "num_experts_per_tok", None) != 8
-        or getattr(config, "moe_intermediate_size", None) != 2048
-        or getattr(config, "first_k_dense_replace", None) != 3
-        or getattr(owner, "is_nextn", True)
-    ):
-        return False
-    try:
-        path = Path(server_args.model_path) / "config.json"
-        stat = path.stat()
-    except (OSError, TypeError):
-        return False
-    return _config_matches(str(path), stat.st_size, stat.st_mtime_ns)
+    return (
+        tuple(getattr(config, "architectures", None) or ()) == ("GlmMoeDsaForCausalLM",)
+        and getattr(config, "model_type", None) == "glm_moe_dsa"
+        and getattr(config, "num_hidden_layers", None) == 78
+        and getattr(config, "hidden_size", None) == 6144
+        and getattr(config, "n_routed_experts", None) == 256
+        and getattr(config, "num_experts_per_tok", None) == 8
+        and getattr(config, "moe_intermediate_size", None) == 2048
+        and getattr(config, "first_k_dense_replace", None) == 3
+        and not getattr(owner, "is_nextn", True)
+    )
 
 
 def _eligible_scope(owner, batch, hidden_states):
@@ -87,7 +66,7 @@ def _eligible_scope(owner, batch, hidden_states):
     parallel = get_parallel()
     server_args = get_server_args()
     if (
-        not _model_matches(owner, server_args)
+        not _model_matches(owner)
         or not get_moe_a2a_backend().is_deepep()
         or getattr(owner, "num_fused_shared_experts", None) != 0
         or getattr(owner, "is_hash", True)
@@ -142,24 +121,6 @@ def forward_scope(owner, batch, hidden_states):
         _owner.reset(token)
 
 
-def _sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _matches_build_source(path, expected_digest, comment):
-    content = path.read_bytes()
-    if hashlib.sha256(content).hexdigest() == expected_digest:
-        return True
-    # Older build manifests hashed these same sources before the license notice.
-    header = (
-        comment + b" Copyright (c) 2026 Hygon Information Technology Co., Ltd.\n"
-        + comment + b" SPDX-License-Identifier: Apache-2.0\n\n"
-    )
-    return content.startswith(header) and (
-        hashlib.sha256(content[len(header):]).hexdigest() == expected_digest
-    )
-
-
 @lru_cache(maxsize=1)
 def _warn_missing_extension():
     _logger.warning("GLM-5.3 FP8 K1 indirect extension unavailable; using the existing route")
@@ -180,9 +141,8 @@ def _load_image_extension():
         torch.__version__ != "2.11.0"
         or torch.version.hip != "6.3.26113"
         or not torch.compiled_with_cxx11_abi()
-        or _sha256(path) != _IMAGE_SHA256
     ):
-        raise RuntimeError(f"GLM-5.3 FP8 K1 image extension failed ABI or hash validation: {path}")
+        raise RuntimeError(f"GLM-5.3 FP8 K1 image extension failed ABI validation: {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     if not callable(getattr(module, "metadata", None)) or not callable(getattr(module, "indirect", None)):
@@ -198,21 +158,10 @@ def _load_extension(path):
         raise ValueError("GLM-5.3 FP8 K1 extension path must be absolute")
     path = path.resolve(strict=True)
     manifest = json.loads((path.parent / "build-manifest.json").read_text(encoding="utf-8"))
-    source = manifest.get("source", {})
-    csrc = Path(__file__).with_name("csrc")
-    provenance = csrc / "glm53_fp8_k1_indirect.source.json"
-    binding = csrc / "glm53_fp8_k1_indirect.cu"
-    build_tool = Path(__file__).with_name("build_glm53_fp8_k1_indirect.py")
     if (
         manifest.get("status") != "BUILT_AND_IMPORTED_GPU_UNVERIFIED"
         or manifest.get("binary") != path.name
         or path.name != _MODULE + ".so"
-        or manifest.get("binary_sha256") != _sha256(path)
-        or source.get("commit") != _SOURCE_COMMIT
-        or source.get("header_sha256") != _HEADER_SHA256
-        or manifest.get("source_manifest_sha256") != _sha256(provenance)
-        or not _matches_build_source(binding, manifest.get("binding_sha256"), b"//")
-        or not _matches_build_source(build_tool, manifest.get("build_tool_sha256"), b"#")
         or manifest.get("python_abi") != sysconfig.get_config_var("SOABI")
         or manifest.get("torch") != torch.__version__
         or manifest.get("hip") != torch.version.hip
