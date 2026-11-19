@@ -35,12 +35,22 @@ class TestMiniMaxStage1GraphVariants(unittest.TestCase):
         disagg = SimpleNamespace(disaggregation_mode="null")
         memory = SimpleNamespace(enable_hisparse=False)
         sparse = SimpleNamespace(block_size_k=128, page_size=128, max_context_len=1048576)
+        class FakeHybrid:
+            decode_backend = SimpleNamespace(sparse=sparse)
+
+            def _select_backend(self, mode):
+                if mode == modes.DECODE:
+                    return self.decode_backend
+                return SimpleNamespace(sparse=sparse)
+
         runner = SimpleNamespace(
             is_draft_worker=False,
             model_config=SimpleNamespace(quantization="slimquant_w4a8_marlin", hf_config=object()),
-            attn_backend=SimpleNamespace(decode_backend=SimpleNamespace(sparse=sparse)),
+            attn_backend=FakeHybrid(),
         )
         modules = {
+            "sglang.srt.layers.attention.hybrid_attn_backend": SimpleNamespace(HybridAttnBackend=FakeHybrid),
+            "sglang.srt.layers.attention.minimax_sparse_backend": SimpleNamespace(MiniMaxSparseAttnBackend=SimpleNamespace),
             "sglang.srt.configs.model_config": SimpleNamespace(is_minimax_sparse=lambda _: True),
             "sglang.srt.model_executor.forward_batch_info": SimpleNamespace(ForwardMode=modes),
             "sglang.srt.runtime_context": SimpleNamespace(get_memory=lambda: memory, get_disagg=lambda: disagg),
@@ -62,7 +72,9 @@ class TestMiniMaxStage1GraphVariants(unittest.TestCase):
             self.assertIs(create(original, runner, modes.TARGET_VERIFY, 8), original.return_value)
             memory.enable_hisparse = False
             disagg.disaggregation_mode = "decode"
-            self.assertIs(create(original, runner, modes.TARGET_VERIFY, 8), original.return_value)
+            runner.attn_backend.decode_backend = object()
+            self.assertIs(create(original, runner, modes.DECODE), original.return_value)
+            self.assertEqual(create(original, runner, modes.TARGET_VERIFY, 8).verify_width, 8)
             disagg.disaggregation_mode = "null"
             with patch.dict(os.environ, {"M31_STAGE1_GRAPH_MAX_KV_LEN": "148600"}):
                 with self.assertRaisesRegex(ValueError, "positive multiple of 128"):

@@ -39,21 +39,18 @@ def _stage1_graph_variants(original, model_runner, capture_forward_mode, capture
 
     from sglang.srt.configs.model_config import is_minimax_sparse
     from sglang.srt.model_executor.forward_batch_info import ForwardMode
-    from sglang.srt.runtime_context import get_disagg, get_memory
+    from sglang.srt.runtime_context import get_memory
 
     model = model_runner.model_config
     if (
         model.quantization != "slimquant_w4a8_marlin"
         or not is_minimax_sparse(model.hf_config)
-        or get_disagg().disaggregation_mode != "null"
         or get_memory().enable_hisparse
         or capture_forward_mode not in (ForwardMode.DECODE, ForwardMode.TARGET_VERIFY)
     ):
         return original(model_runner, capture_forward_mode, captured_req_width)
 
-    backend = model_runner.attn_backend
-    backend = getattr(backend, "decode_backend", backend)
-    sparse = getattr(backend, "sparse", backend)
+    sparse = native.sparse_backend_for_mode(model_runner.attn_backend, capture_forward_mode)
     if (
         getattr(sparse, "block_size_k", None) != 128
         or getattr(sparse, "page_size", None) != 128

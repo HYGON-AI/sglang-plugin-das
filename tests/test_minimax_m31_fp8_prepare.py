@@ -28,3 +28,25 @@ class TestMiniMaxFP8Prepare(unittest.TestCase):
                 original.return_value,
             )
         original.assert_called_once_with(attn, packed, "pos", "batch")
+
+    def test_unpacked_int8_projection_reaches_prepare_fusion(self):
+        attn = SimpleNamespace(_use_fused_qknorm_rope=True, _fused_qkv_index=None)
+        batch = SimpleNamespace(forward_mode="verify")
+        with (
+            patch.object(prepare, "_eligible_attention", return_value=True),
+            patch.object(prepare, "_eligible_sparse_backend", return_value=object()),
+        ):
+            def original(layer, _positions, _hidden, _batch):
+                self.assertFalse(layer._use_fused_qknorm_rope)
+                raise RuntimeError("test restore on failure")
+
+            with self.assertRaisesRegex(RuntimeError, "test restore"):
+                prepare._prepare_unpacked(original, attn, "pos", "hidden", batch)
+            self.assertTrue(attn._use_fused_qknorm_rope)
+            attn._fused_qkv_index = object()
+            self.assertTrue(
+                prepare._prepare_unpacked(
+                    lambda layer, *_: layer._use_fused_qknorm_rope,
+                    attn, "pos", "hidden", batch,
+                )
+            )

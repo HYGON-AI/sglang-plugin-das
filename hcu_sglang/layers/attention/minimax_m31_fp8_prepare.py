@@ -8,9 +8,8 @@ _FP8 = torch.float8_e4m3fn
 _HEAD_COUNTS = (64, 4, 4, 128)
 
 
-def _prepare_buffers(attn, inputs, positions, batch):
-    mode = batch.forward_mode
-    if (
+def _eligible_attention(attn, mode):
+    return not (
         os.getenv("SGLANG_M3_OPTIMIZE_SPARSE_ATTN_PREP", "1") != "1"
         or os.getenv("SGLANG_MINIMAX_INDEX_FP8") != "dot"
         or not torch.version.hip
@@ -26,7 +25,49 @@ def _prepare_buffers(attn, inputs, positions, batch):
         or attn.rotary_dim % 2
         or os.getenv("SGLANG_MINIMAX_KV_CALIBRATION_DIR")
         or os.getenv("SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE") == "1"
+    )
+
+
+def _eligible_sparse_backend(attn, mode):
+    from sglang.srt.model_executor.forward_context import get_forward_context, has_forward_context
+    from sglang.srt.runtime_context import get_memory, get_model, get_parallel
+
+    if (
+        not has_forward_context()
+        or get_model().quantization != "slimquant_w4a8_marlin"
+        or get_memory().enable_hisparse
+        or get_parallel().dcp_size != 1
     ):
+        return None
+    sparse = native.sparse_backend_for_mode(get_forward_context().attn_backend, mode)
+    layer = attn.attn
+    if (
+        sparse is None
+        or sparse.is_npu
+        or sparse._loc_mapping is not None
+        or sparse.indexer_cp is not None
+        or sparse.hisparse_coordinator is not None
+        or sparse.score_type != "max"
+        or sparse.block_size_k != 128
+        or sparse.page_size != 128
+        or sparse.topk_blocks != 16
+        or sparse.fp8_attn_gemm
+        or layer.layer_id not in sparse.disable_value_layer_ids
+        or any(s not in (None, 1.0) for s in (
+            layer.q_scale_float, layer.k_scale_float, layer.v_scale_float,
+            layer.idx_q_scale_float, layer.idx_k_scale_float,
+        ))
+        or not native.flash_mla_gfx938_available()
+        or not native.flash_mla_stage1_fp8_available()
+        or not native.flash_mla_stage1_graph_available()
+    ):
+        return None
+    return sparse
+
+
+def _prepare_buffers(attn, inputs, positions, batch):
+    mode = batch.forward_mode
+    if not _eligible_attention(attn, mode):
         return None
 
     q = inputs[0]
@@ -60,40 +101,10 @@ def _prepare_buffers(attn, inputs, positions, batch):
     ):
         return None
 
-    from sglang.srt.model_executor.forward_context import get_forward_context, has_forward_context
-    from sglang.srt.runtime_context import get_disagg, get_memory, get_model, get_parallel
-
-    if (
-        not has_forward_context()
-        or get_model().quantization != "slimquant_w4a8_marlin"
-        or get_disagg().disaggregation_mode != "null"
-        or get_memory().enable_hisparse
-        or get_parallel().dcp_size != 1
-    ):
+    sparse = _eligible_sparse_backend(attn, mode)
+    if sparse is None:
         return None
-    sparse = getattr(get_forward_context().attn_backend, "sparse", None)
     layer = attn.attn
-    if (
-        sparse is None
-        or sparse.is_npu
-        or sparse._loc_mapping is not None
-        or sparse.indexer_cp is not None
-        or sparse.hisparse_coordinator is not None
-        or sparse.score_type != "max"
-        or sparse.block_size_k != 128
-        or sparse.page_size != 128
-        or sparse.topk_blocks != 16
-        or sparse.fp8_attn_gemm
-        or layer.layer_id not in sparse.disable_value_layer_ids
-        or any(s not in (None, 1.0) for s in (
-            layer.q_scale_float, layer.k_scale_float, layer.v_scale_float,
-            layer.idx_q_scale_float, layer.idx_k_scale_float,
-        ))
-        or not native.flash_mla_gfx938_available()
-        or not native.flash_mla_stage1_fp8_available()
-        or not native.flash_mla_stage1_graph_available()
-    ):
-        return None
     pool = sparse.kv_pool
     caches = (*pool.get_kv_buffer(layer.layer_id), pool.get_index_k_buffer(layer.layer_id))
     if any(
@@ -144,10 +155,28 @@ def _prepare_split(original, attn, positions, q, k, v, idx_q, idx_k, idx_v, forw
     return original(attn, positions, q, k, v, idx_q, idx_k, idx_v, forward_batch)
 
 
+def _prepare_unpacked(original, attn, positions, hidden_states, forward_batch):
+    mode = forward_batch.forward_mode
+    if (
+        not attn._use_fused_qknorm_rope
+        or attn._fused_qkv_index is not None
+        or not _eligible_attention(attn, mode)
+        or _eligible_sparse_backend(attn, mode) is None
+    ):
+        return original(attn, positions, hidden_states, forward_batch)
+
+    attn._use_fused_qknorm_rope = False
+    try:
+        return original(attn, positions, hidden_states, forward_batch)
+    finally:
+        attn._use_fused_qknorm_rope = True
+
+
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     for name, hook in (
+        ("forward_prepare", _prepare_unpacked),
         ("_aiter_sparse_qknorm_cache", _prepare_packed),
         ("_sparse_qk_index_norm_rope_cache", _prepare_split),
     ):

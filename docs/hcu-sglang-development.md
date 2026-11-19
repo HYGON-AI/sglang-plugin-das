@@ -2551,3 +2551,11 @@ MiniMax 专用入口在量化启用时注册已有的 compressed-tensors INT8 ho
 原生 FlashMLA 的 Decode / Target Verify 在同一次模型前向内复用请求页表、Stage 1 live-page 索引和 INT32 逐 query 长度。输入张量、KV 长度上限或 Verify 宽度变化时重建。捕获的图在每次回放仍按本步输入更新一次。TopK、KV 写入和 FlashMLA scheduler 元数据继续按层计算。TBO 和 HiSparse Verify 使用原路径。`SGLANG_MINIMAX_CACHE_DECODE_INDEX_METADATA=0` 可关闭复用。
 
 无卡回归覆盖跨层复用、换输入和换 forward、IFB 与 PD 的 Draft TP 作用域，以及 HiSparse 独立作用域。此前联合候选的性能数据同时包含本 PR 的其他 Decode 优化。当前提交尚需上机回归真实请求精度。
+
+## 2026-11-19 MiniMax 普通 PD Decode 复用 FlashMLA 与 DeepEP 优化
+
+普通 Decode 和 Target Verify 选择实际 attention backend，再判断 Stage 1 紧凑图与 FP8 稀疏准备是否适用。对未打包的 INT8 QKV，在满足原生 FP8 稀疏准备约束时复用同一个融合入口，并在退出时恢复每层原有准备标志。存在 CP、槽映射、HiSparse、非单位 scale 或 wheel 缺少对应入口时保留原路径。
+
+DeepEP shared-expert overlap 按 Decode / Verify、DP8 EP8、W4A8 HIPC 和 low-latency dispatcher 条件启用。异步长度镜像的消费依赖 DSpark Decode batch、overlap scheduler 和有效的 CPU 请求索引。各入口保留已有的布局、调度与 HiSparse 回退条件。
+
+无卡用例覆盖混合 attention backend 的 Decode / Verify 选择，以及未打包 INT8 QKV 进入融合后的异常恢复。GPU 证据来自此前联合候选的普通 fake PD，当前分支待上机回归。

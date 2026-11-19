@@ -53,15 +53,14 @@ def _forward_deepep(original, moe, hidden_states, forward_batch):
         return original(moe, hidden_states, forward_batch)
 
     from sglang.srt.layers.moe.utils import is_sbo_enabled, is_tbo_enabled
-    from sglang.srt.runtime_context import get_disagg, get_memory, get_parallel
+    from sglang.srt.runtime_context import get_memory, get_parallel
 
     from .deepep_current import DeepEPDispatcher
 
     parallel = get_parallel()
     dispatcher = moe.experts.dispatcher
     if (
-        get_disagg().disaggregation_mode != "null"
-        or get_memory().enable_hisparse
+        get_memory().enable_hisparse
         or parallel.attn_dp_size != 8
         or parallel.moe_ep_size != 8
         or is_sbo_enabled()

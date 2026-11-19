@@ -18,6 +18,16 @@ import triton.language as tl
 from sglang.kernels.ops.attention.minimax_sparse.common.utils import unit_scale
 
 
+def sparse_backend_for_mode(backend, mode):
+    from sglang.srt.layers.attention.hybrid_attn_backend import HybridAttnBackend
+    from sglang.srt.layers.attention.minimax_sparse_backend import MiniMaxSparseAttnBackend
+
+    if isinstance(backend, HybridAttnBackend):
+        backend = backend._select_backend(mode)
+    sparse = getattr(backend, "sparse", backend)
+    return sparse if isinstance(sparse, MiniMaxSparseAttnBackend) else None
+
+
 class FlashMLAGfx938UnavailableError(RuntimeError):
     """The opt-in gfx938 FlashMLA path cannot satisfy its runtime contract."""
 

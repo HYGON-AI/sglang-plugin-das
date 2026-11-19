@@ -37,12 +37,11 @@ def _enabled(scheduler):
 
     from sglang.srt.configs.model_config import is_minimax_sparse
     from sglang.srt.managers.overlap_utils import _DEBUG_ASSERT
-    from sglang.srt.runtime_context import get_disagg, get_memory, get_parallel
+    from sglang.srt.runtime_context import get_memory, get_parallel
 
     return (
         not _DEBUG_ASSERT
         and is_minimax_sparse(scheduler.model_config.hf_config)
-        and get_disagg().disaggregation_mode == "null"
         and not get_memory().enable_hisparse
         and get_parallel().pp_size == 1
     )
