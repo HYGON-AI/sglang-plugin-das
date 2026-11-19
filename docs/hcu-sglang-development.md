@@ -3678,3 +3678,30 @@ The candidate previously passed simple dialogues as part of the combined deploym
 ## GLM5.2 INT4：PR #87 回移至 0.5.22 发布分支
 
 目标为 release/sglang_v0.5.22，基点 708a332b0b14372badaebdb79e53c3a061571421，仅移植已合入 main 的 #87（59b217a）。保留发布分支现有记录，重新生成导览。本次验收范围仍为单请求；既有 GPU 与性能证据来自原固定组合，不记为发布分支的新 GPU 复验。发布分支验收：15 项定向 CPU 测试通过；导览生成与一致性检查通过；L0 检查通过（665 个 Python 文件、8 项技能）。全量测试：回移分支 184 项，干净基线 180 项，两者均为 3 errors、13 skipped；逐项对照错误集合完全一致，无新增失败。三个共有错误涉及 HY4 compressed config/checkpoint 与 mrope_delta，未计为本次通过。未运行新的 GPU 服务或数据集评测，既有单请求性能及对话证据沿用 #87 的固定组合。
+
+## 2026-11-19 nmz16 Qwen3.6-35B E4M3 KV Prefill
+
+使用 DTK 26.10 插件镜像、SGLang v0.5.22、adapter release `bcec3e0`、TP4。Graph On / Off 均在第一次真实 Prefill 进入 FA3 的 varlen 分支时触发 `NameError: _current_max_seq_len_k`。release backport `708a332` 留下了一个没有生产者的变量引用。调用方省略 `max_seqlen_k` 时，继续沿用页表列数乘页尺寸的上界。显式长度照常透传，保留 BSHD / BHSD 和原有 vendor 分发。
+
+真实 wrapper 的 CPU 探针替换 vendor 算子，覆盖 E4M3 KV 两种布局、显式和省略的最大长度。修复前复现相同 NameError，修复后检查传入 wheel 的参数。整模、性能和精度仍待 GPU 复验。
+
+
+## 2026-11-19 Qwen3.6 Channel FP8 checkpoint 精度
+
+在 nmz16 用相同 Channel FP8 checkpoint、TP4、E4M3 KV、FA3、EAGLE 和 0.84 静态显存比例对照。DAS 参考全量 HumanEval 96.34%、GSM8K 96.66%。社区和插件组合的原配置为 71.34% 和 79.38%。
+
+对同一批输入逐层采样。第 0 层输入一致，QKV/Z 投影误差较小，B/A 投影先出现异常。checkpoint 中 `in_proj_b.weight` 和 `in_proj_a.weight` 均为 BF16 且不带 FP8 scale。CLI 显式选 `w8a8_fp8` 后，社区 `W8A8Fp8Config.from_config` 丢失 compressed-tensors 的 `ignore`，以 `W8A8Fp8LinearMethod` 创建 B/A 权重并读取不存在的 scale。
+
+插件在已有量化注册链保留 checkpoint 的 ignore 和 packed mapping，在真实 HCU 的 LinearBase 量化选择中复用社区匹配函数。Qwen 的 merged B/A 对应两个原始投影名，两者都被忽略时才落到 BF16。普通 FP8 线性、MoE、其他 checkpoint 和非 HCU 路径维持上游分发。新增 CPU 回归覆盖忽略项、保留 FP8、混合 shard 拒绝和非 HCU 回退。
+
+固定五个 HumanEval prompt，四 rank 的 20 份 B/A 权重逐元素匹配 checkpoint，实际使用 BF16，FP32 参考输出的最大 NRMSE 低于 0.2%。真实服务修复前后及数据集报告见任务目录。社区 SGLang 与 adapter 无源码改动。
+
+
+## 2026-11-19 Qwen3.6-35B-A3B 启动默认值
+
+HCU 插件在 CLI 进程注册时为 `Qwen3.6-35B-A3B` 和 `Qwen3.6-35B-A3B-Channel-fp8` 补齐启动配方的环境变量。应用入口为 `hcu_sglang.register`，在导入读取开关的 Hook 模块前完成，各 spawn worker 继承父进程的环境。按 CLI 模型路径末级名称匹配，支持 `sglang serve` 和 `python -m sglang.launch_server`。程序化调用、其他模型和非 HCU 保持现有配置。
+
+两种模型默认启用 `SGLANG_ENABLE_SPEC_V2`、`SGLANG_USE_FUSED_TOPK_SOFTMAX`、`SGLANG_USE_LIGHTOP`、`SGLANG_USE_CAUSAL_CONV1D`、`SGLANG_USE_AITER_LINEAR_ATTN` 和 `SGLANG_ROCM_USE_AITER_MOE`。Channel FP8 额外默认启用 `SGLANG_USE_MODELSCOPE`，使用该值时镜像需安装 ModelScope。每个变量可独立显式覆盖，包含设为 `0`。模型量化、KV 数据类型、Graph 和并行参数仍由启动命令指定。
+
+回归测试覆盖标准 CLI、位置参数、兼容启动入口、显式禁用、其他模型与非 HCU。与 W8A8 FP8 checkpoint 排除项测试合计 11 项通过。完整 EvalScope 在本次默认值变更前运行，当前实机复核关注零 `export` 启动与子进程继承。
+nmz16 gfx938 两组 TP4 在移除配方环境变量后，均完成 eager Prefill / Full Decode 启动和确定性短答，结束原因为 `stop`。两组的六个进程均继承各自配方，只有 Channel FP8 注入 ModelScope 默认值。
