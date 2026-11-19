@@ -3622,3 +3622,42 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 
 本轮浏览器截图、交互与窄屏复核未执行：浏览器工具的 URL 安全策略拒绝 `file://` 协议。已执行导览重建与快照检查，未将结构检查记作截图验收。
 DTK26.10/Python3.12 镜像中的真实插件发现、构造和 AROUND 分发已通过：两组八 rank 的 Q/K 共 32 项逐元素匹配原生；同一 Graph 更换输入后重放两组 Q/K，也均逐元素匹配。FP32 canonical cache 对象未变，typed memo 为 BF16，关闭开关后的构造保持原分支。记录为任务产物 `rope-runtime-v4.json`；固定参考和捕获哈希见 adapter-das `docs/glm5.3-w4a8-attention-alignment.json`。offsets 与融合 KV-store 保留原语义，但本轮组件不声称覆盖这些调用。移除观测后的六组模型数值合同仍待复测；组件通过不等于模型精度通过。
+
+
+## GLM5.2 SlimQuant native numerical policies (2026-11-19)
+
+Purpose and scope: extend the existing GLM HCU numerical policies to SlimQuant W4A8. The router remains opt-in through `SGLANG_HCU_GLM_CT_BF16_ROUTER=1`; its non-hash and non-DeepSeek-V4 guards remain intact. NextN selects separate EH normalization for the same two SlimQuant names. FP32 router weights and other quantization families retain their existing paths.
+
+The first comparable draft decode in the saved native0518/current captures has matching normalization and attention tensors but BF16 versus FP32 gate outputs. BF16-rounding the current gate reproduces native gate values on all eight ranks. The old eager snapshot also has masked expert IDs, so precision alone is not asserted to explain every eager difference.
+
+CPU validation invokes the actual constructor, forward and EH predicate with real CPU tensors; expensive framework dependencies are isolated. Run `python3 tests/runtime/glm52_slimquant_cpu.py -v`. The before-fix snapshot fails the SlimQuant counterexamples; the patched snapshot passes scope, disabled-switch, dtype/value and effective-original fallback tests. The pinned PR combination has now passed single-request Graph model validation; see the combined result below.
+
+Historical combined-stack evidence: TP8/EP8/CP8 INT4 EAGLE 3/1/4, 96 GiB gfx938 devices, Torch 2.13/Triton 3.7. Three simple dialogue texts match native0518; the fixed 19-token request has 104 output tokens, 44 verify rounds, 61 correct draft tokens and acceptance length 2.363636 in both deployments. Profiler-free decode median is 39.0293 versus 38.5198 token/s. These numbers include other optimizations and a separate IndexShare candidate; they are not standalone PR speedups. The pinned PR combination was revalidated below. Dataset evaluation is outside this PR scope.
+
+
+## Fused local expert mapping (2026-11-19)
+
+Purpose and scope: fuse global-to-local expert lookup and invalid-ID masking into one Triton launch for eligible contiguous GPU inputs. Preserve negative/out-of-range IDs as the -1 drop sentinel, remote drops, shared-expert mapping, output dtype and source tensors. CPU and unsupported layouts retain the existing Torch path; empty inputs avoid a zero-grid launch.
+
+Run `python3 tests/runtime/expert_map_cpu.py -v` for CPU fallback and no-CUDA-context checks. Request the GPU lane explicitly with `HCU_PLUGIN_RUN_EXPERT_MAP_GPU=1 python3 tests/runtime/expert_map_gpu.py -v`; it checks int32/int64 combinations, strided fallback, empty inputs, and changed-input/mapping Graph replay. GPU absence in a requested lane is a failure, not a passing skip.
+
+Historical evidence for the same mapping kernel: 25 numerical/layout/sentinel/Graph checks and four dispatcher tests passed. Graph microbenchmark improved from 21.77 to 2.27 microseconds, and the controlled diagnostic model configuration improved from 29.6209 to 30.7601 token/s (3.85%) with identical dialogue texts. This is a stage-specific result, not a promised gain for every model or a sum with other stages. The two packaged GPU test methods passed on the available gfx938 devices, and the pinned combined model passed the single-request validation below. Large traces and native libraries are external evidence, not repository contents.
+
+
+## GLM first-draft IndexShare candidate (2026-11-19)
+
+Purpose: reproduce the native0518 HCU GLM first-draft policy while preserving the core initializer's sharing and width fields. The hook recomputes the first draft TopK instead of seeding from draft extend. It applies to HCU glm_moe_dsa; non-HCU and other model families retain the effective baseline.
+
+`SGLANG_SOURCE_ROOT=<pinned-python-tree> python3 tests/runtime/index_share_scope_cpu.py -v` executes the actual core initializer and width helpers, then checks 96 state combinations and unchanged return/width/sharing fields. This CPU contract is not model accuracy or a performance result.
+
+The candidate previously passed simple dialogues as part of the combined deployment, but its independent performance benefit is unproven. Its quantization scope is broader than the validated INT4 model. It is included in the pinned TP8 combined validation below at the user-requested whole-combination scope; no independent model A/B or standalone speedup is claimed. Other quantization coverage remains unverified.
+
+## GLM5.2 INT4 组合验证与提交范围
+
+本分支合并 SlimQuant router/EH norm、专家 ID 映射融合、首次 draft TopK 策略和单实例配方。按使用者要求验证整套组合，不做各项模型 A/B；性能结论归属于整套组合，不把历史阶段收益相加。固定 adapter fd1b7f5、plugin b8ea993；本轮 GPU 组合验证已完成，结果见下。
+
+提交验收范围由使用者确认为单请求对齐。单请求 decode 39.0214 对 0518 的 38.5064 token/s，三项对话和固定输入接受统计一致。性能结论仅限本轮单请求配置。
+
+## GLM5.2 INT4：PR #87 回移至 0.5.22 发布分支
+
+目标为 release/sglang_v0.5.22，基点 708a332b0b14372badaebdb79e53c3a061571421，仅移植已合入 main 的 #87（59b217a）。保留发布分支现有记录，重新生成导览。本次验收范围仍为单请求；既有 GPU 与性能证据来自原固定组合，不记为发布分支的新 GPU 复验。发布分支验收：15 项定向 CPU 测试通过；导览生成与一致性检查通过；L0 检查通过（665 个 Python 文件、8 项技能）。全量测试：回移分支 184 项，干净基线 180 项，两者均为 3 errors、13 skipped；逐项对照错误集合完全一致，无新增失败。三个共有错误涉及 HY4 compressed config/checkpoint 与 mrope_delta，未计为本次通过。未运行新的 GPU 服务或数据集评测，既有单请求性能及对话证据沿用 #87 的固定组合。

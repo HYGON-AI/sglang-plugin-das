@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 def register_hooks() -> None:
     """Register hooks for deepseek_nextn HCU fork delta."""
     n = nextn_hooks.register_hooks()
+    from .methods import index_share
+    n += index_share.register_hooks()
 
     logger.info(
         "[hcu_sglang] Registered %d deepseek_nextn hooks",

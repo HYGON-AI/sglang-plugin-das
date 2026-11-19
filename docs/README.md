@@ -107,3 +107,5 @@ flowchart TB
 操作细节与示例维护在对应文档，Skill 保留任务决策、约束和引用；二者互相链接。新增 Skill 同步任务导航、元信息、数量与结构检查，保持完整仓库的共享相对路径。
 
 当前逐路径差异处置见 [迁移执行台账](../plans/sglang-das-execution.json)，维护规则见 [三方迁移](migration.md#全量差异执行台账)；当前 Hook 合同见 [目标清单](hcu-sglang-development.md#历史-json-快照)（`hcu-sglang-targets.json`）。
+
+GLM5.2 INT4 的单实例配方、适配过程与历史结果边界见 [GLM5.2 INT4 适配与0518对照](glm52-int4-adaptation.md)。
