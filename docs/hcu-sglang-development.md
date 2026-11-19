@@ -2512,3 +2512,9 @@ DTK 26.10 / Python 3.12 无卡回归覆盖多请求 Zigzag 顺序、ragged rank�
 
 复用随 MiniMax Zigzag Prefill 默认开启。已有的 `SGLANG_MINIMAX_CACHE_PREFILL_INDEX_METADATA=0` 可关闭复用与 `repeat_interleave` 长度提示。Stage 1 异步 H2D 仍走当前 cp312 wheel。Prefill BS4 用同一份 RSC 请求同时验收 CP KV 写入、元数据复用、Stage 1 H2D、LightOp scatter/激活与 EPLB 布局命中，分段核对八个 rank 的 profile。CPU 测试覆盖跨层、跨 segment、换 batch 与关闭开关。nmz16 实际 KV 池 596,992 token。上一轮 EvalScope 保存的 20 条 GSM8K 请求复放为 19/20，错题相同且零截断。RSC BS4 每条命中 131,072 token，新增 16,384 token，输出 1。无 profile 的首轮 mean TTFT 2907.48 ms，另一次抓取 profile 的 mean TTFT 2124.80 ms。每个 rank 记录 120 次融合 scatter 和 240 次 Stage 1，CPU trace 每 rank 有 16 条 repeat_interleave 事件。两轮观察包含不同预热状态，收益归因需要同机 A/B。
 >>>>>>> origin/proj/minimax-m3.1
+
+## 2026-11-19 MiniMax CP Prefill 的 FP8 通信包
+
+基于 0d77762 的 CP Prefill KV 交换，CP8 zigzag 的单位 scale E4M3FN K、V 和 index K 可通过 `HCU_MINIMAX_CP_PACK_FP8=1` 在发送端量化并按字节 AllGather。插件在接收端使用原有重排、slot mask 和 Triton scatter 写缓存。Adapter 提交 `a3cfef3` 提供发送端 kernel，启用前应先安装含该提交的 adapter。关闭开关并重启可恢复此分支上的 BF16 AllGather 和接收端量化。社区 SGLang 固定在 `297e54fd10`。
+
+nmz18 的 8 张 96 GB HCU 在 DTK 26.10 / Python 3.12 下完成逐字节检查。检查覆盖 1、19 和 128 行、行顺序重排、保留 slot 0 与特殊浮点值。单机 Prefill BS4，每条命中 128K 缓存并新增 16K token，输出 1。每行传输从 2304 B 降至 1152 B。八个 rank 的 CP KV AllGather 累计 GPU 时间中位数为 84.54 → 59.46 ms。三轮无 profiler 测量的平均 TTFT 中位数为 1841.92 → 1832.34 ms，新增输入吞吐为 22398.55 → 22675.33 token/s。两组顺序执行，端到端差值需要交替复测。真实双机 PD、Decode 和数据集精度尚待验证。
