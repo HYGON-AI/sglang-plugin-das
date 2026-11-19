@@ -26,6 +26,7 @@ def _cp_fp8_cache_scatter_kernel(
     v_row_stride,
     index_row_stride,
     BLOCK_ROWS: tl.constexpr,
+    PACKED: tl.constexpr,
 ):
     row = tl.program_id(0) * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)
     src = tl.load(reorder_ptr + row, mask=row < num_rows, other=-1).to(tl.int64)
@@ -44,30 +45,36 @@ def _cp_fp8_cache_scatter_kernel(
 
     kv_cols = tl.arange(0, 512)[None, :]
     k = tl.load(source + kv_cols, mask=main_mask, other=0)
+    if not PACKED:
+        k = _cast_main_kv(k, k_cache_ptr.dtype.element_ty)
     tl.store(
         k_cache_ptr + slot[:, None] * k_row_stride + kv_cols,
-        _cast_main_kv(k, k_cache_ptr.dtype.element_ty),
+        k,
         mask=main_mask,
     )
     v = tl.load(source + 512 + kv_cols, mask=main_mask, other=0)
+    if not PACKED:
+        v = _cast_main_kv(v, v_cache_ptr.dtype.element_ty)
     tl.store(
         v_cache_ptr + slot[:, None] * v_row_stride + kv_cols,
-        _cast_main_kv(v, v_cache_ptr.dtype.element_ty),
+        v,
         mask=main_mask,
     )
 
     index_cols = tl.arange(0, 128)[None, :]
     index_k = tl.load(source + 1024 + index_cols, mask=index_mask, other=0)
     # The index pool uses the plain E4M3FN cast for unit scale.
+    if not PACKED:
+        index_k = index_k.to(index_cache_ptr.dtype.element_ty, fp_downcast_rounding="rtne")
     tl.store(
         index_cache_ptr + slot[:, None] * index_row_stride + index_cols,
-        index_k.to(index_cache_ptr.dtype.element_ty, fp_downcast_rounding="rtne"),
+        index_k,
         mask=index_mask,
     )
 
 
 
-def scatter_fp8_kv(raw, reorder, slots, caches):
+def scatter_fp8_kv(raw, reorder, slots, caches, *, packed=False):
     block_rows = 4
     _cp_fp8_cache_scatter_kernel[(triton.cdiv(slots.numel(), block_rows),)](
         raw,
@@ -80,5 +87,10 @@ def scatter_fp8_kv(raw, reorder, slots, caches):
         raw.stride(0),
         *(cache.stride(0) for cache in caches),
         BLOCK_ROWS=block_rows,
+        PACKED=packed,
         num_warps=4,
     )
+
+
+def scatter_packed_fp8_kv(raw, reorder, slots, *caches):
+    scatter_fp8_kv(raw, reorder, slots, caches, packed=True)

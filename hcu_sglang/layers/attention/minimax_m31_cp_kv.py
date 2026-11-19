@@ -82,8 +82,10 @@ def _lightop_packet_ops():
 
 
 @cache
-def _announce(index_dtype):
-    if index_dtype == _FP8:
+def _announce(index_dtype, packet_dtype):
+    if index_dtype == _FP8 and packet_dtype == torch.uint8:
+        LOG.info("MiniMax CP KV write uses packed FP8 AllGather")
+    elif index_dtype == _FP8:
         LOG.info("MiniMax CP KV write uses BF16 AllGather and fused Triton FP8 scatter")
     else:
         LOG.info("MiniMax CP KV write uses LightOp FP8 K/V + BF16 index K packets")
@@ -129,6 +131,12 @@ def try_store_cp_kv(pool, layer, batch, strategy, k, v, index_k):
 
         pack, scatter = None, scatter_fp8_kv
         packet_dtype, width = torch.bfloat16, 1152
+        if os.environ.get("HCU_MINIMAX_CP_PACK_FP8") == "1":
+            from hcu_adapter.kernels.cp_fp8_packet import pack_unit_scale_fp8_kv
+            from ...kernels.minimax_cp_cache import scatter_packed_fp8_kv
+
+            pack, scatter = pack_unit_scale_fp8_kv, scatter_packed_fp8_kv
+            packet_dtype = torch.uint8
     else:
         if not all(s is None or (type(s) in (int, float) and 1e-37 < s < 1e37) for s in scales):
             return None
@@ -174,5 +182,5 @@ def try_store_cp_kv(pool, layer, batch, strategy, k, v, index_k):
         scatter(workspace.raw, workspace.reorder, slots, caches)
     else:
         scatter(workspace.raw, workspace.reorder, slots, *byte_caches)
-    _announce(index.dtype)
+    _announce(index.dtype, packet_dtype)
     return caches
