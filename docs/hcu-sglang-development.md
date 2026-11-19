@@ -18,6 +18,7 @@
 - [2026-11-04：GDN 投影单流构造试验](#2026-11-04-gdn-投影单流构造试验)
 - [2026-11-04：KV 与 GDN 单流提交验证](#2026-11-04-kv-与-gdn-单流提交验证)
 - [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
+- [2026-11-19：Qwen Gemma RMSNorm 与动态 INT8 量化融合](#2026-11-19-qwen-gemma-rmsnorm-与动态-int8-量化融合)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1439,6 +1440,22 @@ git show de390225d615381d3fd02b8d3eed639e5ef529b5:docs/hcu-sglang-targets.json
 生成器 v5 补齐 KDA HIP、KV C++、Rust crate 和 AITER 配置的 package-data。输出复制 721 个插件文件，726 项清单 SHA256 核验通过；314 个非 Python 包资源均被打包规则覆盖。上游受跟踪修改只有 bootstrap、插件 loader 与 pyproject，来源/许可另由生成器清单记录。
 
 在仓库外、仅输出 python 的 PYTHONPATH 下屏蔽全部外部 entry point，并清空 SGLANG_PLUGINS，验证 `sglang` 和 `hcu_sglang` 均来自内嵌输出；597/597 Hook 全部应用，4 个具名 seam、0 errors。工具仓库 117 项单元测试通过，其中 13 项需显式开启的层运行时测试未执行。本轮没有构建输出 wheel、启动模型服务或进行数值/性能验收；只验证源码生成、资源规则和隔离加载。原始证据保存在 `artifacts/backtrack-20261102/`。
+
+## 2026-11-19 Qwen Gemma RMSNorm 与动态 INT8 量化融合
+
+起点为插件 `81315b2`、SGLang `baa9befa381511cd4d56f83980951e5a45fffc6d`、adapter `bcec3e046cb5835410d0c8ab5503acbfdf0a3e9c`，使用运行环境已安装的 LightOP `0.6.0+das.dtk2610`。
+
+在 HCU 设置 `SGLANG_HCU_QWEN_RMS_INT8_FUSION=1` 后，Qwen3.5/3.8 解码层为两个 Gemma RMSNorm 边界绑定压缩张量动态对称 INT8 消费端。输入归一化接 `qkv_proj` 或 GDN 的 `in_proj_qkvz`，注意力后归一化接 dense MLP 的 `gate_up_proj`。LightOP `rms_norm_dynamic_per_token_quant_sglang` 保留归一化 BF16 给 GDN 的 `in_proj_ba`，并交付 INT8 和 FP32 token scale。带 residual 的分支保留原位写回。只有当前解码层中匹配同一张量的目标 GEMM 才跳过独立量化。未匹配、输入不满足 LightOP 契约和显式指定预量化输入的情况仍走已有路径。
+
+本轮使用 Qwen3.8-27B Channel-INT8 checkpoint 的四份 5120 维 Gemma 权重与合成 BF16 激活。对比当前 Triton Gemma RMSNorm 接独立 LightOP INT8 量化，gfx936 上图重放测得 M=1/4/128 分别为 7.38→6.56、7.42→6.54、12.75→11.51 µs，M=2048 为 105.57→105.51 µs，均为四个位置耗时的中位数。残差逐元素一致，量化值最大差 2，去量化激活相对 L2 误差 0.51%–1.06%。通用 LightOP 接口要求权重与激活同 dtype，因此传入 BF16 的 `gemma_weight`，基线在 FP32 计算 `1 + weight`。带 residual 时，基线 Triton 用 FP32 和计算方差，再从 BF16 residual 重读归一化输入。LightOP 保留 FP32 和用于归一化。M=128 对照中将基线权重改为相同 BF16 值后，无 residual 的量化结果一致，有 residual 的去量化相对 L2 差仍为 0.72%–0.74%。使用相同 BF16 权重并统一为 FP32 和后，PyTorch 参考与 LightOP 的去量化相对 L2 差降至 0.004% 以内。开关默认关闭。
+
+后续用全部 64 层 checkpoint 权重和合成 BF16 激活复核，覆盖两个归一化位置和 M=4/128。256/256 组观察到 INT8 差异，最大差 2。去量化相对 L2 误差为 0.53%–1.09%，中位数 0.88%。统一权重舍入与残差累加后，PyTorch 参考与 LightOP 的最大去量化相对 L2 差为 0.020%。
+
+bw46 HCU 4/5 在同一容器、同一 DTK 和同一 TP2 配置串行运行基线与融合版，MTP NEXTN 3/1/4，decode Graph BS=1。两个 rank 均确认 QKV、GDN 大投影和 MLP gate/up 使用预量化结果。两个基线实例的五个贪心样本逐字一致。对比融合版，计数和短算术两个样本一致，其余三个样本的文本有变化。短算术正常停止，计数生成 64 token 并执行 16 轮 verify。
+
+单请求合成输入，固定输出 128 token，丢弃首轮后各取七次中位数。输入 128 token 时，TTFT 244.95→226.99 ms，decode 131.20→132.27 tok/s。输入 2048 token 时，TTFT 251.74→242.41 ms，decode 131.01→132.09 tok/s。两组负载的每轮请求均执行 32 轮 verify。这组单卡对串行对照用于烟测，TTFT 观测区间重叠。其他模型、批量和完整精度评测未执行。
+
+L0、三个定向测试、导览生成和 `git diff --check` 通过。完整 unittest 在当前 venv 留有两项启动测试失败，干净 HEAD 复现同样失败。原始算子与服务证据保存在本轮服务器实验目录。
 
 ## 附录：布局、操作方式与汇总
 

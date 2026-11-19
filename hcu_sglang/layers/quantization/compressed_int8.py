@@ -11,6 +11,7 @@ from typing import Optional
 import torch
 from sglang.srt.layers.quantization.compressed_tensors.schemes import compressed_tensors_w8a8_int8 as N
 from sglang.srt.utils import get_bool_env_var
+from hcu_sglang.layers import qwen_rms_int8
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.layers.quantization import quant_ops as ops
 from hcu_sglang.layers.quantization.cache_config import W8a8GetCacheJSON
@@ -227,7 +228,11 @@ def apply_weights(
     elif _use_fused_silu_mul_quant and silu_quant_args is not None:
         x_q, x_scale = silu_quant_args
     else:
-        x_q, x_scale = per_token_quant_int8(x)
+        fused = (
+            qwen_rms_int8.take_prequantized_input(layer, x)
+            if qwen_rms_int8.enabled else None
+        )
+        x_q, x_scale = fused if fused is not None else per_token_quant_int8(x)
 
     # return quant_ops.custom_scaled_mm(x_q, layer.weight, x_scale, layer.weight_scale, out_dtype=x.dtype, bias=bias)
 
