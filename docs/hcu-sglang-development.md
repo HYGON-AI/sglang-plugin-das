@@ -4006,3 +4006,13 @@ HY3 INT8、DeepEP auto、ASM=0 在 gfx938 上原先会调用新包已移除的�
 DP Attention 中空闲 rank 仍可能进入线性层。此前 LightOp 在 M=0 时原生层报 `HIP invalid argument` 并直接退出，Python 无法捕获。`quant_ops.triton_scaled_mm` 现在只对维度匹配的二维空输入返回同设备、目标 dtype 的 `(0,N)` 空结果；非空计算、scale、bias 和后端配置不变。
 
 复用 `tests/runtime/quant_ops_dispatch.py`，本轮 7 项通过，包含空输入不调用 ASM/Triton、输出契约及原分发回归。历史证据包含空输入 GPU/Graph 检查和完整问答，见上一轮任务记录；本轮仅运行相关 CPU 回归，没有把历史模型成绩计为本提交的新验收。
+
+## 2026-11-19：HY3 INT8 RoPE 精度兼容与共享缓存隔离
+
+固定输入逐层比较中，旧 DAS 与 Plugin 的主模型第 0 层在 RoPE 前一致；旧版使用激活 dtype 的三角函数表，官方 HIP 路径保留 FP32。仅在 HCU、QKV 权重为 INT8、非融合 RoPE 的 HY3 路径采用旧版数值。SP、融合路径、其他权重类型与其他平台不改。
+
+此前未提交补丁直接修改共享的 `cos_sin_cache`，存在影响其他使用者的风险。本次保留该原缓存，单独保存 HY3 INT8 使用的转换结果；同一源缓存、设备和 dtype 复用结果，源对象替换或目标设备/dtype 改变时重新转换。复用 `tests/runtime/fix_attention_models.py`，覆盖共享对象下交替执行 INT8、BF16、FP8、非 HCU 输入，以及缓存复用、源替换和 Q/K 数值。共享缓存反例在隔离前失败，隔离后该文件 17 项通过；本轮三个相关文件共 40 项通过。
+
+历史的直接改缓存版本曾完成 GPQA no_think 150/198，旧版同条件重测为 147/198；这是历史组合证据，不算本次缓存隔离版本的全量精度验收。本次未重跑完整模型、GPU Graph、GPQA、GSM8K、性能或其他模型服务。
+
+两仓 L0 通过（Adapter 保留 32 项原有警告）；Plugin 全量 CPU 检查与修改前干净 HEAD 对照均为 248 项、82 failures、6 errors、17 skips，失败及错误用例相同。既有来源快照与导入测试未全绿，不重写历史来源清单迎合测试。开发记录及导览随提交更新，导览生成和快照检查通过，浏览器视觉验收未执行。详细日志、备份与对照保存在仓库外的任务归档中。
