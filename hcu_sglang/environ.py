@@ -2,10 +2,56 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import sys
+from pathlib import PurePosixPath
 from typing import Any
 
 from sglang.srt.environ import EnvBool, EnvBoolWithAlias, EnvFloat, EnvInt, EnvStr, Envs, _default_hip
 from hcu_sglang.utils.detection import is_hcu
+
+
+logger = logging.getLogger(__name__)
+
+_QWEN36_BF16 = "qwen3.6-35b-a3b"
+_QWEN36_CHANNEL_FP8 = "qwen3.6-35b-a3b-channel-fp8"
+_QWEN36_SERVE_DEFAULTS = (
+    "SGLANG_ENABLE_SPEC_V2",
+    "SGLANG_USE_FUSED_TOPK_SOFTMAX",
+    "SGLANG_USE_LIGHTOP",
+    "SGLANG_USE_CAUSAL_CONV1D",
+    "SGLANG_USE_AITER_LINEAR_ATTN",
+    "SGLANG_ROCM_USE_AITER_MOE",
+)
+
+
+def apply_qwen36_serve_defaults() -> None:
+    entrypoint, *args = sys.argv or [""]
+    if args[:1] == ["serve"]:
+        args = args[1:]
+        positional_model = args[0] if args and not args[0].startswith("-") else ""
+    elif PurePosixPath(entrypoint).name == "launch_server.py":
+        positional_model = ""
+    else:
+        return
+
+    from sglang.cli.utils import try_get_model_path
+
+    model_path = positional_model or try_get_model_path(args)
+    model_name = PurePosixPath(model_path or "").name.lower()
+    if model_name not in (_QWEN36_BF16, _QWEN36_CHANNEL_FP8) or not is_hcu():
+        return
+
+    flags = _QWEN36_SERVE_DEFAULTS
+    if model_name == _QWEN36_CHANNEL_FP8:
+        flags += ("SGLANG_USE_MODELSCOPE",)
+
+    defaults = [flag for flag in flags if flag not in os.environ]
+    for flag in defaults:
+        os.environ.setdefault(flag, "1")
+    if defaults:
+        logger.info("Applied HCU Qwen3.6 serve defaults: %s", ", ".join(defaults))
 
 
 _ENV_SPECS: dict[str, tuple[type, Any]] = {

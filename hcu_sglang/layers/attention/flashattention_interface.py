@@ -146,8 +146,6 @@ def flash_attn_with_kvcache(
             page_size = k_cache.shape[2]  # [NP, H, PS, D]
         else:
             page_size = k_cache.shape[1]  # [NP, PS, H, D]
-        if max_seqlen_k is None:
-            max_seqlen_k = _current_max_seq_len_k or None
         page_capacity = (
             page_table.shape[1] * page_size
             if max_seqlen_k is None and page_table is not None

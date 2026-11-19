@@ -16,8 +16,9 @@ def register() -> None:
 
     install_aiter_compat()
 
-    from hcu_sglang.environ import register_envs
+    from hcu_sglang.environ import apply_qwen36_serve_defaults, register_envs
 
+    apply_qwen36_serve_defaults()
     register_envs()
 
     if os.environ.get("HCU_KIMI31_DAY0") == "1":
