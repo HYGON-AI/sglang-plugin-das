@@ -493,6 +493,26 @@ def forward(
                 leave_output_sum=leave_output_sum,
             )
     else:
+        indirect_enabled = N0.envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+        prefill_ops_enabled = (
+            N0.envs.SGLANG_HCU_GLM53_FP8_EXPERT_INVERSE.get()
+            or N0.envs.SGLANG_HCU_GLM53_FP8_EP_GATHER_K8.get()
+        )
+        if indirect_enabled or prefill_ops_enabled:
+            from contextlib import ExitStack
+
+            with ExitStack() as scopes:
+                if indirect_enabled:
+                    from hcu_sglang.layers.moe.glm53_fp8_k1_indirect import forward_scope
+
+                    scopes.enter_context(forward_scope(self, forward_batch, hidden_states))
+                if prefill_ops_enabled:
+                    from hcu_sglang.layers.moe.glm53_fp8_prefill_ops import prefill_scope
+
+                    scopes.enter_context(prefill_scope(self, forward_batch, hidden_states))
+                return self.forward_deepep(
+                    hidden_states, forward_batch, input_ids_global=input_ids_global
+                )
         return self.forward_deepep(
             hidden_states, forward_batch, input_ids_global=input_ids_global
         )

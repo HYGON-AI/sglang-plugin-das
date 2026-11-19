@@ -19,6 +19,7 @@
 - [2026-11-04：KV 与 GDN 单流提交验证](#2026-11-04-kv-与-gdn-单流提交验证)
 - [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
 - [2026-11-19：Qwen Gemma RMSNorm 与动态 INT8 量化融合](#2026-11-19-qwen-gemma-rmsnorm-与动态-int8-量化融合)
+- [2026-11-19：GLM-5.3 Channel FP8 基础运行时](#2026-11-19-glm-53-channel-fp8-基础运行时)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -3705,3 +3706,14 @@ HCU 插件在 CLI 进程注册时为 `Qwen3.6-35B-A3B` 和 `Qwen3.6-35B-A3B-Chan
 
 回归测试覆盖标准 CLI、位置参数、兼容启动入口、显式禁用、其他模型与非 HCU。与 W8A8 FP8 checkpoint 排除项测试合计 11 项通过。完整 EvalScope 在本次默认值变更前运行，当前实机复核关注零 `export` 启动与子进程继承。
 nmz16 gfx938 两组 TP4 在移除配方环境变量后，均完成 eager Prefill / Full Decode 启动和确定性短答，结束原因为 `stop`。两组的六个进程均继承各自配方，只有 Channel FP8 注入 ModelScope 默认值。
+
+## 2026-11-19 GLM-5.3 Channel FP8 基础运行时
+
+以官方 SGLang v0.5.22 为宿主。移入 fork 的 Channel FP8 量化、MoE、MLA、
+KV/index cache 和模型 Hook，并加入显式的 prefill、decode 候选开关。部署所需
+算子入口、模型条件和供应商扩展来源见[配置管理](configuration.md)。
+上游的模型注册及 P/D 调度入口保留，沿用 Scheduler 注册时安装的兼容方法。
+
+已有隔离环境记录覆盖 CP8 的 12K/MTP 调用对照和普通 eager decode。
+本分支只做本地结构与 lint 检查。DCP4、HiSparse 和完整 Graph 组合需要按
+实际部署配方另行复验；历史候选结果按原环境记录。

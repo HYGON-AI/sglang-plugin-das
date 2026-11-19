@@ -1960,7 +1960,7 @@ def _topk_ids_postprocess_torch(
     output_int64: bool = False,
 ):
     topk_ids = topk_ids_logical_to_physical(topk_ids, expert_location_dispatch_info)
-    if _is_hip and num_token_non_padded is not None:
+    if (_is_hip or _is_hcu) and num_token_non_padded is not None:
         # Keep the HIP fallback as plain torch ops inside this compiled region.
         # Calling _fill_padded_rows here would introduce a separate explicit
         # Triton launch after the logical-to-physical gather, while Inductor can
@@ -2660,23 +2660,36 @@ def _post_process_topk_ids(
         if expert_location_dispatch_info is not None
         else None
     )
+    lp_has_shared_cols = _gate_appended or (
+        use_per_rank_shared_slots and not _use_aiter
+    )
+    lp_routed_ids = (
+        topk_ids[:, :-num_fused_shared_experts] if lp_has_shared_cols else topk_ids
+    )
     if dispatch_algorithm in ("lp", "load_aware"):
         from sglang.srt.eplb.lplb_solver import get_global_lplb_solver
 
         lplb_solver = get_global_lplb_solver(layer_id)
         if lplb_solver is not None:
             log2phy_prob = (
-                lplb_solver.solve(topk_ids, num_token_non_padded)
+                lplb_solver.solve(lp_routed_ids, num_token_non_padded)
                 if dispatch_algorithm == "load_aware"
-                else lplb_solver.solve(topk_ids)
+                else lplb_solver.solve(lp_routed_ids)
             )
-    if _is_cuda:
+    if _is_cuda and not skip_deepep_padded_tokens:
         # LP path: solve LP outside torch.compile (the solver contains an
         # EP all-reduce that can't run inside compiled regions).
         if log2phy_prob is not None:
-            topk_ids = topk_ids_logical_to_physical(
-                topk_ids, expert_location_dispatch_info, log2phy_prob
+            dispatched_ids = expert_location_dispatch.topk_ids_logical_to_physical(
+                lp_routed_ids, expert_location_dispatch_info, log2phy_prob
             )
+            topk_ids = (
+                torch.cat([dispatched_ids, topk_ids[:, -num_fused_shared_experts:]], dim=-1)
+                if lp_has_shared_cols
+                else dispatched_ids
+            )
+            if lp_has_shared_cols:
+                recorder_topk_ids = dispatched_ids
             _mask_topk_ids_padded_region(topk_ids, num_token_non_padded)
         elif num_fused_shared_experts > 0:
             # Shared IDs are outside EPLB's routed-expert table for both global
@@ -2701,7 +2714,7 @@ def _post_process_topk_ids(
                     else num_token_non_padded
                 ),
             )
-    elif _is_hip:
+    elif _is_hip or skip_deepep_padded_tokens:
         # On AMD HIP the aiter MoE kernels do not handle topk_ids=-1 safely
         # (negative indices cause illegal memory access). Keep their padded IDs
         # in range and zero their weights below. HCU DeepEP + DeepGEMM instead
@@ -2713,6 +2726,23 @@ def _post_process_topk_ids(
         remap_info = (
             expert_location_dispatch_info if is_expert_remapping_enabled() else None
         )
+        if remap_info is not None and remap_info.ep_dispatch_algorithm in (
+            "lp",
+            "load_aware",
+        ):
+            if log2phy_prob is None:
+                raise RuntimeError(f"Missing HIP LPLB solver for layer {layer_id}")
+            dispatched_ids = expert_location_dispatch.topk_ids_logical_to_physical(
+                lp_routed_ids, remap_info, log2phy_prob
+            )
+            topk_ids = (
+                torch.cat([dispatched_ids, topk_ids[:, -num_fused_shared_experts:]], dim=-1)
+                if lp_has_shared_cols
+                else dispatched_ids
+            )
+            if lp_has_shared_cols:
+                recorder_topk_ids = dispatched_ids
+            remap_info = None
         if skip_deepep_padded_tokens and not use_per_rank_shared_slots:
             # DeepEP disables shared-expert fusion by default. On that main HCU
             # path no later operation can introduce another route, so remap and
@@ -2721,29 +2751,6 @@ def _post_process_topk_ids(
             # otherwise its dispatcher adds one copy kernel per MoE layer. Keep
             # the post-shared-expert mask below for the explicitly forced fused
             # shared-expert configuration.
-            if remap_info is not None and remap_info.ep_dispatch_algorithm in (
-                "lp",
-                "load_aware",
-            ):
-                # LP dispatch uses a separate HIP kernel. Resolve probabilities
-                # before entering the compiled padding/dtype postprocess.
-                from sglang.srt.eplb.lplb_solver import get_global_lplb_solver
-
-                solver = get_global_lplb_solver(layer_id)
-                if solver is None:
-                    raise RuntimeError(f"Missing HIP LPLB solver for layer {layer_id}")
-                probabilities = log2phy_prob
-                if hasattr(solver, "static_dispatch_map"):
-                    from sglang.kernels.ops.lplb import cuda_solver
-
-                    topk_ids = cuda_solver.dispatch_probability(
-                        topk_ids, probabilities, solver.static_dispatch_map
-                    )
-                else:
-                    topk_ids = topk_ids_logical_to_physical(
-                        topk_ids, remap_info, probabilities
-                    )
-                remap_info = None  # IDs are physical; do not remap a second time.
             topk_ids = _biased_grouped_topk_postprocess(
                 topk_ids,
                 remap_info,

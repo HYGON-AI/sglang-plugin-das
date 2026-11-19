@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "module": "token_inverse_diag",
+  "source": "token_inverse.cu",
+  "source_sha256": "27ae5b80c407ccdb21640948f505185ef6c558529e3c3938aa305bea2e2fbdfc",
+  "reference_binary_sha256": "e7870a15db717c3761e80725e238b8709ee1adb4ff92239121b7e4b8211f0361",
+  "base_lightop": {
+    "commit": "c3881932743ed63e2fd6c30c8474d46ac8d5c15a",
+    "binary_sha256": "f4d69b478289cf93a2be4c0f8f92c7374877609276bd6ba40476ab5a10abee6c"
+  },
+  "headers": {},
+  "hip_flags": [
+    "-O3",
+    "-std=c++17",
+    "--offload-arch=gfx938",
+    "-DTORCH_VERSION_OVER_290",
+    "--gpu-max-threads-per-block=1024",
+    "-mllvm",
+    "-enable-num-vgprs-512=true"
+  ],
+  "scope": "Historical GLM-5.3 Channel FP8 ordinary prefix CP8/EP8 main-model eager prefill on gfx938; runtime integration and output alignment remain unverified.",
+  "source_policy": "The exact historical diagnostic source is a separately obtained build input and is not redistributed with the plugin. Its source provenance and redistribution terms must be verified before distributing derivative sources or binaries."
+}
