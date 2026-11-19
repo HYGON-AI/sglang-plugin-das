@@ -3667,3 +3667,14 @@ The candidate previously passed simple dialogues as part of the combined deploym
 使用 DTK 26.10 插件镜像、SGLang v0.5.22、adapter release `bcec3e0`、TP4。Graph On / Off 均在第一次真实 Prefill 进入 FA3 的 varlen 分支时触发 `NameError: _current_max_seq_len_k`。release backport `708a332` 留下了一个没有生产者的变量引用。调用方省略 `max_seqlen_k` 时，继续沿用页表列数乘页尺寸的上界。显式长度照常透传，保留 BSHD / BHSD 和原有 vendor 分发。
 
 真实 wrapper 的 CPU 探针替换 vendor 算子，覆盖 E4M3 KV 两种布局、显式和省略的最大长度。修复前复现相同 NameError，修复后检查传入 wheel 的参数。整模、性能和精度仍待 GPU 复验。
+
+
+## 2026-11-19 Qwen3.6 Channel FP8 checkpoint 精度
+
+在 nmz16 用相同 Channel FP8 checkpoint、TP4、E4M3 KV、FA3、EAGLE 和 0.84 静态显存比例对照。DAS 参考全量 HumanEval 96.34%、GSM8K 96.66%。社区和插件组合的原配置为 71.34% 和 79.38%。
+
+对同一批输入逐层采样。第 0 层输入一致，QKV/Z 投影误差较小，B/A 投影先出现异常。checkpoint 中 `in_proj_b.weight` 和 `in_proj_a.weight` 均为 BF16 且不带 FP8 scale。CLI 显式选 `w8a8_fp8` 后，社区 `W8A8Fp8Config.from_config` 丢失 compressed-tensors 的 `ignore`，以 `W8A8Fp8LinearMethod` 创建 B/A 权重并读取不存在的 scale。
+
+插件在已有量化注册链保留 checkpoint 的 ignore 和 packed mapping，在真实 HCU 的 LinearBase 量化选择中复用社区匹配函数。Qwen 的 merged B/A 对应两个原始投影名，两者都被忽略时才落到 BF16。普通 FP8 线性、MoE、其他 checkpoint 和非 HCU 路径维持上游分发。新增 CPU 回归覆盖忽略项、保留 FP8、混合 shard 拒绝和非 HCU 回退。
+
+固定五个 HumanEval prompt，四 rank 的 20 份 B/A 权重逐元素匹配 checkpoint，实际使用 BF16，FP32 参考输出的最大 NRMSE 低于 0.2%。真实服务修复前后及数据集报告见任务目录。社区 SGLang 与 adapter 无源码改动。

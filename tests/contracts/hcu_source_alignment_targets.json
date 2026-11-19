@@ -429,6 +429,8 @@
     "sglang.srt.layers.quantization.w8a8_fp8.W8A8FP8MoEMethod.apply",
     "sglang.srt.layers.quantization.w8a8_fp8.W8A8FP8MoEMethod.create_moe_runner",
     "sglang.srt.layers.quantization.w8a8_fp8.W8A8FP8MoEMethod.process_weights_after_loading",
+    "sglang.srt.layers.quantization.w8a8_fp8.W8A8Fp8Config.from_config",
+    "sglang.srt.layers.quantization.w8a8_fp8.W8A8Fp8Config.get_quant_method",
     "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod.apply",
     "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod.create_moe_runner",
     "sglang.srt.layers.quantization.w8a8_int8.W8A8Int8MoEMethod.process_weights_after_loading",
