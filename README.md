@@ -186,3 +186,17 @@ python3 -m unittest discover -s tests -v
 当前运行时为 `hcu-sglang-plugin` v0.3.2.dev34，Python 包为 `hcu_sglang`，唯一 general plugin 入口为 `hcu`；固定官方基线为 `baa9befa`。当前迁入、wheel 与分版本模型结果见 [开发迁移记录](docs/hcu-sglang-development.md)，安装命令见 [安装指南](docs/installation.md)。旧 `sglang_hcu_plugin` v0.3.2.dev5 等产物见 [历史交付记录](docs/hcu-sglang-development-202610.md#2026-10-26-8-最终交付与需求验收)，不作为当前安装示例。本次命名与文档修订不重新声明 GPU、模型精度或性能结果，也不提供公共 PyPI 发布承诺。
 
 来源与许可见 [来源地图](docs/extraction-map.md) 和 [来源许可证](licenses)。方法查询先使用 [开发经验索引](docs/development-methodology.md)；复核某次交付时再按日期读取实施记录和原始证据。
+
+## 静态 LPLB 离线准备
+
+在安装了 SGLang、PyTorch、NumPy 和 SciPy 的环境中，从一份 EPLB 负载记录生成专家布局和对应的 LP 分发权重。以下示例使用 8 个 EP rank，每层增加 8 个冗余专家，请按部署拓扑填写这两个参数。
+
+```bash
+python tools/prepare_static_lp.py --counts recording.pt --ep-size 8 --redundant-experts 8
+```
+
+默认输出为 `static_mapping.pt`、`static_lp_probabilities.pt` 和同名 JSON 摘要。已有布局时，用 `--layout static_mapping.pt` 替换 `--redundant-experts 8`。
+
+自定义 `--layout-output` 时，路径须以 `.pt` 结尾，供 SGLang 通过 `--init-expert-location` 加载。配合 `--ep-dispatch-algorithm lp`，将 `SGLANG_EXPERIMENTAL_LPLB_STATIC_PROBS` 指向同一布局生成的权重文件。新权重记录求解时的 EP 规模，插件启动时会核对。旧权重仍可加载，使用时需确认生成时和部署时的 EP 规模一致。
+
+工具先在目标目录暂存整组产物，再替换正式文件。输出目录内的 `.static-lp.lock` 用于串行化并发发布。

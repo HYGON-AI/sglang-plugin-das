@@ -73,3 +73,9 @@ hcu-sglang-plugin 方法与工具抽取，2026-10-20。
 方法迁移说明及源文件哈希见 [vllm-skill-migration.md](vllm-skill-migration.md) 和 [source-map.json](../skills/upgrading-sglang-hcu-upstream-first/references/source-map.json)。原来源目录保持只读。
 
 以上声明由原根目录 NOTICE 合并至本页，便于与来源版本和抽取范围一起维护。
+
+`tools/prepare_static_lp.py` 移植自 HYGON-AI/sglang-das 的
+`benchmark/eplb/prepare_static_lp.py`，来源提交为
+`68a0c53ee9a0bdbd94b504e5a1e77e41a6c46e26`，沿用
+[Apache-2.0](../licenses/sglang-das.LICENSE)。迁移与修订记录见
+[源 PR #686](https://github.com/HYGON-AI/sglang-das/pull/686)。

@@ -51,6 +51,13 @@ def init_lplb_solvers(*, model_config: ModelConfig) -> None:
         if not torch.version.hip:
             raise NotImplementedError("Precomputed compact LP dispatch requires HIP")
         payload = torch.load(static_path, weights_only=True, map_location="cpu")
+        if "ep_size" in payload:
+            saved_ep_size = payload["ep_size"]
+            if type(saved_ep_size) is not int or saved_ep_size != metadata.ep_size:
+                raise ValueError(
+                    f"Static LP artifact EP size {saved_ep_size!r} does not match "
+                    f"runtime EP size {metadata.ep_size}"
+                )
         if not torch.equal(
             payload["physical_to_logical_map"],
             metadata.physical_to_logical_map_cpu,
