@@ -74,9 +74,9 @@ set +a
 
 ### 当前 HCU FA KV 布局默认值
 
-本分支 `SGLANG_KV_LAYOUT_HCU_FA` 默认 `true`，与 DAS 0.5.18 保持一致；不设置环境变量即可启用。显式设为 `0` 或 `false` 时使用原官方布局。KV 池构造、FA 读取与 Mooncake 传输的默认判断同步修改；传输标志在导入时读取，因此变更需要重启进程。
+`SGLANG_KV_LAYOUT_HCU_FA` 保持公司主线默认 `false`：未设置、显式 `0` 或 `false` 时使用官方布局，只有显式 `1` 或 `true` 才启用 HCU FA 布局。环境字段、KV 池、FA 读取和 Mooncake 传输的默认判断保持一致；传输标志在导入时读取，修改配置需要重启进程。
 
-该开关只选择缓存布局，不负责选择 FA 后端。当前 HY3 配方仍显式选择 `HCU_FA_IMPL=vendor`；需要官方布局的 Triton 配方应显式设置 `SGLANG_KV_LAYOUT_HCU_FA=0`。未重新验证其他模型、Triton 组合或 PD 跨节点传输。
+该开关只选择缓存布局，不负责选择 FA 后端，也不按模型自动开启。需要 HCU 布局的 HY3 已验证配方应显式设置 `SGLANG_KV_LAYOUT_HCU_FA=1`，并单独选择 `HCU_FA_IMPL=vendor`。本次只恢复默认行为，没有重新验证完整模型或 PD 跨节点传输。
 
 ## 3. 新增配置的设计检查
 

@@ -12,7 +12,7 @@ from hcu_sglang.mem_cache import hcu_mha_pool as P
 
 class FlashAttentionInterfaceTests(unittest.TestCase):
     def test_layout_default_and_explicit_override_select_matching_pool(self):
-        for value, expected in ((None, True), ("0", False), ("1", True)):
+        for value, expected in ((None, False), ("0", False), ("false", False), ("1", True), ("true", True)):
             with (
                 self.subTest(value=value),
                 patch.dict(os.environ),
