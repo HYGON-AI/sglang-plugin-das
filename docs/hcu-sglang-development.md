@@ -3661,3 +3661,9 @@ The candidate previously passed simple dialogues as part of the combined deploym
 ## GLM5.2 INT4：PR #87 回移至 0.5.22 发布分支
 
 目标为 release/sglang_v0.5.22，基点 708a332b0b14372badaebdb79e53c3a061571421，仅移植已合入 main 的 #87（59b217a）。保留发布分支现有记录，重新生成导览。本次验收范围仍为单请求；既有 GPU 与性能证据来自原固定组合，不记为发布分支的新 GPU 复验。发布分支验收：15 项定向 CPU 测试通过；导览生成与一致性检查通过；L0 检查通过（665 个 Python 文件、8 项技能）。全量测试：回移分支 184 项，干净基线 180 项，两者均为 3 errors、13 skipped；逐项对照错误集合完全一致，无新增失败。三个共有错误涉及 HY4 compressed config/checkpoint 与 mrope_delta，未计为本次通过。未运行新的 GPU 服务或数据集评测，既有单请求性能及对话证据沿用 #87 的固定组合。
+
+## 2026-11-19 nmz16 Qwen3.6-35B E4M3 KV Prefill
+
+使用 DTK 26.10 插件镜像、SGLang v0.5.22、adapter release `bcec3e0`、TP4。Graph On / Off 均在第一次真实 Prefill 进入 FA3 的 varlen 分支时触发 `NameError: _current_max_seq_len_k`。release backport `708a332` 留下了一个没有生产者的变量引用。调用方省略 `max_seqlen_k` 时，继续沿用页表列数乘页尺寸的上界。显式长度照常透传，保留 BSHD / BHSD 和原有 vendor 分发。
+
+真实 wrapper 的 CPU 探针替换 vendor 算子，覆盖 E4M3 KV 两种布局、显式和省略的最大长度。修复前复现相同 NameError，修复后检查传入 wheel 的参数。整模、性能和精度仍待 GPU 复验。
