@@ -24,7 +24,7 @@ class _DraftSwaForward:
         rows = bs * 7
         if (
             sliding_window_size != _WINDOW_LEFT
-            or not is_causal
+            or custom_mask is not None
             or sinks is not None
             or logit_cap
             or (xai_temperature_len is not None and xai_temperature_len > 0)
@@ -68,7 +68,7 @@ class _DraftSwaForward:
             q_extend, k_extend, v_extend, k_buffer, v_buffer,
             qo_indptr, kv_indptr, kv_indices, sm_scale,
             o_out=o_extend, k_scale=k_scale, v_scale=v_scale,
-            is_causal=True, page_size=self.page_size,
+            is_causal=is_causal, page_size=self.page_size,
             sliding_window_size=sliding_window_size,
         )
         return True
@@ -88,9 +88,9 @@ def _enable_draft_swa(_result, backend, model_runner, *args, **kwargs):
     ):
         return
 
-    from sglang.srt.runtime_context import get_disagg, get_memory
+    from sglang.srt.runtime_context import get_memory
 
-    if get_disagg().disaggregation_mode != "null" or get_memory().enable_hisparse:
+    if get_memory().enable_hisparse:
         return
     if backend.use_verify_shared_kv:
         fallback = backend.verify_shared_kv_fwd

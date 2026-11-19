@@ -2559,3 +2559,9 @@ MiniMax 专用入口在量化启用时注册已有的 compressed-tensors INT8 ho
 DeepEP shared-expert overlap 按 Decode / Verify、DP8 EP8、W4A8 HIPC 和 low-latency dispatcher 条件启用。异步长度镜像的消费依赖 DSpark Decode batch、overlap scheduler 和有效的 CPU 请求索引。各入口保留已有的布局、调度与 HiSparse 回退条件。
 
 无卡用例覆盖混合 attention backend 的 Decode / Verify 选择，以及未打包 INT8 QKV 进入融合后的异常恢复。GPU 证据来自此前联合候选的普通 fake PD，当前分支待上机回归。
+
+## 2026-11-19 MiniMax DSpark 双向 Draft SWA split-KV
+
+普通 IFB 与 PD Decode 的 Draft Verify 共用 split-KV。插件向 kernel 传递 Triton backend 的 `is_causal`，支持 MiniMax DSpark 把 Draft block 标为 `ENCODER_ONLY` 时的块内双向可见性。自定义 mask 和不符合 kernel 形状的输入沿用现有回退。CPU 回归覆盖双向参数和自定义 mask 透传。
+
+此前联合候选在 nmz22 测了 HiSparse OFF、原生 random fake-prefill、BS64、输入 147,456、输出 1,024、接受长度期望 3.6。八 rank 的 8 step trace 确认 FP8 稀疏融合每 rank 480 次和 Draft SWA 每 rank 80 次。独立配置目录加入旧 CU64 HIPC 调优文件后，两次常规性能的中位数为 2,484.75 tok/s、20.44 ms；旧 DAS 同机五轮中位数为 2,535.90 tok/s、20.00 ms。另一次诊断 prof 展开 Graph 子算子用于比对。上述数据属于联合候选，fake-prefill 不用于精度结论。
