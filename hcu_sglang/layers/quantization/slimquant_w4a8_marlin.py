@@ -989,6 +989,8 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
                     getattr(layer, "use_flashinfer_trtllm_moe", False),
                     getattr(layer, "use_deep_gemm", False),
                 )
+            if self.uses_hyv4_deepep():
+                return HCUW4A8Int8DeepEPMoEMethod(self)
             if get_moe_a2a_backend().is_megamoe():
                 return SlimQuantW4A8Int8MarlinMoEMethod(self)
             dspark_backend_override = get_dspark_w4a8_tpmoe_backend_override()
@@ -1041,6 +1043,14 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
 
     def get_scaled_act_names(self) -> List[str]:
         return []
+
+    def uses_hyv4_deepep(self) -> bool:
+        return (
+            _is_hcu
+            and self.checkpoint_format == HY4_CT_W4A8_FORMAT
+            and self.compressed_tensors_packed
+            and get_moe_a2a_backend().is_deepep()
+        )
 
     def normalize_checkpoint_weights(self, layer: torch.nn.Module) -> None:
         if self.checkpoint_format != HY4_CT_W4A8_FORMAT:

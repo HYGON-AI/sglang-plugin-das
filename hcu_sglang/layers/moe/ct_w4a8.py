@@ -263,9 +263,10 @@ def _masked_hipc(
 ) -> torch.Tensor:
     from deepgemm import m_grouped_w4a8_gemm_nt_masked_hipc
 
-    return m_grouped_w4a8_gemm_nt_masked_hipc(
+    m_grouped_w4a8_gemm_nt_masked_hipc(
         (a0, a1), (b0, b1), d, masked_m, expected_m_per_group
     )
+    return d
 
 
 def _masked_fake(

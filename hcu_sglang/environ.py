@@ -9,6 +9,10 @@ from hcu_sglang.utils.detection import is_hcu
 
 
 _ENV_SPECS: dict[str, tuple[type, Any]] = {
+    "SGLANG_OPT_HY4_IHC_TILELANG": (EnvBool, False),
+    "SGLANG_HY4_LINEAR_GATE_CP_SHARD": (EnvBool, False),
+    "SGLANG_ENABLE_HCU_CONCAT_MLA_ABSORB_Q": (EnvBool, False),
+    "SGLANG_DSA_LIGHTOP_PREFILL_DEQUANT_KV": (EnvBool, False),
     "SGLANG_MOE_C_NATIVE_SORT": (EnvBool, False),
     "SGLANG_QWEN4_COMPACT_PREFILL": (EnvBool, False),
     "SGLANG_QWEN4_LOCAL_ROUTING": (EnvBool, False),
@@ -186,6 +190,17 @@ def _install_field(name: str, field_type: type, default: Any, *, replace: bool) 
 
 def register_envs() -> None:
     """Install fork-only fields and HCU-specific default overrides."""
+    import os
+
+    for legacy, current in (
+        ("SGLANG_NSA_FUSE_TOPK", "SGLANG_DSA_FUSE_TOPK"),
+        ("SGLANG_DSA_MQA_LOGITS_MEMORY_BUDGET_GB", "SGLANG_NSA_MQA_LOGITS_MEMORY_BUDGET_GB"),
+        ("SGL_CHUNKED_PREFIX_CACHE_THRESHOLD", "SGLANG_CHUNKED_PREFIX_CACHE_THRESHOLD"),
+        ("SGLANG_USE_FUSED_RMS_QUANT", "SGLANG_USE_LEGACY_FUSED_RMS_QUANT"),
+    ):
+        if legacy in os.environ:
+            os.environ.setdefault(current, os.environ[legacy])
+
     for name, alias in {
         "SGLANG_DSA_HCU_LIGHTOP_MASK_TOPK": "SGLANG_USE_LIGHTOP_MASK_TOPK",
         "SGLANG_DSA_HCU_REUSE_SORTED_TOPK": "SGLANG_NSA_HCU_REUSE_SORTED_TOPK",

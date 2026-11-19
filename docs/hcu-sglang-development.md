@@ -3964,3 +3964,163 @@ NEXTN steps=4 adaptive、decode graph 批次 1..40、`--disable-radix-cache`。
 
 - 未在真实 HCU 设备上运行模型；fp8 descale tile 与 lightop 回退缺少实机/整模型验证。
 - 未运行 GitHub CI。
+
+## 2026-11-17 HYV4 interleave prefill CP8
+
+目标为官方 `baa9bef` + adapter `253989d` + plugin `3fab2fd`，沿用
+`launch_hy4_sqw4.sh` 的 TP8/CP8/EP8、dense TP1、DeepEP、slimquant W4A8。
+行为参考 `JaneEyreliu/sglang-das:feat/hy4_dcp_adapt` 的 `49a3350`；
+目标框架由 eager runner 负责 CP metadata、输入分片和 logits 前聚合。
+
+- HYV4 hook 为 runner 提供完整 embedding 与 positions；iHC 留在 rank 本地的
+  forward body，dense FFN 使用完整权重，避免对不同 token 的 TP 部分和做归约。
+- HCU 且精确匹配目标拓扑时，以进程内的私有函数绑定接入官方 model resolution；
+  保留其他 provider、非 CP HYV4 及上游 DCP 检查。decode 复用现有
+  `current_dsa` 的 native FlashMLA sink 路径；该组合中 auto KV 解析为 FP8 E4M3。
+  不修改 adapter 或官方源码，不从 DAS fork 动态加载实现。
+- 在目标容器复现旧版 model resolution 拒绝；改后原脚本 argv 通过完整 resolution，
+  并确认当前 DSA backend 的 provider 来自 plugin。会话期间全部 8 张 HCU 显存均
+  高占用，整机 load、decode graph、prefill 和生成验证待空卡执行。
+
+S3 空卡重试时，native Ninja 在 5 秒内完成 fused RoPE 编译。Decode graph
+随后暴露 HYV4 CT SlimQuant 专家误走官方 DeepEP 已退役接口的问题。
+HYV4 CT packed 专家在 HCU DeepEP 下复用 `HCUW4A8Int8DeepEPMoEMethod`，
+由该方法直接处理原始 checkpoint packing，普通 TP 路径保留既有 Marlin 加载。
+S3 验证进程显式开启 contiguous/masked HIPC，沿用原脚本的 CP8/EP8 拓扑。
+
+组合环境需在验证进程设置 `HCU_DEEPEP_BRIDGE=0`。plugin 的 dispatcher 直接
+使用 vendor DeepEP 的 `quant_type` ABI。adapter 的 v0.5.21 兼容 wrapper
+会隐藏该参数，使 low-latency 分支无法选择 INT8。
+
+S3 的 DTK DeepEP wheel 清理 low-latency buffer 时不接受 `num_topk`。
+`DeepEPBuffer.clean_buffer()` 按实际签名传参，保留 normal→low-latency 的清理。
+2026-11-17 的 `S3-eval-20261117-171635` 验证中，八卡 decode graph
+capture 和在线 replay 通过，对话 3/3。GSM8K 前 200 题、并发 16、0-shot
+no_think 为 167/200（83.5%），耗时 1858 秒。13 题达到 4096 token
+上限，均判错。该轮配置未启用 plugin 的策略化 CP。整批 prefill token
+数可以被 CP8 整除时，旧 HCU 路径分片了 DSA 元数据，HYV4 model body
+仍收到全量输入，多个不同 prompt 会产生相同的错误首 token。
+通过校验的 HYV4 prefill CP 配置在 plugin 里开启策略化 CP，统一由 runner
+分片模型输入、执行 DSA 并在 logits 前聚合。原启动参数足以选择这条路径。
+
+S3 的 `S3-cpv2-20261117-180519` 对照进程只开启策略化 CP。19 组首
+token 探针恢复正常，对话 3/3。同一前 200 题、并发 16、0-shot no_think、
+4096 token 上限得到 195/200（97.5%），与历史 TP8 的总正确数相同。
+两轮 CP8 的异常首 token 数为 28→0，达到 token 上限的题数为 13→0。
+清空外部 CP 环境变量后，新代码通过原启动参数的解析验证。
+
+## 2026-11-18 HYV4 CP8 新镜像接口复查
+
+S3 新容器的 DTK 26.10 DeepGEMM masked HIPC 写入输出张量后返回
+(block_m, n_tiles) 元信息。plugin 的 Tensor custom op 需要返回输出
+张量 d，因此包装层显式返回 d，兼容旧镜像返回 Tensor 和新镜像返回
+tuple 的两种 vendor ABI。20261117-201742 启动日志在 decode graph
+capture 中出现 Unable to cast (64, 64) to Tensor，来自这一返回值差异。
+
+plugin 289b7fb 的 Qwen 注册入口调用 qwen3_5.register()，同时缺少
+qwen3_5 导入，本轮补齐已有模块导入，使注册能走到末尾。
+
+本轮专项回归 12/12 通过。原 launch_hy4_sqw4.sh 于 2026-11-18
+09:13:47 启动，decode graph capture 9.99 秒，09:17:49 服务 ready。
+短对话三题分别完整输出 柏林、43、Jupiter，finish_reason 均为 stop。
+日志位于 py_scr/logs/hy4_sqw4-20261118-091347.log 和同前缀
+-chat.log。新容器本轮尚未重新跑 GSM8K。
+
+2026-11-18 accuracy-20261118-093216 完整复测完成。复用历史
+chat_probe.py 和 gsm8k_eval.py，对话 3/3，三题均正常 stop。
+GSM8K 同题前 200、并发 16、0-shot no_think、temperature 0、
+4096 token 上限，结果 194/200（97.0%），543 秒，退出码 0。
+异常首 token、达到上限及无法提取预测均为 0。旧容器 CP8 195/200，
+本轮第 101 题从正确变为错误，其余判定相同。历史 TP8 为 195/200。
+原始日志和逐题 JSONL 位于 py_scr/logs/accuracy-20261118-093216-*。
+
+## 2026-11-18 HYV4 配方环境变量行为补齐
+
+参考 JaneEyreliu/sglang-das 的 feat/hy4_dcp_adapt，来源 49a3350。
+目标为 official baa9bef、adapter 72484f4 和 plugin feat/hy4-cpep。
+新增行为在 plugin，adapter 处理启动期旧 topk 名称与模型默认值的优先级。
+
+- SGLANG_OPT_HY4_IHC_TILELANG 接到 boltops.ihc pre/post/head。
+  外层模型 Hook 保持 RMSNorm 调用和 residual 返回协议，post_pre 组合
+  经 post 与下一层 pre，关闭时继续调用当前有效 original。
+- SGLANG_HY4_LINEAR_GATE_CP_SHARD 接到参考分支的 CP gate 分片与
+  双 buffer 权重预取。只接受 prefill CP、attention TP1、DCP1 和
+  unquantized gate；模型入口/出口负责 chain begin/end。
+- SGLANG_ENABLE_HCU_CONCAT_MLA_ABSORB_Q 控制 current_dsa 的
+  concat，显式 1 调 HCU 算子，显式 0 使用 torch.cat，未设置保留基线。
+- SGLANG_DSA_LIGHTOP_PREFILL_DEQUANT_KV 接到 LightOp 的 packed
+  656-byte KV 解量化。也接受显式 SGLANG_USE_LIGHTOP_PREFILL_DEQUANT，
+  专用变量优先；未设置保留原 dequant 路径。
+- SGLANG_NSA_FUSE_TOPK、SGLANG_DSA_MQA_LOGITS_MEMORY_BUDGET_GB、
+  SGL_CHUNKED_PREFIX_CACHE_THRESHOLD 分别兼容当前 canonical 名称，
+  显式 canonical 值优先。adapter 在模型默认值应用前尊重旧 topk 名。
+
+参考分支已删除 SGLANG_ENABLE_SPEC_V2。SGLANG_CREATE_EXTEND_AFTER_DECODE_SPEC_INFO、
+SGLANG_CREATE_CHUNKED_PREFIX_CACHE_KV_INDICES 等名字仅存在测试配方。
+LIGHTOP_MQA_LOGITS_BETA_FP8 与 SGLANG_NSA_KPOOL_LIGHTOP_TOPK 在该来源
+未发现实现，不能仅增加环境字段便声称旧行为已经迁入。
+NIC、HIP、RCCL、ROCSHMEM 和 Triton 变量由各依赖解析；DeepEP 的单机 IPC
+分支不支持 layered low-latency，且会重写 heap/context 参数。
+
+数值回归覆盖 iHC 空/1/17/128 行、独立 RMSNorm、post/head、concat 与
+packed-KV LightOp dequant。adapter model-env/bootstrap/spawn 回归 84 项通过。
+整机验证使用原脚本，显式开启 iHC、concat、dequant、旧预算、旧 topk 和
+gate CP 分片，实际日志与后续验收结果在本节继续记录。
+
+2026-11-18 hyv4-env-20261118-112635 整机启用验证通过：
+八卡 gate 分片 (2048,6144)，decode graph capture 10.55s；
+真实 boltops.ihc pre/post/head 调用已返回。对话 3/3，32K 输入生成成功。
+GSM8K 同题前 200、并发 16、no_think、4096 token 上限为 194/200
+（97.0%），379 秒，退出码 0。开启前同容器为 194/200、543 秒，
+第 101 题恢复正确，第 147 题变错。无截断/异常首 token/缺失预测。
+多个开关同时开启，耗时变化尚未做单因素归因。日志均在 py_scr/logs，
+前缀 hyv4-env-20261118-112635。完整迁移说明为 py_scr/HYV4_ENV_PORTING_1118.md。
+
+
+## 2026-11-18 HYV4 原脚本 NEXTN/CP8 缺口迁移
+
+来源固定 JaneEyreliu/sglang-das feat/hy4_dcp_adapt，SHA 49a3350084af4cfd6f3bc8f6c9c48513e6ea8add。本轮为 plugin 新能力接线；保留官方运行时文件和既有 adapter 平台桥。
+
+新增 models/hyv4_nextn.py、models/hyv4_mtp_metadata.py，经 hunyuan_v4.register_hooks 注册五个 draft Hook。覆盖量化配置深拷贝/前缀与 gate 名映射、packed CT 权重转换和 scale 名、MTP 完整性检查、draft CP 输入入口、gate chain 和备用 stream 同步。hyv4_prefill_cp 的准入仅增加 NEXTN/EAGLE topk1 且 draft_tokens=steps+1 的正数链，其他限制保留。environ 将脚本的 SGLANG_USE_FUSED_RMS_QUANT 接到现有 SGLANG_USE_LEGACY_FUSED_RMS_QUANT consumer；consumer 显式值优先，保留 epsilon/量化能力校验。
+
+真实 checkpoint 的 10 个 shard、1571 项归一化 MTP metadata 通过参考契约。专项/别名/linear 组合回归 28/28，包含真实 Hook 注册及公共消费者，L0 通过。全仓 discover 274 项中 86 failures、9 errors、27 skipped，涉及已有目标合同、来源夹具和 AST 快照；未以本轮专项通过替代全仓通过。
+
+参考也无消费者的旧环境变量记录为 excluded/未确认，不补造开关；SGLANG_ENABLE_SPEC_V2 在来源已移除。原脚本的 Shell/相对路径/参数转发问题未混入运行时代码迁移。
+
+原脚本的 NEXTN 整机服务验收正在执行，graph、实际生成和 GSM8K 暂为 pending。此前无 NEXTN 的结果不可外推。配置、脚本与本次日志统一保存在任务 py_scr 目录；完整执行记录为 HYV4_GAP_PORTING_1118.md。
+
+
+## 2026-11-19 HYV4 NEXTN 输入缓冲区首次分叉
+
+参考当前官方 DeepSeek NextN 与 `GlmMoeDsaForCausalLMNextN`（GLM-5.2），
+二者共用 EAGLE worker/target verify，GLM-5.2 继承 DeepSeek NextN。
+`glm5_next` 是另一条模型实现，不应误称为 GLM-5.2。
+HYV4 当前同样经过通用 verify，不引入模型专属 acceptance/sampling。
+
+在真实双请求中，padding 后 `seq_lens=[104,104]`，eager runner
+registry grouped copy 后为 `[104,0]`，请求索引和其他输入尾部也被清零；
+逐字段 copy 前后证据把首次错误收敛到上游 small_copy 的 HCU FastJIT
+缓存/tuple launch，而不是 draft 权重或 FlashMLA。无模型的变 batch
+最小例也复现，使用标准 Triton JIT 后逐元素一致。
+
+修复归属 adapter：`hcu_adapter/small_copy_jit.py` 保留上游原内核与
+已有别名，仅替换该对象的 run 为标准 JIT。plugin 本次没有新增算法修复，
+临时 `HCU_VERIFY_DIAG_DIR` 注入已逐字节恢复到诊断前。
+CPU 绑定 2 项与真实 HCU 变 batch/非连续/整数转换/变输入 graph 2 项通过；
+原始脚本的 graph 生成与整模型精度另行记录，尚不能用组件结果宣布通过。
+原始未提交改动均保留；未修改 official 源码与原始 launch 脚本。
+
+
+### 2026-11-19 原配置整机复验结果
+
+修复后原TP8/EP8/CP8、NEXTN steps3/topk1/draft4、graph开启：
+单/双请求各两轮、n=2与六条不同内容并发均正常。
+GSM8K前200、并发16、temperature0、no_think、max_tokens4096：
+195/200（97.5%），219.75秒；200/200 stop与boxed，0截断/缺失预测。
+5道错题完整输出已人工检查，为连贯解题/题意解释错误；本轮未再观察到原乱码。
+原始响应、finish reason和运行日志保留在部署任务的
+nextn-small-copy-fixed-graph-20261119-105758证据目录。
+首次启动HIPBLAS分配失败不算通过，以上结果来自成功重试；
+修复后未单独重启全模型eager配方，组件覆盖eager与变输入graph。
+不是同工作区无NEXTN单变量A/B，不能据此证明全部模型数值等价。
+图文导览此次未做浏览器视觉复验。代码保持未提交，原始脚本与official不改。

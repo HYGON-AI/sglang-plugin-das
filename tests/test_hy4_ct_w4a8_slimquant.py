@@ -7,7 +7,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 _HAVE_RUNTIME = all(
     importlib.util.find_spec(name) is not None for name in ("torch", "sglang")
@@ -143,6 +143,20 @@ class HY4CompressedConfigTests(unittest.TestCase):
         )
         self.assertIsNone(Lazy.override_quantization_method(_hy4_mixed(), None))
 
+    def test_hyv4_deepep_selects_packed_w4a8_method(self):
+        from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
+
+        config = self._from_config(_hy4_mixed(), "HYV4ForCausalLM")
+        backend = Mock()
+        backend.is_deepep.return_value = True
+        with patch.object(self.m, "_is_hcu", True), patch.object(
+            self.m, "get_moe_a2a_backend", return_value=backend
+        ):
+            method = config.get_quant_method(Mock(spec=FusedMoE), "model.layers.3.mlp.experts")
+            self.assertIsInstance(method, self.m.HCUW4A8Int8DeepEPMoEMethod)
+            backend.is_deepep.return_value = False
+            self.assertFalse(config.uses_hyv4_deepep())
+
     def test_linear_targets_select_w8a8_or_bf16(self):
         from sglang.srt.layers.linear import LinearBase
         from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
@@ -209,6 +223,17 @@ class HY4NormalizeCheckpointWeightsTests(unittest.TestCase):
 
 @unittest.skipUnless(_HAVE_RUNTIME, "requires torch + official sglang")
 class HYV4PackedNameAdapterTests(unittest.TestCase):
+    def test_deepep_loader_keeps_packed_checkpoint_names(self):
+        from hcu_sglang.models.hunyuan_v4 import replacement_load_weights
+
+        config = Mock(checkpoint_format="hy4_compressed_tensors_w4a8")
+        config.uses_hyv4_deepep.return_value = True
+        model = Mock(quant_config=config)
+        weights = iter([("model.layers.5.mlp.experts.7.gate_proj.weight_packed", object())])
+        loader = Mock()
+        replacement_load_weights(loader, model, weights)
+        loader.assert_called_once_with(model, weights)
+
     def test_packed_expert_names(self):
         import torch
         from hcu_sglang.models.hunyuan_v4 import adapt_hyv4_packed_weight

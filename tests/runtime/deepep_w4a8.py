@@ -19,6 +19,32 @@ from sglang.srt.layers.moe.utils import DeepEPMode
 
 
 class DeepEPW4A8Tests(unittest.TestCase):
+    def test_masked_hipc_preserves_output_for_vendor_return_variants(self):
+        import deepgemm
+        from hcu_sglang.layers.moe.ct_w4a8 import _masked_hipc
+
+        output = torch.empty(2, 4, 8)
+        args = (
+            torch.ones(2, 4, 8, dtype=torch.int8),
+            torch.ones(2, 4, 1),
+            torch.empty(2, 8, 4, dtype=torch.int8),
+            torch.ones(2, 8, 1),
+            output,
+            torch.tensor([2, 0], dtype=torch.int32),
+            4,
+        )
+        for vendor_result in (output, (64, 64), None):
+            with self.subTest(result=type(vendor_result).__name__):
+                def gemm(a, b, out, mask, expected):
+                    out.fill_(2)
+                    return vendor_result
+
+                with patch.object(
+                    deepgemm, "m_grouped_w4a8_gemm_nt_masked_hipc", side_effect=gemm
+                ):
+                    self.assertIs(_masked_hipc(*args), output)
+                    self.assertTrue(torch.all(output == 2))
+
     def test_masked_moe_reaches_the_hcu_gemms(self):
         import deepgemm
 
@@ -398,6 +424,7 @@ class DeepEPContiguousWidthTests(unittest.TestCase):
         ):
             layer.register_parameter(name, torch.nn.Parameter(tensor, requires_grad=False))
         method = object.__new__(quant.SlimQuantW4A8Int8MarlinMoEMethod)
+        method.quant_config = quant.SlimQuantW4A8Int8MarlinConfig()
         method.use_deepep = True
         seen = []
 

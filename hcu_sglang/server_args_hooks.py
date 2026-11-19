@@ -313,6 +313,12 @@ def _model_resolution(server_args, previous):
         from hcu_sglang.layer_split_pipeline import adapt_model_adjustments
 
         previous = adapt_model_adjustments(previous)
+    from hcu_sglang.models.hyv4_prefill_cp import adapt_if_requested
+
+    if _resolving_view(server_args).enable_prefill_cp and is_hcu():
+        previous = adapt_if_requested(
+            previous, server_args, model_arch=_model_arch(server_args)
+        )
     return handle_model_specific_adjustments(previous, server_args)
 
 

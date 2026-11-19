@@ -49,7 +49,6 @@ from sglang.srt.layers.attention.dsa_backend import (
     compute_dsa_seqlens,
     concat_and_cast_q_fp8_pad,
     concat_cast_kv_fp8_pad,
-    concat_mla_absorb_q_general,
     dataclass,
     dcp_trtllm_sparse_attention,
     dequantize_k_cache_paged,
@@ -103,6 +102,7 @@ from hcu_sglang.layers.attention.current_dsa.dsa_backend_mtp_precompute import D
 from hcu_sglang.layers.attention.current_dsa.dsa_metadata_manager import DSAMetadataManagementMixin
 from hcu_sglang.layers.attention.current_dsa.dsa_indexer_metadata import DSAIndexerMetadata
 from hcu_sglang.models.deepseek.current_v4.hcu_backend.hcu_cp_utils import cp_all_gather_rerange_output, cp_split_and_rebuild_position
+from hcu_sglang.layers.attention.current_dsa.concat import concat_mla_absorb_q_general
 from hcu_sglang.layers.attention.current_dsa.cp_helpers import can_dsa_prefill_cp_round_robin_split, dsa_cp_round_robin_split_data, dsa_cp_round_robin_split_q_seqs
 try:
     from aiter import get_mla_metadata_info_v1, get_mla_metadata_v1

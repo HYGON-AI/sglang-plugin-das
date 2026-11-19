@@ -676,11 +676,16 @@ class DeepEPBuffer:
         state = cls._state()
         if not state.buffer.low_latency_mode:
             return
-        state.buffer.clean_low_latency_buffer(
+        clean = state.buffer.clean_low_latency_buffer
+        try:
+            accepts_topk = "num_topk" in inspect.signature(clean).parameters
+        except (TypeError, ValueError):
+            accepts_topk = False
+        clean(
             state.num_max_dispatch_tokens_per_rank,
             state.hidden_size,
             state.num_experts,
-            num_topk=state.num_topk,
+            **({"num_topk": state.num_topk} if accepts_topk else {}),
         )
 
     @classmethod
