@@ -7,7 +7,7 @@
 from __future__ import annotations
 import os
 import inspect
-from typing import Optional
+from typing import NamedTuple, Optional
 import torch
 from sglang.srt.layers.quantization.compressed_tensors.schemes import compressed_tensors_w8a8_int8 as N
 from sglang.srt.utils import get_bool_env_var
@@ -20,6 +20,12 @@ from lightop.quant import per_token_quant_int8
 _use_fused_rms_quant = get_bool_env_var("SGLANG_USE_LEGACY_FUSED_RMS_QUANT")
 _use_fused_silu_mul_quant = get_bool_env_var("SGLANG_USE_FUSED_SILU_MUL_QUANT")
 W8A8_TRITONJSON = W8a8GetCacheJSON()
+
+class PrequantizedInt8Input(NamedTuple):
+    activation: torch.Tensor
+    scale: torch.Tensor
+    dtype: torch.dtype
+
 
 def _use_kme_hipblaslt(device: torch.device) -> bool:
     if device.type != "cuda":
@@ -227,6 +233,8 @@ def apply_weights(
         x_q, x_scale = input_quant_args
     elif _use_fused_silu_mul_quant and silu_quant_args is not None:
         x_q, x_scale = silu_quant_args
+    elif isinstance(x, PrequantizedInt8Input):
+        x_q, x_scale = x.activation, x.scale
     else:
         fused = (
             qwen_rms_int8.take_prequantized_input(layer, x)

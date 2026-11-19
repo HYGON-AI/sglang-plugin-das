@@ -2823,6 +2823,44 @@ bw47 环境本身跑不动这套组合，需要先补五项前置条件（均为
 5. `pip install -e . --no-deps --no-build-isolation`：bw47 没有 editable 安装，`sglang.srt.plugins` entry_point 为空（`[]`），插件完全不会被加载。安装前需 `git config --global --add safe.directory` 两仓路径，否则 setuptools 读版本号时因 dubious ownership 失败。
 
 `hook_guard` 在 bw47 上还额外验证了一个设计点：`apply_hooks` 用 `try/finally` 发汇总，即使 `register()` 中途抛异常（如上述缺 scipy），汇总仍会照常打印——日志里能看到汇总行出现在 `register()` 失败之后。
+## 2026-11-20 Qwen MLP 的 SiLU + mul + INT8 量化
+
+`SGLANG_HCU_QWEN_SILU_INT8_FUSION=1` 启用 HCU 上 Qwen3.5/3.8 所用
+`Qwen2MoeMLP.forward` 的 `gate_up_proj → SiLU + mul + 逐 token INT8 量化 → down_proj`。
+开关默认关闭，与输入归一化和 GDN 输出融合独立。通过
+`lightop.activation.fuse_silu_mul_quant` 将 INT8 激活和 FP32 scale 直接交给
+动态对称 compressed-tensors W8A8 的 rank-local `down_proj`。GEMM 输出 dtype
+和 TP reduction 沿用现有路径。FP4、sequence parallel、编译、RL 确定性模式、
+不兼容输入和缺少 LightOp 入口均继续走原有路径。
+
+在 bw46 上按 Qwen3.8-27B INT8 TP2 的 rank-local 8,704 维 MLP 宽度做算子对拍。
+随机 BF16 输入的 1、4、32、128、512、2,048 token 的 INT8 激活与 FP32 scale
+均匹配现有两算子路径。全零行的融合与基线 scale 分别为 0 和约 7.87e-13，
+反量化结果均为 0。新增门控和投影用例及既有 GDN 用例共 5 项通过。
+
+同卡 Graph replay 微测按每次 activation + quant 的耗时统计。分片宽度 8,704，
+1 token 为 8.54 → 6.83 微秒，4 token 为 8.67 → 6.87 微秒，
+512 token 为 45.24 → 30.32 微秒。六个点耗时比为 1.25–1.49×。
+
+bw46 以 TP2、MTP NEXTN 3/1/4、完整 verify Graph BS1 同时打开 GDN 和 MLP 融合。
+两 rank 在 target-verify Graph 捕获时均命中 MLP 融合。真实 chat 请求均以 stop
+结束，数学和地理短答与当前基线相同。64-token 原生生成文本相同，两组均执行
+16 轮 MTP verify。
+
+
+以同一 plugin 工作树在同一对 HCU（6/7）按顺序运行两组 EvalScope 1.15.0 HumanEval，
+两组都开 GDN，仅切换 SiLU。两组使用 TP2、MTP NEXTN 3/1/4、完整 verify Graph
+BS1、greedy、seed 42、关闭 thinking、4096 输出 token 上限和请求并发 8。
+逐题输入和标准答案一致，两个服务的有效运行配置一致。
+
+| HumanEval pass@1 | 通过数 | 得分 |
+| --- | ---: | ---: |
+| 只开 GDN | 159/164 | 96.95% |
+| GDN 和 SiLU 同开 | 160/164 | 97.56% |
+
+两组均完成全部 164 题且无截断。有 2 题仅只开 GDN 组通过、3 题仅双融合组通过。
+前一版本的只开 GDN 历史成绩为 161/164。当前对照覆盖单轮模型精度。
+
 ## 2026-11-05 DeepSeek V4.1 TP8 首次生成的 KV 索引与 DSPARK 结果
 
 固定 official baa9befa、plugin 0aa4114d、adapter 918f850d。原配方在 gfx938
