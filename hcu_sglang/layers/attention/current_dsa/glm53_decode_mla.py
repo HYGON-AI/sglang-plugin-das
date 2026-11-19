@@ -6,7 +6,7 @@ from typing import NamedTuple
 
 import torch
 
-from hcu_sglang.layers.glm53_decode import phase_enabled
+from hcu_sglang.layers.glm53_decode import absorb_bmm_scope, phase_enabled
 from sglang.srt.environ import envs
 from sglang.srt.models.deepseek_common.attention_forward_methods import (
     forward_mla_rocm as N,
@@ -572,6 +572,7 @@ def forward_absorb_rocm_prepare(
 
 def around_rocm_prepare(original, attn, *args, **kwargs):
     batch = kwargs.get("forward_batch", args[2] if len(args) > 2 else None)
-    if not phase_enabled(attn, batch):
-        return original(attn, *args, **kwargs)
-    return forward_absorb_rocm_prepare(attn, *args, **kwargs)
+    with absorb_bmm_scope(batch):
+        if not phase_enabled(attn, batch):
+            return original(attn, *args, **kwargs)
+        return forward_absorb_rocm_prepare(attn, *args, **kwargs)

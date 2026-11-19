@@ -20,6 +20,8 @@
 - [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
 - [2026-11-19：Qwen Gemma RMSNorm 与动态 INT8 量化融合](#2026-11-19-qwen-gemma-rmsnorm-与动态-int8-量化融合)
 - [2026-11-19：GLM-5.3 Channel FP8 基础运行时](#2026-11-19-glm-53-channel-fp8-基础运行时)
+- [2026-11-18：GLM-5.3 FP8 absorb BMM 分发对齐](#2026-11-18-glm-53-fp8-absorb-bmm-分发对齐)
+- [2026-11-19：DeepEP 清理接口兼容](#2026-11-19-deepep-清理接口兼容)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -3717,3 +3719,36 @@ KV/index cache 和模型 Hook，并加入显式的 prefill、decode 候选开关
 已有隔离环境记录覆盖 CP8 的 12K/MTP 调用对照和普通 eager decode。
 本分支只做本地结构与 lint 检查。DCP4、HiSparse 和完整 Graph 组合需要按
 实际部署配方另行复验；历史候选结果按原环境记录。
+
+## 2026-11-18 GLM-5.3 FP8 absorb BMM 分发对齐
+
+复用原生镜像 `sglang 0.5.18+glm.cc4dceb` 中的 `glm_absorb_bmm.py`，
+源码 SHA-256 为 `c51c3854924bc5502c1ec33159a1ae6f2cac8c85e1189db0dcc81af3d53b17e0`。
+GLM-5.3 MLA 的 prepare 和 core 将当前批次传给 Q/V BMM 分发。
+分发用 `effective_forward_mode` 识别 MLP-sync 前的阶段，在原生阶段和
+布局条件满足时优先尝试 Triton，再使用既有的 skinny 和 `torch.bmm` 回退。
+确定性推理、batch-invariant 和编译门控沿用原生条件。
+
+在两节点 EP8 上用 Handoff R 的 A/B 张量对拍。Draft extend 和 target verify
+的 Q/V 各 16 份与原生 Triton 输出逐位一致。普通 decode 的 32 份 Q/V
+保留 skinny 路径并逐位一致。8 个 rank 的算子级 HIP Graph 同址换入另一组
+输入后，64 份 draft extend 和 target verify 的 Q/V 输出也与原生参考逐位一致。
+证据见 Handoff R 的 `device-replay/absorb-bmm-q-replay/bmm-summary.json`。
+
+## 2026-11-19 DeepEP 清理接口兼容
+
+插件在加载时检查安装包的清理函数签名。镜像 DeepEP `g4afb59` 的清理
+实现内部使用 K=8，插件沿用原生 SGLang 的三参调用。接受 `num_topk`
+关键字的接口接收实际 `state.num_topk`。Normal → low-latency 在清理
+成功后切换分发模式。
+
+两节点使用真实 GLM-5.3 Channel FP8 请求的实参完成 EP8 同输入复验。
+八 rank 的 384 条 low-latency 路由、FP8 payload、FP32 scale 和 BF16
+combine 输出逐位一致，前后通信和清理 kernel 的符号、次数与首发尺寸
+一致。真实 eager IFB 两侧均为 8/8，完整输出 token、结束原因和 MTP
+接受统计逐请求相同，两侧八个 rank 都命中 low-latency decode。
+证据见 `device-replay/short-ab-20261119/RUN.md`。
+
+归档的 fake 性能使用固定 low-latency 和 full Graph。启用 DeepEP auto 时，
+Graph replay 恢复捕获的分发模式，若此前是 normal，会先清理 buffer。
+该切换场景的同址换输入回放尚未验证。

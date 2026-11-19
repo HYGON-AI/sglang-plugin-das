@@ -14,6 +14,7 @@ from sglang.srt.environ import envs
 logger = logging.getLogger(__name__)
 _o_proj_phase = ContextVar("hcu_glm53_o_proj_phase", default=None)
 _fused_query = ContextVar("hcu_glm53_fused_query", default=None)
+_absorb_bmm_batch = ContextVar("hcu_glm53_absorb_bmm_batch", default=None)
 _GLM_ARCHS = {"GlmMoeDsaForCausalLM", "GlmMoeDsaForCausalLMNextN"}
 
 
@@ -187,7 +188,57 @@ def fp8_gemm(qinput, x_scale, weight, weight_scale, output):
     deepgemm.fp8_gemm((qinput, x_scale), (weight, weight_scale), output)
 
 
+@contextmanager
+def absorb_bmm_scope(batch):
+    if torch.compiler.is_compiling():
+        yield
+        return
+    token = _absorb_bmm_batch.set(batch)
+    try:
+        yield
+    finally:
+        _absorb_bmm_batch.reset(token)
+
+
+def _absorb_bmm_fusion_enabled(attn):
+    if (
+        not getattr(attn, "_lightop_glm_fusions", False)
+        or not envs.SGLANG_GLM_OPT_DECODE.get()
+        or torch.compiler.is_compiling()
+    ):
+        return False
+    batch = _absorb_bmm_batch.get()
+    if batch is None:
+        return False
+
+    from hcu_sglang.layers.attention.current_dsa.forward_batch_utils import (
+        effective_forward_mode,
+    )
+    from sglang.srt.batch_invariant_ops import is_batch_invariant_mode_enabled
+    from sglang.srt.runtime_context import get_exec
+
+    if (
+        is_batch_invariant_mode_enabled()
+        or get_exec().deterministic.enable_deterministic_inference
+    ):
+        return False
+
+    mode = effective_forward_mode(batch)
+    return (
+        mode.is_decode()
+        or mode.is_target_verify()
+        or mode.is_draft_extend_v2()
+        or (attn.is_nextn and mode.is_extend())
+    )
+
+
 def absorb_bmm(attn, x, weight, out=None):
+    if _absorb_bmm_fusion_enabled(attn):
+        from hcu_sglang.kernels.ops.glm_absorb_bmm import try_glm_absorb_bmm
+
+        result = try_glm_absorb_bmm(x, weight, out)
+        if result is not None:
+            return result
     gemm = hcu_gemm()
     if gemm is not None and getattr(attn, "_hcu_glm_gemm", False):
         result = gemm.try_bmm_bf16(x, weight, out)
@@ -477,7 +528,7 @@ def around_rocm_core(
         q_nope_out, q_pe, k_nope = query, None, None
     token = _fused_query.set(query)
     try:
-        with o_proj_scope(attn, batch):
+        with absorb_bmm_scope(batch), o_proj_scope(attn, batch):
             return original(
                 attn,
                 q_pe,
