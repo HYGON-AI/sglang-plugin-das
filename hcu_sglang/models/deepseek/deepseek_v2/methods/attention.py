@@ -436,7 +436,10 @@ def forward_absorb_prepare(
         )
         k_nope = latent_cache[..., : self.kv_lora_rank]
         if (
-            N0.envs.SGLANG_HCU_GLM53_FP8_KV_ROPE_STORE.get()
+            (
+                N0.envs.SGLANG_GLM_OPT_PREFILL.get()
+                or N0.envs.SGLANG_HCU_GLM53_FP8_KV_ROPE_STORE.get()
+            )
             and not fuse_bmm_attention
             and not q_replicate_active
             and not N1._ENABLE_DSA_Q8KV8_BORN_FP8_Q

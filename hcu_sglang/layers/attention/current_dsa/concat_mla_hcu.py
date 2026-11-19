@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 """Bit-preserving MLA Q concat for the validated gfx938 draft layouts."""
 
 from typing import Optional

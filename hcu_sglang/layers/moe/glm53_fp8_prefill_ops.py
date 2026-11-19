@@ -194,7 +194,7 @@ def try_expert_activation_inverse(layer, value):
 
 
 def try_gather_k8(layer, input_tensor, ids, weights, input_index, output):
-    if not envs.SGLANG_HCU_GLM53_FP8_EP_GATHER_K8.get() or not _layer_eligible(layer):
+    if not _layer_eligible(layer):
         return False
     if (
         input_tensor.ndim != 2
@@ -223,9 +223,15 @@ def try_gather_k8(layer, input_tensor, ids, weights, input_index, output):
     ):
         return False
     path = envs.SGLANG_HCU_GLM53_FP8_EP_GATHER_K8_SO.get()
-    if not path:
+    if path:
+        module = _load_extension("gather", path)
+        module.run(input_tensor, ids, weights, input_index, output, 1)
+        return True
+    from lightop import moe
+
+    ep_gather = getattr(moe, "ep_gather", None)
+    if not callable(ep_gather) or "specialize_k8" not in (ep_gather.__doc__ or ""):
         _warn_missing_extension("K8 gather")
         return False
-    module = _load_extension("gather", path)
-    module.run(input_tensor, ids, weights, input_index, output, 1)
+    ep_gather(input_tensor, ids, weights, input_index, None, output, specialize_k8=True)
     return True

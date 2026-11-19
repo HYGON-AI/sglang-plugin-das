@@ -80,7 +80,21 @@ def mark_decoder_norms(decoder):
 
 @lru_cache(maxsize=1)
 def _warn_missing_extension():
-    _LOGGER.warning("GLM-5.3 FP8 add-RMS requested without an extension path; using the existing route")
+    _LOGGER.warning("GLM-5.3 FP8 aligned add-RMS unavailable in the installed LightOp")
+
+
+@lru_cache(maxsize=1)
+def _image_aligned_add_rms():
+    try:
+        op = importlib.import_module("lightop.op")
+    except ModuleNotFoundError as exc:
+        if exc.name not in ("lightop", "lightop.op"):
+            raise
+        return None
+    function = getattr(op, "fused_add_rms_norm_opt", None)
+    if callable(function) and "use_aligned_loads: bool = False" in (function.__doc__ or ""):
+        return function
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -112,7 +126,10 @@ def _load_extension(path):
 
 
 def try_add_rms(norm, x, residual, post_residual_addition, quant_linear):
-    if torch.compiler.is_compiling() or not envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get():
+    if torch.compiler.is_compiling() or not (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get()
+    ):
         return False
     if residual is None or post_residual_addition is not None or quant_linear is not None:
         return False
@@ -167,8 +184,12 @@ def try_add_rms(norm, x, residual, post_residual_addition, quant_linear):
     if torch.cuda.get_device_properties(x.device).gcnArchName.split(":", 1)[0] != "gfx938":
         return False
     path = envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16_SO.get()
-    if not path:
+    if path:
+        _load_extension(path).run(x, residual, weight, norm.variance_epsilon, 1)
+        return True
+    function = _image_aligned_add_rms()
+    if function is None:
         _warn_missing_extension()
         return False
-    _load_extension(path).run(x, residual, weight, norm.variance_epsilon, 1)
+    function(x, residual, weight, norm.variance_epsilon, use_aligned_loads=True)
     return True

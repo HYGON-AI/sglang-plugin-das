@@ -57,11 +57,14 @@ def gather_packed_kv_cache_and_store(strategy, x, forward_batch, cache):
         or x.device != loc.device
     ):
         raise ValueError("Packed KV exchange received incompatible tensor layouts")
-    padded_x = x.new_zeros((physical_rank_len, 656))
-    padded_x[:local_logical_len] = x[:local_logical_len]
+    local_rows = x[:local_logical_len]
+    if local_logical_len < physical_rank_len:
+        padded_x = x.new_zeros((physical_rank_len, 656))
+        padded_x[:local_logical_len] = local_rows
+        local_rows = padded_x
     with use_symmetric_memory(
         get_parallel().attn_cp_group, disabled=not is_allocation_symmetric()
     ):
         gathered = x.new_empty((cp_size * physical_rank_len, 656))
-    attn_cp_all_gather_into_tensor(gathered, padded_x.contiguous())
+    attn_cp_all_gather_into_tensor(gathered, local_rows.contiguous())
     store_interleaved_packed_kv(gathered, loc, cache, cp_size, physical_rank_len)

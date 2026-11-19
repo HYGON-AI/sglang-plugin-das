@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: Apache-2.0
+
 #include <ATen/DeviceGuard.h>
 #include <ATen/MemoryOverlap.h>
 #include <ATen/ops/_assert_async.h>

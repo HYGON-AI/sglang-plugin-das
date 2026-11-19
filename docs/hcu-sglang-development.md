@@ -22,6 +22,7 @@
 - [2026-11-19：GLM-5.3 Channel FP8 基础运行时](#2026-11-19-glm-53-channel-fp8-基础运行时)
 - [2026-11-18：GLM-5.3 FP8 absorb BMM 分发对齐](#2026-11-18-glm-53-fp8-absorb-bmm-分发对齐)
 - [2026-11-19：DeepEP 清理接口兼容](#2026-11-19-deepep-清理接口兼容)
+- [2026-11-19：GLM-5.3 FP8 稳态 prefill 优化](#2026-11-19-glm-53-fp8-稳态-prefill-优化)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -3752,3 +3753,29 @@ combine 输出逐位一致，前后通信和清理 kernel 的符号、次数与�
 归档的 fake 性能使用固定 low-latency 和 full Graph。启用 DeepEP auto 时，
 Graph replay 恢复捕获的分发模式，若此前是 normal，会先清理 buffer。
 该切换场景的同址换输入回放尚未验证。
+
+## 2026-11-19 GLM-5.3 FP8 稳态 prefill 优化
+
+`SGLANG_GLM_OPT_PREFILL=1` 在既有模型和输入门控下启用 GLM-5.3 Channel
+FP8 的 packed KV、physical KV compact、Add RMS align16、K1 indirect
+和 EP K8 gather。两项 prefill 开关默认关闭。packed KV 的 CP all-gather 使用每行 656 字节的
+uint8 布局，逻辑长度等于物理长度时直接使用有效行。K8 和 Add RMS
+优先使用已有的显式扩展路径，随后尝试镜像中带对应参数的 LightOp 接口。
+K1 使用镜像扩展时校验 Torch/HIP ABI、二进制 SHA-256 和导出入口。
+HCU dcp=1 在 FlashMLA KV 分发前使用匹配 page table 的有效 top-k 行，
+保留隔离试验带入的 padding 行裁剪逻辑。
+
+`SGLANG_GLM_PREFILL_SHARED_OVERLAP=1` 单独启用受支持的 eager、normal
+DeepEP 路径。共享专家旁流在 `dispatch_a` 提交 routed FP8 量化后记录
+并等待事件，与 `dispatch_b` 中的通信并行。routed 结果与共享结果相加前
+等待共享旁流完成。每次 forward 退出时清理 dispatcher hook。
+
+设备性能证据来自两节点 BW1300、TP8/CP8/EP8、并发 8 的隔离试验。
+匹配输入和缓存后，8 rank 的稳态 1/5/2 对齐，等待量化完成使 bs=5
+routed FP8 从 380.0 降到 76.6 微秒，数据 dispatch 与共享 GEMM 的
+重叠从 2.7 增到 66.5 毫秒。关闭 profiler 的 ABBA 中，稳态整波中位数
+从 4.643 降到 4.605 秒。此前的同输入原生对照为 4.306 秒，整体仍
+慢约 7.0%。证据见隔离试验 `quant-event-ab-20261119-1643/RUN.md`。
+本次正式实现的检查范围为 CI lint、源码语法与文档导览。设备结果属于
+隔离试验，正式提交的 GPU 复采、真实请求端到端精度和 graph replay
+仍待验证。

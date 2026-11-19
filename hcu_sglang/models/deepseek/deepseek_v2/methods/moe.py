@@ -20,10 +20,16 @@
 # https://github.com/vllm-project/vllm/blob/fb6af8bc086328ca6659e72d11ffd4309ce4de22/vllm/model_executor/models/deepseek_v2.py
 from __future__ import annotations
 
+import logging
+from functools import lru_cache
+
 from hcu_sglang.models.deepseek.deepseek_v2 import constants as C
 from sglang.srt import utils as U
 from hcu_sglang.models.deepseek.deepseek_v2.methods import moe_graph as G
 import sglang.srt.models.deepseek_v2 as N0
+
+
+_logger = logging.getLogger(__name__)
 
 
 def __init__(
@@ -243,6 +249,11 @@ def __init__(
             swiglu_limit=getattr(config, "swiglu_limit", None),
             prefix=N0.add_prefix("shared_experts", prefix),
             parallel_group="replicated" if _shared_expert_use_tp1 else "tp",
+        )
+        self.shared_experts._glm_prefill_shared_overlap = (
+            C._is_hcu
+            and not is_nextn
+            and "GlmMoeDsaForCausalLM" in (getattr(config, "architectures", None) or ())
         )
         # Flags must be set before weight load so
         # process_weights_after_loading sees them and builds the
@@ -493,9 +504,13 @@ def forward(
                 leave_output_sum=leave_output_sum,
             )
     else:
-        indirect_enabled = N0.envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+        glm_opt_prefill = N0.envs.SGLANG_GLM_OPT_PREFILL.get()
+        indirect_enabled = (
+            glm_opt_prefill or N0.envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+        )
         prefill_ops_enabled = (
-            N0.envs.SGLANG_HCU_GLM53_FP8_EXPERT_INVERSE.get()
+            glm_opt_prefill
+            or N0.envs.SGLANG_HCU_GLM53_FP8_EXPERT_INVERSE.get()
             or N0.envs.SGLANG_HCU_GLM53_FP8_EP_GATHER_K8.get()
         )
         if indirect_enabled or prefill_ops_enabled:
@@ -693,6 +708,52 @@ def forward_normal(
     return final_hidden_states
 
 
+@lru_cache(maxsize=None)
+def _glm_prefill_shared_expert_stream(device):
+    return N0.torch.cuda.Stream(device=device)
+
+
+def _try_glm_prefill_shared_stream(moe, batch, hidden_states):
+    shared_experts = getattr(moe, "shared_experts", None)
+    if (
+        not getattr(shared_experts, "_glm_prefill_shared_overlap", False)
+        or moe._fuse_shared_experts_inside_sbo
+        or not N0.get_moe_a2a_backend().is_deepep()
+        or not isinstance(moe.experts.dispatcher, N0.MaybeTboDeepEPDispatcher)
+        or not batch.forward_mode.is_extend_without_speculative()
+        or batch.can_run_tbo
+        or getattr(batch, "tbo_parent_token_range", None) is not None
+    ):
+        return None
+
+    from hcu_sglang.layers.moe.deepep_fp8 import _use_hcu_legacy_channel_fp8_deepep
+    from sglang.srt.batch_invariant_ops import is_batch_invariant_mode_enabled
+    from sglang.srt.layers.dp_attention import get_is_extend_in_batch
+    from sglang.srt.layers.moe.utils import DeepEPMode, get_deepep_mode
+    from sglang.srt.model_executor.runner_backend_utils.tc_piecewise_cuda_graph import (
+        is_in_tc_piecewise_cuda_graph,
+    )
+
+    if (
+        get_deepep_mode().resolve(get_is_extend_in_batch()) != DeepEPMode.NORMAL
+        or not _use_hcu_legacy_channel_fp8_deepep(moe.experts)
+        or is_batch_invariant_mode_enabled()
+        or N0.get_exec().deterministic.enable_deterministic_inference
+        or N0.torch.compiler.is_compiling()
+        or N0.get_is_capture_mode()
+        or N0.is_in_breakable_cuda_graph()
+        or is_in_tc_piecewise_cuda_graph()
+        or N0.torch.cuda.is_current_stream_capturing()
+    ):
+        return None
+
+    shared_stream = moe.alt_stream
+    if shared_stream is None:
+        shared_stream = _glm_prefill_shared_expert_stream(hidden_states.device)
+
+    return shared_stream
+
+
 def forward_deepep(
     self,
     hidden_states: N0.torch.Tensor,
@@ -700,6 +761,9 @@ def forward_deepep(
     input_ids_global: N0.Optional[N0.torch.Tensor] = None,
 ) -> N0.torch.Tensor:
     shared_output = None
+    shared_event = None
+    prefill_stream = None
+    prefill_dispatch_hooks = ()
     sbo_enabled_flag = self._fuse_shared_experts_inside_sbo and not self.is_nextn
     sbo_overlap_dispatch_flag = (
         sbo_enabled_flag and N0.SboFlags.enable_dispatch_shared_one_stream_overlap()
@@ -712,7 +776,11 @@ def forward_deepep(
         # router_logits: (num_tokens, n_experts)
         router_logits = self.gate(hidden_states, forward_batch=forward_batch)
         if not sbo_enabled_flag and self.num_fused_shared_experts == 0:
-            if self.alt_stream is not None:
+            if N0.envs.SGLANG_GLM_PREFILL_SHARED_OVERLAP.get():
+                prefill_stream = _try_glm_prefill_shared_stream(
+                    self, forward_batch, hidden_states
+                )
+            if prefill_stream is None and self.alt_stream is not None:
                 self.alt_stream.wait_stream(N0.torch.cuda.current_stream())
                 with N0.torch.cuda.stream(self.alt_stream):
                     shared_output = self._forward_shared_experts(hidden_states)
@@ -725,7 +793,7 @@ def forward_deepep(
                     # is kept for record_stream: without that marking the
                     # allocator recycles shared_output across the break.
                     N0.torch.cuda.current_stream().wait_event(shared_event)
-            else:
+            elif prefill_stream is None:
                 shared_output = self._forward_shared_experts(hidden_states)
         topk_kwargs = (
             {"input_ids": input_ids_global}
@@ -903,19 +971,43 @@ def forward_deepep(
             self.experts.dispatcher.register_post_combine_hook(_post_combine_hook)
         )
 
-    final_hidden_states = self.experts(
-        hidden_states=hidden_states,
-        topk_output=topk_output,
-    )
+    if prefill_stream is not None:
 
-    if (
-        hidden_states.shape[0] > 0
-        and not sbo_enabled_flag
-        and self.num_fused_shared_experts == 0
-        and self.alt_stream is not None
-        and not N0.is_in_breakable_cuda_graph()
-    ):
-        N0.torch.cuda.current_stream().wait_event(shared_event)
+        def _launch_prefill_shared(_dispatcher):
+            nonlocal shared_output, shared_event
+            quant_ready = N0.torch.cuda.current_stream().record_event()
+            prefill_stream.wait_event(quant_ready)
+            with N0.torch.cuda.stream(prefill_stream):
+                shared_output = self._forward_shared_experts(hidden_states)
+                hidden_states.record_stream(prefill_stream)
+                shared_output.record_stream(prefill_stream)
+                shared_event = prefill_stream.record_event()
+            if (
+                self.layer_id == getattr(self.config, "first_k_dense_replace", 0)
+                and not getattr(self, "_glm_shared_overlap_reported", False)
+            ):
+                _logger.info("GLM prefill selected shared expert overlap")
+                self._glm_shared_overlap_reported = True
+
+        prefill_dispatch_hooks = self.experts.dispatcher.register_deepep_dispatch_hook(
+            _launch_prefill_shared
+        )
+    try:
+        final_hidden_states = self.experts(
+            hidden_states=hidden_states,
+            topk_output=topk_output,
+        )
+    finally:
+        for handle in prefill_dispatch_hooks:
+            handle.remove()
+    if prefill_stream is not None and shared_event is None:
+        shared_output = self._forward_shared_experts(hidden_states)
+
+    if shared_event is not None and not N0.is_in_breakable_cuda_graph():
+        current_stream = N0.torch.cuda.current_stream()
+        current_stream.wait_event(shared_event)
+        if prefill_stream is not None:
+            shared_output.record_stream(current_stream)
 
     if shared_output is not None:
         x = shared_output

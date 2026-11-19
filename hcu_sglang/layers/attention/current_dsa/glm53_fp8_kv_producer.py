@@ -64,7 +64,10 @@ def _vendor_function():
 
 
 def use_fused_kv_producer(attn, batch, positions, latent):
-    if not envs.SGLANG_HCU_GLM53_FP8_KV_ROPE_STORE.get():
+    if not (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_KV_ROPE_STORE.get()
+    ):
         return False
     from sglang.srt.layers.cp.utils import get_cp_strategy
     from sglang.srt.layers.layernorm import RMSNorm

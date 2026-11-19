@@ -80,6 +80,8 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_ENABLE_HICACHE_SWA_TAIL_ONLY_BACKUP": (EnvBool, False),
     "SGLANG_ENABLE_CP_V2": (EnvBool, False),
     "SGLANG_GLM_PREFILL_GATE_K1_VECTOR": (EnvBool, False),
+    "SGLANG_GLM_OPT_PREFILL": (EnvBool, False),
+    "SGLANG_GLM_PREFILL_SHARED_OVERLAP": (EnvBool, False),
     "SGLANG_GLM_OPT_DECODE": (EnvBool, False),
     "SGLANG_GLM_HCU_GEMM": (EnvBool, False),
     "SGLANG_GLM_LIGHTOP_FUSIONS": (EnvBool, False),

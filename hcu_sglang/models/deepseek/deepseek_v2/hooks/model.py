@@ -49,7 +49,10 @@ def around_decoder_init(original, self, *args, **kwargs):
     mark_decoder(self)
     from sglang.srt.environ import envs
 
-    if envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get():
+    if (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get()
+    ):
         from hcu_sglang.layers.glm53_fp8_add_rms import mark_decoder_norms
 
         mark_decoder_norms(self)
@@ -59,7 +62,10 @@ def around_decoder_init(original, self, *args, **kwargs):
 def around_rms_forward_cuda(original, self, x, residual=None, post_residual_addition=None, quant_linear=None):
     from sglang.srt.environ import envs
 
-    if envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get():
+    if (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get()
+    ):
         from hcu_sglang.layers.glm53_fp8_add_rms import try_add_rms
 
         if try_add_rms(self, x, residual, post_residual_addition, quant_linear):

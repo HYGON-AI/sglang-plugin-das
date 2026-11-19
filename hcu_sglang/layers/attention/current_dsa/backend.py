@@ -311,7 +311,10 @@ class DeepseekSparseAttnBackend(
 
     def _maybe_compact_physical_kv(self, raw, flattenmap, indices, q, layer, forward_batch, attn_sink):
         if not (
-            envs.SGLANG_HCU_GLM53_FP8_PHYSICAL_KV_COMPACT.get()
+            (
+                envs.SGLANG_GLM_OPT_PREFILL.get()
+                or envs.SGLANG_HCU_GLM53_FP8_PHYSICAL_KV_COMPACT.get()
+            )
             and self._physical_kv_compact_eligible
             and self.forward_metadata is self._physical_kv_compact_scope_metadata
             and forward_batch.forward_mode == ForwardMode.EXTEND
@@ -399,7 +402,8 @@ class DeepseekSparseAttnBackend(
         self._clear_physical_kv_compact_plan()
         self._physical_kv_compact_model = False
         if _is_hcu and (
-            envs.SGLANG_HCU_GLM53_FP8_PHYSICAL_KV_COMPACT.get()
+            envs.SGLANG_GLM_OPT_PREFILL.get()
+            or envs.SGLANG_HCU_GLM53_FP8_PHYSICAL_KV_COMPACT.get()
             or envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get()
             or envs.SGLANG_HCU_GLM53_FP8_KV_ROPE_STORE.get()
         ):
@@ -2794,6 +2798,14 @@ class DeepseekSparseAttnBackend(
             page_table = metadata.page_table_1
             if _is_hcu and self.dcp_size > 1:
                 page_table = page_table[: topk_indices.shape[0]]
+            elif (
+                _is_hcu
+                and dsa_impl == "flashmla_kv"
+                and page_table.shape[0] < topk_indices.shape[0]
+            ):
+                valid_rows = get_flashmla_kv_valid_rows(forward_batch, q_nope.shape[0])
+                if valid_rows == page_table.shape[0]:
+                    topk_indices = topk_indices[:valid_rows]
             page_table_1 = transform_index_page_table_decode(
                 page_table=page_table,
                 topk_indices=topk_indices,

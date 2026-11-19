@@ -1,9 +1,13 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 import hashlib
 import importlib.util
 import json
 import logging
+import os
 import sys
 import sysconfig
 from contextlib import contextmanager
@@ -20,6 +24,9 @@ from hcu_sglang.utils.detection import is_hcu
 
 
 _MODULE = "hcu_sglang_glm53_fp8_k1_indirect"
+_IMAGE_MODULE = "r09plus_wasp_indirect"
+_IMAGE_ENV = "SGLANG_GLM_PREFILL_K1_INDIRECT_A_SO"
+_IMAGE_SHA256 = "e59ac60daff9ff6788bf05c91e48dbf4cf3e966d41f2079d6e652be4b30cac9d"
 _CONFIG_SHA256 = "bc21bd68d92085465810c3da72c4b8a43b16c65c2c8f55f52547045f36c1abbf"
 _SOURCE_COMMIT = "ca0c569f424dd1b10a3f65e89c1f5e2b4bc502b2"
 _HEADER_SHA256 = "7fd1262d9afa93dad3c5493b4432f15635431e893c1f2aa012e3bc3ae2a927ca"
@@ -139,9 +146,49 @@ def _sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _matches_build_source(path, expected_digest, comment):
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() == expected_digest:
+        return True
+    # Older build manifests hashed these same sources before the license notice.
+    header = (
+        comment + b" Copyright (c) 2026 Hygon Information Technology Co., Ltd.\n"
+        + comment + b" SPDX-License-Identifier: Apache-2.0\n\n"
+    )
+    return content.startswith(header) and (
+        hashlib.sha256(content[len(header):]).hexdigest() == expected_digest
+    )
+
+
 @lru_cache(maxsize=1)
 def _warn_missing_extension():
-    _logger.warning("GLM-5.3 FP8 K1 indirect requested without an extension path; using the existing route")
+    _logger.warning("GLM-5.3 FP8 K1 indirect extension unavailable; using the existing route")
+
+
+@lru_cache(maxsize=1)
+def _load_image_extension():
+    configured_path = os.environ.get(_IMAGE_ENV)
+    spec = (
+        importlib.util.spec_from_file_location(_IMAGE_MODULE, configured_path)
+        if configured_path
+        else importlib.util.find_spec(_IMAGE_MODULE)
+    )
+    if spec is None or spec.origin is None or spec.loader is None:
+        return None
+    path = Path(spec.origin)
+    if (
+        torch.__version__ != "2.11.0"
+        or torch.version.hip != "6.3.26113"
+        or not torch.compiled_with_cxx11_abi()
+        or _sha256(path) != _IMAGE_SHA256
+    ):
+        raise RuntimeError(f"GLM-5.3 FP8 K1 image extension failed ABI or hash validation: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    if not callable(getattr(module, "metadata", None)) or not callable(getattr(module, "indirect", None)):
+        raise RuntimeError("GLM-5.3 FP8 K1 image extension entry points are missing")
+    sys.modules[_IMAGE_MODULE] = module
+    return module
 
 
 @lru_cache(maxsize=4)
@@ -164,8 +211,8 @@ def _load_extension(path):
         or source.get("commit") != _SOURCE_COMMIT
         or source.get("header_sha256") != _HEADER_SHA256
         or manifest.get("source_manifest_sha256") != _sha256(provenance)
-        or manifest.get("binding_sha256") != _sha256(binding)
-        or manifest.get("build_tool_sha256") != _sha256(build_tool)
+        or not _matches_build_source(binding, manifest.get("binding_sha256"), b"//")
+        or not _matches_build_source(build_tool, manifest.get("build_tool_sha256"), b"#")
         or manifest.get("python_abi") != sysconfig.get_config_var("SOABI")
         or manifest.get("torch") != torch.__version__
         or manifest.get("hip") != torch.version.hip
@@ -239,10 +286,10 @@ def try_indirect(layer, x, scale, topk, weights, counts, padded_counts, weight, 
     ):
         return None
     path = envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT_SO.get()
-    if not path:
+    module = _load_extension(path) if path else _load_image_extension()
+    if module is None:
         _warn_missing_extension()
         return None
-    module = _load_extension(path)
     row_src = torch.empty((m,), dtype=torch.int32, device=x.device)
     m_indices = torch.empty_like(row_src)
     output_index = torch.empty_like(topk, dtype=torch.int32)

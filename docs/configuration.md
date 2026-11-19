@@ -209,3 +209,13 @@ prepare 在 KV norm 前判定资格，保留 Q norm、projection、indexer 和 a
 显式选中路径要求 LightOp 同时提供包装层、对应原生符号和 Q head stride 256 支持。缺失时明确报错；进入融合后若 Q geometry 或交换合同不符，不改用另一算法掩盖错误。每行保持 656 byte/164 int32 word，FP8 KV scale 固定沿原生参数，禁止浮点搬运、重复量化或改变 TopK 顺序。来源与分阶段验证边界见 [开发记录](hcu-sglang-development.md#2026-11-12-glm53-fp8-prefix-kv-producer-本地候选)。
 
 目前为未部署的本地接线候选。已有真实目标输入的八 rank 融合叶子与独立 store 数学证据，不等于候选 helper、实际八 rank collective、正式模型分发或完整精度通过；这些验收分别记录。
+
+## 15. GLM-5.3 Channel FP8 的 prefill 组合开关
+
+`SGLANG_GLM_OPT_PREFILL=1` 在满足模型、输入和供应商扩展条件时启用
+packed KV、physical KV compact、Add RMS align16、K1 indirect 和 EP K8
+gather。各项显式开关和构建产物要求见前面的对应小节。
+
+`SGLANG_GLM_PREFILL_SHARED_OVERLAP=1` 独立启用 eager prefill 的共享专家旁流。
+Normal DeepEP 提交 routed FP8 量化后记录事件，旁流等待该事件后执行共享专家，
+主流在合并输出前等待旁流结束。两个开关默认关闭。

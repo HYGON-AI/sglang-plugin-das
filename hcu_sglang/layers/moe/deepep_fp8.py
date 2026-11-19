@@ -240,7 +240,10 @@ def _ep_gather_with_optional_lightop(
         if glm53_fp8_layer is not None:
             from sglang.srt.environ import envs
 
-            if envs.SGLANG_HCU_GLM53_FP8_EP_GATHER_K8.get():
+            if (
+                envs.SGLANG_GLM_OPT_PREFILL.get()
+                or envs.SGLANG_HCU_GLM53_FP8_EP_GATHER_K8.get()
+            ):
                 from hcu_sglang.layers.moe.glm53_fp8_prefill_ops import try_gather_k8
 
                 if try_gather_k8(
@@ -414,7 +417,10 @@ def forward_groupgemm_w8a8_fp8_contiguous(
     hidden_states_shape = hidden_states.shape
     hidden_states_device = hidden_states.device
     from sglang.srt.environ import envs
-    indirect_enabled = envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+    indirect_enabled = (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+    )
     input_tensor = None
     if not indirect_enabled:
         input_tensor = [
