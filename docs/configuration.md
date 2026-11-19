@@ -72,6 +72,12 @@ set +a
 
 关闭相应性能开关或超出窄形状门控时调用当前有效基线，不绕过 adapter。显式启用 INT8 transport 而缺少必要量化/通信合同，或启用 native sort 却缺少 vendor API 时明确报错。`SGLANG_DP_USE_GATHERV`、Graph、并行与 MoE 后端属于官方配置，按其接口设置；adapter 的 `qsa_mqa` 快关参见 `adapter-das` 仓 `docs/env-vars.md`，不由插件重复定义。完整支持范围与已测组合见 [开发记录](hcu-sglang-development.md#2026-11-04-qwen4-exp-w4a8-与-int8-ple-适配)。
 
+### 当前 HCU FA KV 布局默认值
+
+`SGLANG_KV_LAYOUT_HCU_FA` 保持公司主线默认 `false`：未设置、显式 `0` 或 `false` 时使用官方布局，只有显式 `1` 或 `true` 才启用 HCU FA 布局。环境字段、KV 池、FA 读取和 Mooncake 传输的默认判断保持一致；传输标志在导入时读取，修改配置需要重启进程。
+
+该开关只选择缓存布局，不负责选择 FA 后端，也不按模型自动开启。需要 HCU 布局的 HY3 已验证配方应显式设置 `SGLANG_KV_LAYOUT_HCU_FA=1`，并单独选择 `HCU_FA_IMPL=vendor`。本次只恢复默认行为，没有重新验证完整模型或 PD 跨节点传输。
+
 ## 3. 新增配置的设计检查
 
 | 检查项 | 要给出的答案 |

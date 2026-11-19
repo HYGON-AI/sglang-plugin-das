@@ -12,6 +12,37 @@ register_envs()
 from hcu_sglang.layers.moe import deepep_current as D
 
 class DeepEPCurrentTests(unittest.TestCase):
+    def test_int8_dispatch_retains_vendor_contract_through_adapter(self):
+        calls = []
+        packet = (object(), object(), object(), object(), object())
+        class Buffer:
+            def low_latency_dispatch(self, *args, **kwargs):
+                raise AssertionError("INT8 entered upstream FP8 bridge")
+        def native(buffer, *args, **kwargs):
+            calls.append((buffer, args, kwargs))
+            return packet
+        Buffer.low_latency_dispatch._hcu_quant_type_dispatch = native
+        buffer = Buffer()
+        worker = SimpleNamespace(
+            quant_config={"hcu_w8a8_int8_dispatch": True}, use_fp8=True,
+            use_nvfp4=False, return_recv_hook=False,
+            num_max_dispatch_tokens_per_rank=128, num_experts=192,
+            _get_buffer=lambda: buffer,
+            _get_npu_mxfp_quantization_kwargs=lambda _: {},
+        )
+        x, ids, weights = torch.ones(1, 4096), torch.zeros(1, 8), torch.ones(1, 8)
+        with patch.object(D, "_DEEPEP_LL_DISPATCH_USES_QUANT_TYPE", True), patch.object(
+            D, "_deepep_precompile_tp_barrier"
+        ), patch.object(D, "_is_hcu", True), patch.object(D, "use_groupgemm", True), patch.object(
+            D, "_hcu_deepgemm_is_selected", return_value=True
+        ):
+            D._DeepEPDispatcherImplLowLatency._dispatch_core(worker, x, ids, weights)
+        self.assertIs(calls[0][0], buffer)
+        self.assertIs(calls[0][1][0], x)
+        self.assertIs(calls[0][1][2], weights)
+        self.assertEqual(calls[0][2]["quant_type"], 1)
+        self.assertFalse(calls[0][2]["fp8_round_scale"])
+
     def test_vendor_abi_keeps_weights_quant_type_and_scale_contract(self):
         x=torch.ones(2,8);ids=torch.tensor([[0,1],[1,0]]);weights=torch.full((2,2),.5);seen=[]
         def dispatch(**kw):seen.append(kw);return kw

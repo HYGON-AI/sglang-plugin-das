@@ -3966,6 +3966,66 @@ NEXTN steps=4 adaptive、decode graph 批次 1..40、`--disable-radix-cache`。
 - 未在真实 HCU 设备上运行模型；fp8 descale tile 与 lightop 回退缺少实机/整模型验证。
 - 未运行 GitHub CI。
 
+## HY3 INT8：专家分发类型
+
+普通分发按 token 准备 INT8 与缩放值，低延迟分发显式选择 INT8，并通过 Adapter 保存的原生入口传递类型。BF16/FP8 的既有路径保留。修改位于 `deepep_current.py` 和公共 `deepep_fp8.py`，复用 `tests/runtime/deepep_current.py`；依赖配套 Adapter INT8 引用修复。这里不修改通信内核，主仓同步后的完整组合验证另记。
+
+## HY3 INT8：完整 DeepGEMM 包接口配套
+
+gfx936、DeepEP auto、ASM=0 使用包内公开 pair32 权重排列与 INT8 矩阵乘法接口，普通/低延迟路径共用权重存储；前后两次计算配套调整。框架修改为 `deepep_int8.py` 与 `hcu_deepgemm_w8a8_utils.py`，回归复用 `compressed_int8.py`。完整 DeepGEMM wheel 是外部依赖，不提交算子源码、编译包或补充扩展，不带 ASM=1 或激活诊断实验。其他架构与未选中路径保留既有行为。
+
+主仓已包含 HY3 早期 FP8 与 NEXTN 缓存修复，不重复提交。仅合并重复 KV 布局判断的旧提交本次排除；HCU 布局仍默认关闭，当前 FA 路径在外层显式设 `HCU_FA_IMPL=vendor`、`SGLANG_KV_LAYOUT_HCU_FA=1`。原用户启动脚本不修改。
+
+
+### 2026-11-17：同步主仓后的组合复测
+
+固定公司 main：Adapter `253989dd224eec574c449b3516b2ace0d45ffe0d`，Plugin `3fab2fd6c723c0c8b17b44a565fc33d259464916`；官方 SGLang 0.5.22。仅保留两仓额外适配，不重复计入主仓已有 FP8/NEXTN 修复；没有新增仓库文件，纯重复布局整理提交排除。
+
+本轮 Adapter 针对性回归 54 项、Plugin 23 项通过；两仓 L0、档位清单与导览快照检查通过。Adapter L0 有 32 项警告。Plugin 一项已有 CPU 用例会调用 GPU 专用量化接口，本轮排除，不宣称全量测试通过；UI/导览浏览器视觉验收未执行。
+
+原用户启动脚本 SHA256 `9b39038c102e5d1df9e3ad98b29d5ac35cbbdefdda8a149c4654a7abe7bab7cc` 前后不变。HY3 INT8 W8A8、TP8/attention DP8、DeepEP auto、ASM=0、NEXTN 2/1/3、FA3、E5M2、page64、显存比例0.85、decode Graph BS16。外层显式选择 vendor FA、HCU KV 布局、本次源码与完整 DeepGEMM wheel；这不等于没有额外部署配置。官方会把 NEXTN 名称规范化为 EAGLE，并保留同一条 NEXTN/MTP 路径。
+
+完整服务启动，8 个并发基础问答均为完整正确答案且正常停止；实际后端仍为 FA3，decode Graph=full、prefill Graph=breakable，日志有 Graph 执行。完成后仅停止本任务进程，端口关闭且显存释放。本轮未重跑 GSM8K、稳态性能、其他模型或其他架构，基础问答不替代精度/性能验收。
+
+使用完整 DeepGEMM `2.1.0.post1+das.dtk2610.unknown` wheel，SHA256 `8b622a05075a705bf28d0d7bfe08a0d3402503bea0706d2bb72a84a8d461e59f`。没有新增内核实现、构建工具或补充扩展。原始日志、启动与清理记录、测试时 SHA 和最终 SHA 保存于仓库外 `hy3/pr_sync_20261117/`；提交内仅更新此说明。
+
+
+## 2026-11-17：HCU FA KV 布局恢复默认开启
+
+此处记录历史改动；2026-11-19 已恢复公司主线默认 false，当前行为以文末恢复记录为准。
+
+用户要求保持 DAS 0.5.18 的布局默认行为。此前本分支需要外层设置 `SGLANG_KV_LAYOUT_HCU_FA=1`；现在在环境字段登记、KV 池、FA 读回和 Mooncake 传输四处同步改为默认 true，显式 0/false 仍关闭，不修改 FA 后端选择或推理参数。删除了与新默认值矛盾的原说明注释，没有新增源码或测试文件。
+
+回归复用 `tests/runtime/flashattention_interface_cpu.py`，核对未设置、显式 0、显式 1 时 FA 与 KV 池判断一致，并实际经过 KV 池选择入口。历史布局关闭时的通用叠加结果不外推到新默认值；需要官方布局的 Triton 配方显式关闭。本轮在未设置该变量的独立进程运行针对性回归，24 项通过（另排除一项已有 GPU 专用 CPU 用例），覆盖默认开启、显式 0/1 以及 KV 池选择。L0 与导览生成/快照检查通过；浏览器视觉复核未执行。没有重新启动完整模型或 PD 服务，完整模型结果仍对应此前显式 1 的组合。
+
+## 2026-11-19：gfx938 INT8 DeepGEMM 接口配套
+
+HY3 INT8、DeepEP auto、ASM=0 在 gfx938 上原先会调用新包已移除的低延迟权重打包入口，启动失败。将已有 gfx936 pair32 权重准备及两次 grouped GEMM 选择扩展到 gfx938；normal 与 low-latency 共用打包后的权重，显式 ASM 与其他架构保持原选择。没有修改 DeepGEMM 包、量化方式或启动参数。
+
+复用 `tests/runtime/compressed_int8.py`，本轮 16 项通过，覆盖两种架构、权重排列数值、存储共享、ASM 选择和两次 masked GEMM 接线。历史完整组合使用 gfx938/COV5 DeepGEMM core `2.1.0.post2+das.dtk2610.unknown`，原生库 SHA256 为 `82d924adb2d42e94b8a5f94d23f0365cc0251d8b38456e41532ee943b7f5c6b7`；wheel 是外部部署依赖，不纳入源码提交。本轮没有重新加载完整模型。
+
+## 2026-11-19：INT8 空 token 输入不启动矩阵内核
+
+DP Attention 中空闲 rank 仍可能进入线性层。此前 LightOp 在 M=0 时原生层报 `HIP invalid argument` 并直接退出，Python 无法捕获。`quant_ops.triton_scaled_mm` 现在只对维度匹配的二维空输入返回同设备、目标 dtype 的 `(0,N)` 空结果；非空计算、scale、bias 和后端配置不变。
+
+复用 `tests/runtime/quant_ops_dispatch.py`，本轮 7 项通过，包含空输入不调用 ASM/Triton、输出契约及原分发回归。历史证据包含空输入 GPU/Graph 检查和完整问答，见上一轮任务记录；本轮仅运行相关 CPU 回归，没有把历史模型成绩计为本提交的新验收。
+
+## 2026-11-19：HY3 INT8 RoPE 精度兼容与共享缓存隔离
+
+固定输入逐层比较中，旧 DAS 与 Plugin 的主模型第 0 层在 RoPE 前一致；旧版使用激活 dtype 的三角函数表，官方 HIP 路径保留 FP32。仅在 HCU、QKV 权重为 INT8、非融合 RoPE 的 HY3 路径采用旧版数值。SP、融合路径、其他权重类型与其他平台不改。
+
+此前未提交补丁直接修改共享的 `cos_sin_cache`，存在影响其他使用者的风险。本次保留该原缓存，单独保存 HY3 INT8 使用的转换结果；同一源缓存、设备和 dtype 复用结果，源对象替换或目标设备/dtype 改变时重新转换。复用 `tests/runtime/fix_attention_models.py`，覆盖共享对象下交替执行 INT8、BF16、FP8、非 HCU 输入，以及缓存复用、源替换和 Q/K 数值。共享缓存反例在隔离前失败，隔离后该文件 17 项通过；本轮三个相关文件共 40 项通过。
+
+历史的直接改缓存版本曾完成 GPQA no_think 150/198，旧版同条件重测为 147/198；这是历史组合证据，不算本次缓存隔离版本的全量精度验收。本次未重跑完整模型、GPU Graph、GPQA、GSM8K、性能或其他模型服务。
+
+两仓 L0 通过（Adapter 保留 32 项原有警告）；Plugin 全量 CPU 检查与修改前干净 HEAD 对照均为 248 项、82 failures、6 errors、17 skips，失败及错误用例相同。既有来源快照与导入测试未全绿，不重写历史来源清单迎合测试。开发记录及导览随提交更新，导览生成和快照检查通过，浏览器视觉验收未执行。详细日志、备份与对照保存在仓库外的任务归档中。
+
+## 2026-11-19：保持公司主线 KV 布局默认值
+
+此前为了对齐 HY3 配方，将公共 `SGLANG_KV_LAYOUT_HCU_FA` 默认值改为 true；该默认值没有 HY3 模型门控，会改变其他模型未显式配置时的 KV 池和 Attention/传输选择。按本次要求，环境登记、KV 池、FA 读取和 Mooncake 四处恢复主线默认 false，并恢复原有默认关闭的源码说明。显式 0/false 与 1/true 保留原有覆盖行为，不新增模型自动开启逻辑，也不修改启动脚本、Attention 后端或其他 INT8 适配。
+
+复用现有 `tests/runtime/flashattention_interface_cpu.py`，将未设置的预期改为关闭并覆盖字符串 true/false。本机源码隔离检查通过：执行现有池选择回归的未设置、0、false、1、true 五种情况，核对环境登记和 Mooncake 在 HCU/非 HCU 下的判断，并逐字节确认四处运行时文件等同于默认值修改前。L0（796 个 Python 文件、8 个 Skill）、导览生成/快照及差异空白检查通过。L0 首次受 Windows CSV 换行影响，按原工具重新生成相同内容后通过，没有修改处置记录。完整 runtime 测试因本机缺少 Torch/SGLang 未运行，服务器测试与模型/PD 验证按用户要求暂停；本轮未做导览浏览器视觉复核。实际检查结果保存在仓库外的 `kv_layout_restore_20261119/`。
+
 
 ## GLM5.2 SlimQuant native numerical policies (2026-11-19)
 

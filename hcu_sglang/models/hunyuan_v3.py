@@ -735,7 +735,26 @@ class HYV3Attention(nn.Module):
                 q, k = _apply_hy3_qk_norm(
                     q, k, self.q_norm, self.k_norm, self.head_dim
                 )
-            q, k = self.rotary_emb(positions, q, k)
+            if _is_hcu and self.qkv_proj.weight.dtype == torch.int8:
+                from sgl_kernel import rotary_embedding
+
+                source_cache = self.rotary_emb.cos_sin_cache
+                cached = getattr(self.rotary_emb, "_hy3_int8_cos_sin_cache", None)
+                if (
+                    cached is None
+                    or cached[0] is not source_cache
+                    or cached[1].device != q.device
+                    or cached[1].dtype != q.dtype
+                ):
+                    cached = (source_cache, source_cache.to(q.device, dtype=q.dtype))
+                    self.rotary_emb._hy3_int8_cos_sin_cache = cached
+                rotary_embedding(
+                    positions, q, k, self.head_dim,
+                    cached[1],
+                    self.rotary_emb.is_neox_style,
+                )
+            else:
+                q, k = self.rotary_emb(positions, q, k)
         attn_output = self.attn(
             q,
             k,

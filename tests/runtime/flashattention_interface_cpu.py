@@ -1,14 +1,38 @@
 from __future__ import annotations
 
+import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import torch
 
 from hcu_sglang.layers.attention import flashattention_interface as F
+from hcu_sglang.mem_cache import hcu_mha_pool as P
 
 
 class FlashAttentionInterfaceTests(unittest.TestCase):
+    def test_layout_default_and_explicit_override_select_matching_pool(self):
+        for value, expected in ((None, False), ("0", False), ("false", False), ("1", True), ("true", True)):
+            with (
+                self.subTest(value=value),
+                patch.dict(os.environ),
+                patch.object(P, "is_hcu", return_value=True),
+            ):
+                os.environ.pop("SGLANG_KV_LAYOUT_HCU_FA", None)
+                if value is not None:
+                    os.environ["SGLANG_KV_LAYOUT_HCU_FA"] = value
+                self.assertEqual(F._layout_enabled(), expected)
+                self.assertEqual(P._layout_enabled(), expected)
+                original_pool = object()
+                original = Mock()
+                P.around_build_with_mha_pool(
+                    original, object(), mha_pool_class=original_pool
+                )
+                self.assertIs(
+                    original.call_args.kwargs["mha_pool_class"],
+                    P.HCUMHATokenToKVPool if expected else original_pool,
+                )
+
     def test_flattened_prefill_uses_varlen_before_fixed_length_reshape(self):
         for batch_size, token_count in ((1, 1083), (4, 1138), (8, 1200)):
             with self.subTest(batch_size=batch_size, token_count=token_count):
