@@ -4000,3 +4000,9 @@ gfx936、DeepEP auto、ASM=0 使用包内公开 pair32 权重排列与 INT8 矩�
 HY3 INT8、DeepEP auto、ASM=0 在 gfx938 上原先会调用新包已移除的低延迟权重打包入口，启动失败。将已有 gfx936 pair32 权重准备及两次 grouped GEMM 选择扩展到 gfx938；normal 与 low-latency 共用打包后的权重，显式 ASM 与其他架构保持原选择。没有修改 DeepGEMM 包、量化方式或启动参数。
 
 复用 `tests/runtime/compressed_int8.py`，本轮 16 项通过，覆盖两种架构、权重排列数值、存储共享、ASM 选择和两次 masked GEMM 接线。历史完整组合使用 gfx938/COV5 DeepGEMM core `2.1.0.post2+das.dtk2610.unknown`，原生库 SHA256 为 `82d924adb2d42e94b8a5f94d23f0365cc0251d8b38456e41532ee943b7f5c6b7`；wheel 是外部部署依赖，不纳入源码提交。本轮没有重新加载完整模型。
+
+## 2026-11-19：INT8 空 token 输入不启动矩阵内核
+
+DP Attention 中空闲 rank 仍可能进入线性层。此前 LightOp 在 M=0 时原生层报 `HIP invalid argument` 并直接退出，Python 无法捕获。`quant_ops.triton_scaled_mm` 现在只对维度匹配的二维空输入返回同设备、目标 dtype 的 `(0,N)` 空结果；非空计算、scale、bias 和后端配置不变。
+
+复用 `tests/runtime/quant_ops_dispatch.py`，本轮 7 项通过，包含空输入不调用 ASM/Triton、输出契约及原分发回归。历史证据包含空输入 GPU/Graph 检查和完整问答，见上一轮任务记录；本轮仅运行相关 CPU 回归，没有把历史模型成绩计为本提交的新验收。
