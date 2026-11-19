@@ -4,15 +4,48 @@
 from __future__ import annotations
 
 import torch
+import triton
+import triton.language as tl
 
 from sglang.srt.layers.moe.token_dispatcher import standard as S
 from hcu_sglang.utils.detection import is_hcu
+
+
+@triton.jit
+def _map_topk_ids_to_local_experts_kernel(
+    ids, mapping, out, numel: tl.constexpr, num_experts: tl.constexpr,
+    block_size: tl.constexpr,
+):
+    offsets = tl.program_id(0) * block_size + tl.arange(0, block_size)
+    active = offsets < numel
+    expert_ids = tl.load(ids + offsets, active, other=-1)
+    valid = active & (expert_ids >= 0) & (expert_ids < num_experts)
+    local_ids = tl.load(mapping + expert_ids, valid, other=-1)
+    tl.store(out + offsets, local_ids, active)
 
 
 def _map_topk_ids_to_local_experts(
     topk_ids: torch.Tensor, local_expert_mapping: torch.Tensor
 ) -> torch.Tensor:
     """Map global expert ids while preserving the ``-1`` drop sentinel."""
+    if (
+        topk_ids.is_cuda
+        and topk_ids.dtype in (torch.int32, torch.int64)
+        and topk_ids.is_contiguous()
+        and local_expert_mapping.device == topk_ids.device
+        and local_expert_mapping.ndim == 1
+        and local_expert_mapping.is_contiguous()
+        and local_expert_mapping.numel() > 0
+    ):
+        out = torch.empty_like(topk_ids, dtype=local_expert_mapping.dtype)
+        if topk_ids.numel() > 0:
+            _map_topk_ids_to_local_experts_kernel[
+                (triton.cdiv(topk_ids.numel(), 128),)
+            ](
+                topk_ids, local_expert_mapping, out,
+                topk_ids.numel(), local_expert_mapping.numel(), 128,
+            )
+        return out
     return torch.where(
         (topk_ids < 0) | (topk_ids >= local_expert_mapping.numel()),
         -1,
