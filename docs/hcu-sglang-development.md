@@ -3622,3 +3622,17 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 
 本轮浏览器截图、交互与窄屏复核未执行：浏览器工具的 URL 安全策略拒绝 `file://` 协议。已执行导览重建与快照检查，未将结构检查记作截图验收。
 DTK26.10/Python3.12 镜像中的真实插件发现、构造和 AROUND 分发已通过：两组八 rank 的 Q/K 共 32 项逐元素匹配原生；同一 Graph 更换输入后重放两组 Q/K，也均逐元素匹配。FP32 canonical cache 对象未变，typed memo 为 BF16，关闭开关后的构造保持原分支。记录为任务产物 `rope-runtime-v4.json`；固定参考和捕获哈希见 adapter-das `docs/glm5.3-w4a8-attention-alignment.json`。offsets 与融合 KV-store 保留原语义，但本轮组件不声称覆盖这些调用。移除观测后的六组模型数值合同仍待复测；组件通过不等于模型精度通过。
+
+
+## 2026-11-12 MoriDAS 独立插件后端首版
+
+基于 SGLang v0.5.22 `baa9befa3815` 和 HCU Plugin `60e37ce`，参考 `sglang-das-main` 的 `96a468c..e35c100`。插件注册 `mori-das`，复用 DeepEP Low-Latency 模型入口与数据协议，接入独立的 MoriDAS dispatcher。首轮通过 5 项 CPU 契约测试。
+
+## 2026-11-19 MoriDAS 与 0.5.22 发布分支合并
+
+- Plugin 基线更新到 `708a332`，配套 Adapter `69955d8`。MoriDAS 按实际 dispatcher 进入独立的 INT8 core，使用原有权重布局和注册 Combine buffer。默认 kernel 为 `InterNodeV1LLChunkedSync`，SwiGLU clamp 读取模型上限并沿用现有融合开关。
+- DSpark 的 target 和 draft 均可选择 MoriDAS。DP 元数据同步和 Graph 投票沿用 Plugin 通用实现。合入前的 BS128 调度对照中，两种实现各完成 4096 条请求，均启用 DP 元数据同步和 `stream_interval=16`。
+- 合并后的定向回归通过 31 项和 9 个子用例。Plugin 全量单测 197 项通过，13 项跳过。
+- 初测遇到 Mori UniqueId TCP 建环错误。后续使用 Mori 注册重试版 `0.1.dev292+g2ce4cc7.tcpretry.20261119`，开启 `SGLANG_HCU_JIT_OVERLAY=1` 解决 HCU JIT 符号缺失。双节点 TP16 / Attention DP16 / EP16、BS1、SingleChunk、L2 flush、HBM DBR 下，关闭和开启 DSpark 的 Full CUDA Graph FakeDecode 各完成 32/32 条，Mean TPOT 分别为 65.74 ms 和 20.92 ms。此次复测覆盖服务启动、图捕获和性能，模型精度另行验证。
+
+支持范围、文件职责及调用路径见 [MoriDAS 插件后端开发导读](moridas-plugin-v1-development.md)。
