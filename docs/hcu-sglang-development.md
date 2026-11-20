@@ -23,6 +23,8 @@
 - [2026-11-18：GLM-5.3 FP8 absorb BMM 分发对齐](#2026-11-18-glm-53-fp8-absorb-bmm-分发对齐)
 - [2026-11-19：DeepEP 清理接口兼容](#2026-11-19-deepep-清理接口兼容)
 - [2026-11-19：GLM-5.3 FP8 稳态 prefill 优化](#2026-11-19-glm-53-fp8-稳态-prefill-优化)
+- [2026-11-20：gfx938 Qwen attention 门控与 FP8 量化融合](#2026-11-20-gfx938-qwen-attention-门控与-fp8-量化融合)
+- [2026-11-20：gfx938 Qwen GDN 门控归一化与 FP8 量化融合](#2026-11-20-gfx938-qwen-gdn-门控归一化与-fp8-量化融合)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1461,6 +1463,16 @@ bw46 HCU 4/5 在同一容器、同一 DTK 和同一 TP2 配置串行运行基线
 
 L0、三个定向测试、导览生成和 `git diff --check` 通过。完整 unittest 在当前 venv 留有两项启动测试失败，干净 HEAD 复现同样失败。原始算子与服务证据保存在本轮服务器实验目录。
 
+## 2026-11-20 gfx938 Qwen GDN 门控归一化与 FP8 量化融合
+
+`SGLANG_HCU_QWEN_GDN_RMS_FP8_FUSION=1` 为 gfx938 的 Qwen3.5/3.6 GDN 开启按 head 的 RMSNorm、SiLU 门控和按 token E4M3FN 量化。默认关闭。准入条件包括 BF16、128 维 value head、本 rank 的行并行输入、可接收预量化输入的动态 channelwise compressed-tensors FP8，以及未启用 sequence parallel。关闭开关或遇到不适用配置时，调用当前生效的原 forward。
+
+融合点位于 GDN recurrence 和 DP-Attention padding 之后。融合 kernel 保留 BF16 舍入，跨本 rank 的全部 head 计算一个 FP32 scale，支持 compact gate 和带 stride 的 prefill gate。`out_proj` 接收 `(FP8 activation, FP32 scale, BF16 dtype)`，现有 compressed-tensors GEMM 和 TP reduction 继续处理输出。SGLang 的 Quark small-M FP8 分支保持原有优先级。
+
+优先使用 [LightOP PR #183](https://github.com/HYGON-AI/lightop/pull/183) 的接口。旧版 wheel 使用 plugin 携带的同一 gfx938 Triton 实现。已发起 kernel 的错误沿原调用链上报。
+
+以 plugin release `c47683ec` 和 SGLang v0.5.22 `baa9befa` 为基线。CPU 合同覆盖开关、设备和量化方案准入、provider 选择、prefill/decode/target verify 的 FP8 数据直通及 TP2 reduction。gfx938 kernel 可离线编译。nmz26 满卡，模型规模的 gfx938 数值、Graph 重放和性能待验证。
+
 ## 附录：布局、操作方式与汇总
 
 以下为布局说明、使用方法、维护规范及跨阶段验证汇总，不作为单独时间事件排序；表内版本和历史结果保留原有含义。
@@ -2586,6 +2598,62 @@ main 整理已同步正在评测的三个 KV 修复，并移除未部署的 raw 
 
 参考环境为 bw46 `zhuwenbo_sgl_1024` SGLang 0.5.18，TP4 NEXTN 3/1/4 eager；对 LightOp 做了 top-k/top-p 频数测试。0522 使用 `--kv-cache-dtype fp8_e5m2` 时，在随机采样前的 full-attention KV stride 解析处出现 `ValueError: unexpected KV buffer ndim=4`，故服务验证使用默认 KV dtype，不能与参考配置作严格性能 A/B。测试日志和 trace 位于 bw46 的 `/sgl/deploy-bw46-qwen38-20261109/mtp-random-adapt-20261109/` 及 `/sgl/deploy-bw46-qwen38-20261109/decodegraph-vision-20261109-01/`。
 
+
+## 2026-11-20 Attention 输出的 sigmoid mul 和 INT8 量化
+
+新增独立 Triton 接口 `sigmoid_mul_per_token_int8_quant(attn_output, gate)`。
+输入为连续的 BF16 attention 输出和同设备的 BF16 gate。gate 支持最后一维步长为 1
+的二维张量及三维分头视图。以 [SGLang FP8 分支](https://github.com/sgl-project/sglang/blob/baa9befa381511cd4d56f83980951e5a45fffc6d/python/sglang/kernels/ops/elementwise/elementwise.py#L419)
+为参考，按 token 计算 sigmoid × attention output，先舍入到 BF16，再用整行 FP32
+absmax、1e-10 下限和 nearbyint 生成 INT8 激活与每 token 一个 FP32 scale。
+算子保持输入只读。
+
+bw46 HCU 上，TP2 的 3,072 宽分片和 1、4、16、128、512、2,048 token 的带 stride
+gate 对拍通过，INT8 激活和 scale 同现有 SGLang sigmoid × mul 加 LightOp
+per-token INT8 逐元素一致。二维带 stride gate、全零行、空输入、无效 shape
+和改变输入的 Graph replay 用例通过。
+
+3072 宽三维 strided gate 的 Graph replay 微测以 SGLang 原地 sigmoid × mul 加
+LightOp 分段 INT8 kernel 为基线。1/4/16/128/512/2,048 token 的基线与融合耗时比
+依次为 1.06/1.07/1.10/1.15/0.96/1.20。测试用 gate 为 16，使 BF16 activation
+在基线的重复原地 replay 过程中保持恒定。计时范围为两步算子和融合算子。
+
+按 3072 宽专门增加四 wave 的三段归约。每个 program 读三段 1024 元素，
+先逐元素合并绝对值再做整行归约；其他宽度沿用通用路径。gfx936 代码对象
+中，旧版和新版的 `next_free_vgpr` 分别为 57、40，静态 `v_exp_f32`
+指令分别为 16、12，barrier 数均为 2，均未使用 scratch。六种 3072 宽
+token 数继续与两步基线逐元素匹配，Graph 更新输入及二维 gate 也已复验。
+
+| Token 数 | 两步基线（µs） | 原融合（µs） | 3072 分段融合（µs） |
+| ---: | ---: | ---: | ---: |
+| 4 | 4.411 | 4.076 | 3.460 |
+| 512 | 15.177 | 15.690 | 12.265 |
+| 2,048 | 61.557 | 51.112 | 40.148 |
+
+同卡随机穿插三种已预热 Graph 的测量顺序，记录 11 轮的中位数。
+
+### Qwen full attention 接入
+
+`SGLANG_HCU_QWEN_ATTN_SIGMOID_INT8_FUSION=1` 将融合接到 sigmoid gate 与
+`self_attn.o_proj` 之间。开关默认关闭，和 GDN、SiLU 的融合开关独立。
+仅对 HCU 上已有 gate、使用动态对称 compressed-tensors W8A8、输入已分片的
+`o_proj` 生效。BF16 attention 输出满足布局条件时，投影直接消费 INT8 激活
+和 FP32 scale。SP、编译及不支持的配置使用原有路径。
+
+
+bw46 使用同一 plugin 工作树、相同 Qwen3.8-27B Channel INT8、TP2、MTP NEXTN 3/1/4
+和完整 target-verify Graph BS1。EvalScope 1.15.0，greedy，seed 42，关闭 thinking，
+并发 8，最大输出 4096 token。GDN + SiLU 对照组在 4/5 卡，三融合组在 6/7 卡。
+
+| HumanEval pass@1 | 通过数 |
+| --- | ---: |
+| GDN + SiLU（同轮） | 159/164 |
+| GDN + SiLU + attention sigmoid | 163/164 |
+| GDN + SiLU（上一轮） | 160/164 |
+
+三组均无输出截断。两个对照中通过的题在三融合组均通过。此数据为单次模型运行的
+得分对照。服务日志确认两 rank 在 target verify、decode 和 prefill 均命中融合。
+门控、投影直通及 attention 调用次数的三项接入测试通过。
 
 ## 2026-11-09 Qwen3.8 FP8 E5M2 KV 的 HCU FA 路径
 
@@ -3915,6 +3983,21 @@ Decode hook 将处理后的输出作为仅限位置参数接收，避免与宿�
 
 本次发布镜像的 DeepGEMM pair32 要求 masked FP8 GEMM 的 A scale 连续，且每 token 一个 scale。
 回移主线 #46 的 DeepEP legacy FP8 low-latency per-token 参数和 gate/up、down 两处连续化。
+## 2026-11-20 gfx938 Qwen attention 门控与 FP8 量化融合
+
+设置 `SGLANG_HCU_QWEN_ATTN_SIGMOID_FP8_FUSION=1` 后，Qwen3.5/3.6 在 gfx938 上可把 attention 输出的 sigmoid 门控和逐 token E4M3FN 量化合成一次 launch。默认关闭。融合仅用于非空 BF16 输入、匹配的 attention/gate 布局和 rank 本地输入的 compressed-tensors 动态 token / 通道权重 FP8 `o_proj`。复用原有 FP8 GEMM 和 TP 归约。序列并行、torch.compile、原生 FP8 tuple 分发及其他不满足条件的路径沿用已有实现。
+
+优先使用 LightOP 的 `fuse_sigmoid_mul_fp8_quant` 导出。旧版 LightOP 未提供该导出时使用插件内同一 Triton 实现，算子来源见 [LightOP PR #185](https://github.com/HYGON-AI/lightop/pull/185)。融合保留门控相乘后的 BF16 舍入，再计算 FP32 scale 及 E4M3FN 输出。
+
+`python3 tests/runtime/qwen_attention_fp8.py -v` 的六项接入单测通过，覆盖开关注册、硬件/量化准入、算子选择、回退及真实 RowParallelLinear 对 FP8 输入和 TP2 归约的调用契约。单测使用 CPU 和模拟的 GPU 分发。
+
+在 gfx938 上复用 Qwen3.6-27B Channel FP8 服务的实际量化和 GEMM 入口，用 3072 列 BF16 attention 输出和分头步长的 gate 测试 11 种 token 数。eager 和 Graph replay 各比较 5,621,760 个 E4M3FN 编码、1,830 个 FP32 scale 和 9,369,600 个 GEMM BF16 输出，均逐位一致。服务使用插件内置 Triton 算子，两个 TP rank 在 EXTEND、DECODE、TARGET_VERIFY 和 DRAFT_EXTEND_V2 都记录到命中。
+
+HumanEval 使用 SGLang 0.5.22、DTK 26.10、TP2/PP1、FA3、EAGLE 3/1/4、FP8 E4M3 KV、Graph 和 EvalScope 1.15.0，关闭 thinking，temperature 0，seed 42，最多 4,096 个生成 token。基线插件为 `c47683ec37984d382b960aa900bdedbf9cbfe059`。并发 8 时，关闭融合的两轮完整 Pass@1 分别为 120/164 和 118/164，94/164 道题的生成文本相同。开启融合为 118/164，与两轮基线分别有 97/164 道题的生成文本相同。
+
+并发 1 时，两组都先清空 radix cache，使用同一对 gfx938 设备。两组 Pass@1 均为 114/164（69.51%），164 道题的生成文本和通过判定全部一致，评测无执行错误。清理本次启动的服务后确认两张卡已释放。
+
+`SGLANG_USE_LIGHTOP_CHANNEL_FP8=1 python3 tests/runtime/compressed_fp8.py -v` 的 14 项现有量化回归通过。导览已重新生成，并在桌面和窄屏浏览器中检查新增目录锚点和导航。
 ## 2026-11-19 Qwen GDN 输出投影的动态 INT8 融合
 
 `SGLANG_HCU_QWEN_GDN_RMS_INT8_FUSION=1` 启用 Qwen GDN recurrence 后、`out_proj`
