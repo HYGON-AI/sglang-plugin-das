@@ -65,6 +65,9 @@ _is_hcu = is_hcu()
 logger = logging.getLogger(__name__)
 
 W4A8_TPMOE_BACKEND_ENV = "SGLANG_W4A8_TPMOE_BACKEND"
+W4A8_TPMOE_FUSED_ACT_QUANT = (
+    os.environ.get("SGLANG_W4A8_TPMOE_FUSED_ACT_QUANT", "0") == "1"
+)
 
 _lmslim_w4a8_marlin_available = False
 _lmslim_w4a8_triton_available = False
@@ -74,6 +77,7 @@ w4a8_triton = None
 moe_align_block_size_lightop = None
 get_moe_cache = None
 per_token_quant_int8 = None
+fuse_silu_mul_per_token_quant = None
 MoeQuantType = None
 aiter_moe = None
 get_aiter_moe_config = None
@@ -112,7 +116,8 @@ def _ensure_lightop_w4a8_triton_available() -> None:
         w4a8_triton, \
         moe_align_block_size_lightop, \
         get_moe_cache, \
-        per_token_quant_int8
+        per_token_quant_int8, \
+        fuse_silu_mul_per_token_quant
 
     if _lmslim_w4a8_triton_available:
         return
@@ -125,6 +130,11 @@ def _ensure_lightop_w4a8_triton_available() -> None:
             get_moe_cache as _get_moe_cache,
         )
         from lightop.quant import per_token_quant_int8 as _per_token_quant_int8
+
+        try:
+            from lightop import fuse_silu_mul_per_token_quant as _fuse_act_quant
+        except ImportError:
+            _fuse_act_quant = None
     except Exception as e:
         raise RuntimeError(
             "triton backend is selected for w4a8 tpmoe, but lightop triton "
@@ -135,6 +145,7 @@ def _ensure_lightop_w4a8_triton_available() -> None:
     moe_align_block_size_lightop = _moe_align_block_size_lightop
     get_moe_cache = _get_moe_cache
     per_token_quant_int8 = _per_token_quant_int8
+    fuse_silu_mul_per_token_quant = _fuse_act_quant
     _lmslim_w4a8_triton_available = True
 
 
@@ -160,6 +171,10 @@ def _ensure_aiter_w4a8_marlin_available() -> None:
         ) from e
 
     MoeQuantType = _MoeQuantType
+    if _is_hcu and W4A8_TPMOE_FUSED_ACT_QUANT:
+        from hcu_sglang.layers.quantization.aiter_act_quant import lazy_aiter_act_quant
+
+        _aiter_moe = lazy_aiter_act_quant(_aiter_moe)
     aiter_moe = _aiter_moe
     get_aiter_moe_config = _get_aiter_moe_config
     w4a8_moe_layout_shuffle_gemm2 = _w4a8_moe_layout_shuffle_gemm2
@@ -303,7 +318,7 @@ def _patch_moe_c_align_non_cub_to_triton() -> None:
 
     def moe_align_block_size(topk_ids, block_size, num_experts, expert_map=None):
         if (
-            native_sort and num_experts == 129 and expert_map is not None
+            native_sort and num_experts in (129, 257) and expert_map is not None
             and expert_map.numel() == num_experts and topk_ids.ndim == 2
             and topk_ids.shape[1] == 10 and 0 < topk_ids.shape[0] < 2**24
             and topk_ids.dtype == torch.int32 and topk_ids.is_contiguous()
@@ -676,17 +691,28 @@ def fused_experts_impl_w4a8_triton(
             compute_type=compute_type,
         )
 
-        gate, up = cache1.chunk(2, dim=-1)
-        if activation == "silu":
-            activated = F.silu(gate) * up
-        elif activation == "gelu":
-            activated = F.gelu(gate) * up
-        else:
-            raise ValueError(f"Unsupported FusedMoE activation: {activation}")
+        qactivated = None
+        activated_scale = None
+        if (
+            activation == "silu"
+            and fuse_silu_mul_per_token_quant is not None
+            and W4A8_TPMOE_FUSED_ACT_QUANT
+        ):
+            qactivated, activated_scale = fuse_silu_mul_per_token_quant(
+                cache1.view(token_count * top_k, n1), dtype=torch.int8
+            )
+        if qactivated is None:
+            gate, up = cache1.chunk(2, dim=-1)
+            if activation == "silu":
+                activated = F.silu(gate) * up
+            elif activation == "gelu":
+                activated = F.gelu(gate) * up
+            else:
+                raise ValueError(f"Unsupported FusedMoE activation: {activation}")
 
-        qactivated, activated_scale = per_token_quant_int8(
-            activated.reshape(token_count * top_k, n1 // 2)
-        )
+            qactivated, activated_scale = per_token_quant_int8(
+                activated.reshape(token_count * top_k, n1 // 2)
+            )
         if expert_map is not None:
             # The EP align only schedules this rank's slots, so the second
             # GEMM never writes the rows of slots routed to other ranks.
@@ -1885,7 +1911,7 @@ class SlimQuantW4A8Int8AiterMoEMethod:
         i_s: Optional[torch.Tensor] = None,
         use_int8_prequant: bool = False,
     ):
-        from aiter.moe import MoeQuantType, aiter_moe, get_aiter_moe_config
+        from aiter.moe import MoeQuantType, get_aiter_moe_config
 
         from sglang.srt.layers.moe.token_dispatcher.standard import StandardCombineInput
 
