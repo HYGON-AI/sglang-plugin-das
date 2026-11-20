@@ -19,6 +19,7 @@
 - [2026-11-04：KV 与 GDN 单流提交验证](#2026-11-04-kv-与-gdn-单流提交验证)
 - [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
 - [2026-11-19：Qwen Gemma RMSNorm 与动态 INT8 量化融合](#2026-11-19-qwen-gemma-rmsnorm-与动态-int8-量化融合)
+- [2026-11-20：gfx938 Qwen attention 门控与 FP8 量化融合](#2026-11-20-gfx938-qwen-attention-门控与-fp8-量化融合)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -3705,3 +3706,19 @@ HCU 插件在 CLI 进程注册时为 `Qwen3.6-35B-A3B` 和 `Qwen3.6-35B-A3B-Chan
 
 回归测试覆盖标准 CLI、位置参数、兼容启动入口、显式禁用、其他模型与非 HCU。与 W8A8 FP8 checkpoint 排除项测试合计 11 项通过。完整 EvalScope 在本次默认值变更前运行，当前实机复核关注零 `export` 启动与子进程继承。
 nmz16 gfx938 两组 TP4 在移除配方环境变量后，均完成 eager Prefill / Full Decode 启动和确定性短答，结束原因为 `stop`。两组的六个进程均继承各自配方，只有 Channel FP8 注入 ModelScope 默认值。
+
+## 2026-11-20 gfx938 Qwen attention 门控与 FP8 量化融合
+
+设置 `SGLANG_HCU_QWEN_ATTN_SIGMOID_FP8_FUSION=1` 后，Qwen3.5/3.6 在 gfx938 上可把 attention 输出的 sigmoid 门控和逐 token E4M3FN 量化合成一次 launch。默认关闭。融合仅用于非空 BF16 输入、匹配的 attention/gate 布局和 rank 本地输入的 compressed-tensors 动态 token / 通道权重 FP8 `o_proj`。复用原有 FP8 GEMM 和 TP 归约。序列并行、torch.compile、原生 FP8 tuple 分发及其他不满足条件的路径沿用已有实现。
+
+优先使用 LightOP 的 `fuse_sigmoid_mul_fp8_quant` 导出。旧版 LightOP 未提供该导出时使用插件内同一 Triton 实现，算子来源见 [LightOP PR #185](https://github.com/HYGON-AI/lightop/pull/185)。融合保留门控相乘后的 BF16 舍入，再计算 FP32 scale 及 E4M3FN 输出。
+
+`python3 tests/runtime/qwen_attention_fp8.py -v` 的六项接入单测通过，覆盖开关注册、硬件/量化准入、算子选择、回退及真实 RowParallelLinear 对 FP8 输入和 TP2 归约的调用契约。单测使用 CPU 和模拟的 GPU 分发。
+
+在 gfx938 上复用 Qwen3.6-27B Channel FP8 服务的实际量化和 GEMM 入口，用 3072 列 BF16 attention 输出和分头步长的 gate 测试 11 种 token 数。eager 和 Graph replay 各比较 5,621,760 个 E4M3FN 编码、1,830 个 FP32 scale 和 9,369,600 个 GEMM BF16 输出，均逐位一致。服务使用插件内置 Triton 算子，两个 TP rank 在 EXTEND、DECODE、TARGET_VERIFY 和 DRAFT_EXTEND_V2 都记录到命中。
+
+HumanEval 使用 SGLang 0.5.22、DTK 26.10、TP2/PP1、FA3、EAGLE 3/1/4、FP8 E4M3 KV、Graph 和 EvalScope 1.15.0，关闭 thinking，temperature 0，seed 42，最多 4,096 个生成 token。基线插件为 `c47683ec37984d382b960aa900bdedbf9cbfe059`。并发 8 时，关闭融合的两轮完整 Pass@1 分别为 120/164 和 118/164，94/164 道题的生成文本相同。开启融合为 118/164，与两轮基线分别有 97/164 道题的生成文本相同。
+
+并发 1 时，两组都先清空 radix cache，使用同一对 gfx938 设备。两组 Pass@1 均为 114/164（69.51%），164 道题的生成文本和通过判定全部一致，评测无执行错误。清理本次启动的服务后确认两张卡已释放。
+
+`SGLANG_USE_LIGHTOP_CHANNEL_FP8=1 python3 tests/runtime/compressed_fp8.py -v` 的 14 项现有量化回归通过。导览已重新生成，并在桌面和窄屏浏览器中检查新增目录锚点和导航。

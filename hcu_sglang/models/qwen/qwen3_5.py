@@ -5,6 +5,7 @@ import logging
 import torch
 
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+from sglang.srt.utils import get_bool_env_var
 from hcu_sglang.models.fused_rotary import (
     fused_rms_rotary_kv_store,
     use_fused_rms_rotary,
@@ -22,7 +23,12 @@ _GDN_INIT_TARGET = _MODULE + ".Qwen3_5GatedDeltaNet.__init__"
 
 def register() -> None:
     logger.info("[hcu_sglang] register AROUND hook: %s", _TARGET)
-    HookRegistry.register(_TARGET, replacement_self_attention, HookType.AROUND)
+    attention_hook = replacement_self_attention
+    if get_bool_env_var("SGLANG_HCU_QWEN_ATTN_SIGMOID_FP8_FUSION"):
+        from hcu_sglang.models.qwen import attention_fp8
+
+        attention_hook = attention_fp8.around_self_attention
+    HookRegistry.register(_TARGET, attention_hook, HookType.AROUND)
     HookRegistry.register(_GDN_INIT_TARGET, around_gdn_init, HookType.AROUND)
     HookRegistry.register(
         _MODULE + ".Qwen3_5AttentionDecoderLayer.forward_prepare_cuda_fused",
