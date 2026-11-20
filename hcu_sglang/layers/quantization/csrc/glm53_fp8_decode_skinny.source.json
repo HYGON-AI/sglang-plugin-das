@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "module": "hcu_sglang_glm53_fp8_decode_skinny",
+  "source_commit": "e4f43b5daa1c19eb8c39597c1404000d4938a89e",
+  "source_file": "csrc/skinny_gemm.cu",
+  "source_sha256": "6b3f733cb8025fbfaa7871aa609164b19866b99561f37fb6aa0d5ad472dc760e",
+  "source_archive_sha256": "3e728308213c14f171cebd0a7a83281579cbe0d2ab43056034710acf44645623",
+  "reference_python": "__init__.py",
+  "reference_python_sha256": "ed2807c5589a074a4f137a788a8fc6f8a5ad571a633d7fc37d4813530abb0284",
+  "reference_config": "skinny_cfg.json",
+  "reference_config_sha256": "be50e87f4d0d6664bbb0d65865406d8dabb5c3f95a8494fcd8eb163b52860339",
+  "reference_binary": "_C.cpython-310-x86_64-linux-gnu.so",
+  "reference_binary_sha256": "8aa3f2e39bf93dfca597714d80511f355cb6b600a5b09d0c0fdd86c83fac5e34",
+  "hip_flags": ["-O3", "--offload-arch=gfx938"],
+  "source_policy": "Source is an external fixed-hash build input and is not included. The source archive has no discovered license declaration; do not distribute source or derivative binaries until rights are established.",
+  "scope": "Optional GLM-5.3 channel-FP8 decode component candidate; not registered or selected by this package. D runtime, numerical and graph validation remain outstanding."
+}

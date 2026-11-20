@@ -131,6 +131,24 @@ _DEEPEP_LL_DISPATCH_USES_QUANT_TYPE = (
 )
 
 
+def _deepep_ll_clean_accepts_num_topk() -> bool:
+    if not use_deepep:
+        return False
+    try:
+        parameter = inspect.signature(Buffer.clean_low_latency_buffer).parameters.get(
+            "num_topk"
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return parameter is not None and parameter.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    )
+
+
+_DEEPEP_LL_CLEAN_ACCEPTS_NUM_TOPK = _deepep_ll_clean_accepts_num_topk()
+
+
 def deepep_ll_dispatch_abi_error() -> Optional[str]:
     """Say which term disabled the vendor quant_type low-latency ABI.
 
@@ -676,11 +694,14 @@ class DeepEPBuffer:
         state = cls._state()
         if not state.buffer.low_latency_mode:
             return
+        kwargs = {}
+        if _DEEPEP_LL_CLEAN_ACCEPTS_NUM_TOPK:
+            kwargs["num_topk"] = state.num_topk
         state.buffer.clean_low_latency_buffer(
             state.num_max_dispatch_tokens_per_rank,
             state.hidden_size,
             state.num_experts,
-            num_topk=state.num_topk,
+            **kwargs,
         )
 
     @classmethod

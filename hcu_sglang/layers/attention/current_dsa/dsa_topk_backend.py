@@ -84,6 +84,25 @@ class DSATopKBackend(Enum):
         row_starts: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if self.is_sgl_kernel():
+            from hcu_sglang.layers.attention.hisparse import enabled as glm_fp8_hisparse_enabled
+
+            if (
+                _is_hcu
+                and score.is_cuda
+                and (
+                    envs.SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS.get()
+                    or glm_fp8_hisparse_enabled()
+                )
+            ):
+                assert topk == 2048
+                assert score.dim() == 2
+                topk_indices = score.new_empty(
+                    (score.size(0), topk), dtype=torch.int32
+                )
+                torch.ops.sgl_kernel.fast_topk(
+                    score, topk_indices, lengths, row_starts
+                )
+                return topk_indices
             from sgl_kernel import fast_topk_v2
 
             return fast_topk_v2(score, lengths, topk, row_starts=row_starts)

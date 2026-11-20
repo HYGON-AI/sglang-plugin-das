@@ -39,6 +39,7 @@ def register() -> None:
         dsa_kernels,
         dsa_topk,
         current_dsa,
+        hisparse,
         dsv4_compressor,
         flashattention_backend,
         triton_hcu,
@@ -90,6 +91,7 @@ def register() -> None:
     dsa_kernels.register_hooks()
     dsa_topk.register_hooks()
     current_dsa.register_hooks()
+    hisparse.register_hooks()
     dsv4_compressor.register_hooks()
     triton_hcu.register_hooks()
     gdn_backend.register()
@@ -162,8 +164,14 @@ def register() -> None:
     from hcu_sglang.utils.detection import is_hcu
     if is_hcu():
         from hcu_sglang.layers.moe import deepep_current, deepep_fp8
+        from sglang.srt.environ import envs
+
         deepep_current.register_hooks()
         deepep_fp8.register_hooks()
+        if envs.SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD.get():
+            from hcu_sglang.layers.moe import glm53_fp8_k1_indirect
+
+            glm53_fp8_k1_indirect.register_hooks()
     aiter_w4a8.register_hooks()
     lightop_runner.register_hooks()
     mega_moe.register_hooks()
@@ -197,6 +205,8 @@ def register() -> None:
 
     register_legacy()
     register_deepseek()
+    from hcu_sglang.layers import glm53_decode
+    glm53_decode.register_hooks()
     model_utils.register_hooks()
     qwen2.register()
     qwen3.register()

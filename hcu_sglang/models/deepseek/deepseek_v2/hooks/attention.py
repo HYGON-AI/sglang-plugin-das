@@ -67,7 +67,23 @@ _ATTN_CLASS_METHODS = (
 )
 
 
+def around_forward_core(original, self, intermediate_state):
+    from sglang.srt.environ import envs
+
+    if not envs.SGLANG_HCU_GLM53_FP8_TOKEN_INVERSE.get():
+        return original(self, intermediate_state)
+    from hcu_sglang.layers.quantization.glm53_fp8_token_inverse import attention_scope
+
+    batch = method = None
+    if isinstance(intermediate_state, tuple) and len(intermediate_state) == 4 and intermediate_state[3] is not None:
+        method, batch = intermediate_state[1:3]
+    with attention_scope(self, batch, method):
+        return original(self, intermediate_state)
+
+
 def register_hooks() -> int:
+    from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
     n = 0
     n += register_mixin_method_replaces_from_path(
         _MLA, "DeepseekMLAForwardMixin", _MLA_METHODS, _ATTN
@@ -87,4 +103,10 @@ def register_hooks() -> int:
         _ATTN_CLASS_METHODS,
         _ATTN,
     )
+    HookRegistry.register(
+        f"{_BASE}.DeepseekV2AttentionMLA.forward_core",
+        around_forward_core,
+        HookType.AROUND,
+    )
+    n += 1
     return n
