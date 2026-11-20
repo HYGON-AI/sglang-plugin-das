@@ -3871,3 +3871,6 @@ GLM-5.3 的 PP1 Prefill CP LayerSplit 单层 MTP 配方中，draft Main-KV 的 L
 回载只在该层 owner 上执行。设备索引仍是 target 模型层数之后的 packed draft 索引，
 host 索引使用本 rank 的 target host 层数之后的槽位。Index-K 沿用已有的 owner 过滤。
 本轮只做本地 lint、语法和结构检查，DCU 上的搬运、重叠调度及端到端精度待验证。
+
+发布分支冒烟发现 v0.5.22 同时传入 AFTER hook 的位置返回值和宿主 `result=` 参数。
+Decode hook 将处理后的输出作为仅限位置参数接收，避免与宿主关键字冲突。

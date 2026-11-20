@@ -75,10 +75,10 @@ def has_pending_glm53_radix_prompt(req):
     )
 
 
-def after_decode_outputs(result, processor, *, batch, **kwargs):
+def after_decode_outputs(normalized_outputs, processor, /, *, batch, **kwargs):
     pending = [req for req in batch.reqs if has_pending_glm53_radix_prompt(req)]
     if not pending:
-        return result
+        return normalized_outputs
 
     from sglang.srt.mem_cache.radix_cache import RadixKey
 
@@ -101,4 +101,4 @@ def after_decode_outputs(result, processor, *, batch, **kwargs):
                 tree_cache.checkpoint(req, up_to=prompt_len)
     finally:
         allocator.free_group_end()
-    return result
+    return normalized_outputs
