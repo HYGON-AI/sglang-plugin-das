@@ -634,6 +634,7 @@
     "sglang.srt.models.minimax_m2.MiniMaxM2RMSNormTP.weight_loader",
     "sglang.srt.models.qwen2.Qwen2Attention.__init__",
     "sglang.srt.models.qwen2.Qwen2Attention.forward",
+    "sglang.srt.models.qwen2_moe.Qwen2MoeMLP.forward",
     "sglang.srt.models.qwen2_moe.Qwen2MoeSparseMoeBlock._forward_router_experts",
     "sglang.srt.models.qwen3.Qwen3Attention.__init__",
     "sglang.srt.models.qwen3.Qwen3Attention.forward",

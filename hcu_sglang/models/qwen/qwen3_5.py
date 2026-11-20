@@ -6,11 +6,13 @@ import torch
 
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 from sglang.srt.utils import get_bool_env_var
+from hcu_sglang.models.qwen import attention_int8
 from hcu_sglang.models.fused_rotary import (
     fused_rms_rotary_kv_store,
     use_fused_rms_rotary,
 )
 from hcu_sglang.layers import qwen_rms_int8
+from hcu_sglang.models.qwen import gdn_int8
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.utils.module_patch import get_original_attr
 
@@ -38,6 +40,12 @@ def register() -> None:
         around_prepare_cuda_fused,
         HookType.AROUND,
     )
+    if gdn_int8.enabled:
+        HookRegistry.register(
+            _MODULE + ".Qwen3_5GatedDeltaNet.forward",
+            gdn_int8.around_forward,
+            HookType.AROUND,
+        )
     if qwen_rms_int8.enabled:
         for target in (
             "sglang.srt.models.qwen3_5.Qwen3_5AttentionDecoderLayer.forward",
@@ -51,6 +59,10 @@ def register() -> None:
 
 
 def replacement_self_attention(original, self, positions, hidden_states, forward_batch):
+    if attention_int8.enabled:
+        return attention_int8.around_self_attention(
+            original, self, positions, hidden_states, forward_batch
+        )
     return original(self, positions, hidden_states, forward_batch)
 
 
