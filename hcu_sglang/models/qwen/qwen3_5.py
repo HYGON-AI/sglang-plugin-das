@@ -10,6 +10,7 @@ from hcu_sglang.models.fused_rotary import (
     use_fused_rms_rotary,
 )
 from hcu_sglang.layers import qwen_rms_int8
+from hcu_sglang.models.qwen import gdn_int8
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.utils.module_patch import get_original_attr
 
@@ -29,6 +30,12 @@ def register() -> None:
         around_prepare_cuda_fused,
         HookType.AROUND,
     )
+    if gdn_int8.enabled:
+        HookRegistry.register(
+            _MODULE + ".Qwen3_5GatedDeltaNet.forward",
+            gdn_int8.around_forward,
+            HookType.AROUND,
+        )
     if qwen_rms_int8.enabled:
         for target in (
             "sglang.srt.models.qwen3_5.Qwen3_5AttentionDecoderLayer.forward",

@@ -66,7 +66,8 @@ def prefill(q,k,starts,ends,score_scale=None,*,key_span=4096):
         return logits.fill_(-float('inf'))
     starts=starts.to(torch.int32).contiguous()
     ends=ends.to(torch.int32).contiguous()
-    split_key_kernel(key_span)(q.contiguous().view(-1,128),k[:,0].contiguous(),logits,
+    block_q=16 if k.shape[0]>=32768 and q.shape[0]>=128 else 32
+    split_key_kernel(key_span,block_q)(q.contiguous().view(-1,128),k[:,0].contiguous(),logits,
                                starts,ends,
                                1./(score_scale or math.sqrt(128)))
     _tilelang_qsa_mqa_mask_kernel()(logits,starts,ends)
