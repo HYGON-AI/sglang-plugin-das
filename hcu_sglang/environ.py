@@ -90,6 +90,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
 
     'SGLANG_OPT_USE_FUSED_CLAMP_ACT_MUL': (EnvBool, True),
     'SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT': (EnvBool, False),
+    "SGLANG_HCU_QWEN_GDN_RMS_FP8_FUSION": (EnvBool, False),
     'SGLANG_AITER_INTREE_GEMM_TUNE': (EnvBool, True),
     'SGLANG_AITER_INTREE_MHC_TILE_M16': (EnvBool, True),
     'SGLANG_DSV4_DECODER_TAIL_GRAPH_MAX_ROWS': (EnvInt, 2048),

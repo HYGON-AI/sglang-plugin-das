@@ -19,6 +19,7 @@
 - [2026-11-04：KV 与 GDN 单流提交验证](#2026-11-04-kv-与-gdn-单流提交验证)
 - [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
 - [2026-11-19：Qwen Gemma RMSNorm 与动态 INT8 量化融合](#2026-11-19-qwen-gemma-rmsnorm-与动态-int8-量化融合)
+- [2026-11-20：gfx938 Qwen GDN 门控归一化与 FP8 量化融合](#2026-11-20-gfx938-qwen-gdn-门控归一化与-fp8-量化融合)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1456,6 +1457,16 @@ bw46 HCU 4/5 在同一容器、同一 DTK 和同一 TP2 配置串行运行基线
 单请求合成输入，固定输出 128 token，丢弃首轮后各取七次中位数。输入 128 token 时，TTFT 244.95→226.99 ms，decode 131.20→132.27 tok/s。输入 2048 token 时，TTFT 251.74→242.41 ms，decode 131.01→132.09 tok/s。两组负载的每轮请求均执行 32 轮 verify。这组单卡对串行对照用于烟测，TTFT 观测区间重叠。其他模型、批量和完整精度评测未执行。
 
 L0、三个定向测试、导览生成和 `git diff --check` 通过。完整 unittest 在当前 venv 留有两项启动测试失败，干净 HEAD 复现同样失败。原始算子与服务证据保存在本轮服务器实验目录。
+
+## 2026-11-20 gfx938 Qwen GDN 门控归一化与 FP8 量化融合
+
+`SGLANG_HCU_QWEN_GDN_RMS_FP8_FUSION=1` 为 gfx938 的 Qwen3.5/3.6 GDN 开启按 head 的 RMSNorm、SiLU 门控和按 token E4M3FN 量化。默认关闭。准入条件包括 BF16、128 维 value head、本 rank 的行并行输入、可接收预量化输入的动态 channelwise compressed-tensors FP8，以及未启用 sequence parallel。关闭开关或遇到不适用配置时，调用当前生效的原 forward。
+
+融合点位于 GDN recurrence 和 DP-Attention padding 之后。融合 kernel 保留 BF16 舍入，跨本 rank 的全部 head 计算一个 FP32 scale，支持 compact gate 和带 stride 的 prefill gate。`out_proj` 接收 `(FP8 activation, FP32 scale, BF16 dtype)`，现有 compressed-tensors GEMM 和 TP reduction 继续处理输出。SGLang 的 Quark small-M FP8 分支保持原有优先级。
+
+优先使用 [LightOP PR #183](https://github.com/HYGON-AI/lightop/pull/183) 的接口。旧版 wheel 使用 plugin 携带的同一 gfx938 Triton 实现。已发起 kernel 的错误沿原调用链上报。
+
+以 plugin release `c47683ec` 和 SGLang v0.5.22 `baa9befa` 为基线。CPU 合同覆盖开关、设备和量化方案准入、provider 选择、prefill/decode/target verify 的 FP8 数据直通及 TP2 reduction。gfx938 kernel 可离线编译。nmz26 满卡，模型规模的 gfx938 数值、Graph 重放和性能待验证。
 
 ## 附录：布局、操作方式与汇总
 
