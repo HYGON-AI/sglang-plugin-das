@@ -3813,3 +3813,14 @@ False，导致已启用 DP attention 的配方被拒绝。在 `85c1b05` 基线�
 应用此补丁后，两节点 DCP4 服务完成 target verify、draft decode 和
 draft extend 的 full Graph 捕获，三条真实对话均返回预期答案。
 该结果覆盖启动和小样本对话。
+
+## GLM-5.3 Channel FP8 HiSparse IFB
+
+GLM-5.3 Channel FP8 在 PP1、DCP1 的单服务模式下复用 prefill staging。
+Prefill 写入 packed FP8 KV，host pool 备份完成后进入 HiSparse decode。
+Prefill 和 decode 均使用 FlashMLA KV。Mooncake 或 fake 的传输校验在
+PD decode 路径生效。非融合 DSA TopK 沿用 HCU 原生 TopK 的索引顺序。
+
+实机冒烟使用个人 fork `85c1b05` 上的补丁 `11f11e1`。两节点共八张
+gfx938，attention DP8 / EP8，EAGLE 5/1/6，full decode Graph。
+三条真实对话均返回预期答案。本次上游移植执行 lint 和结构检查。
