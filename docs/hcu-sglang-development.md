@@ -2585,3 +2585,11 @@ MiniMax 向官方 EPLB 提供当前 PP stage 的 routed expert 权重，包括�
 PD Decode 在 Draft Graph 捕获后，按捕获的最大批量逐一预热 eager Triton accept-output，并检查 Torch 参考输出。预热限于持有 Draft 模型的 MiniMax PD Decode worker。
 
 八卡官方 SGLang 0.5.23 与 Adapter `72484f4` 上，普通 IFB 的 GSM8K 为 195/200，一条到达输出上限。真实 RSC BS64 两轮 TPOT 为 16.94 / 15.99 ms，Verify 实测接受长度为 4.19 / 4.41。Fake PD HiSparse Off BS64 加载两份 CU64 HIPC 调优 JSON 后，三轮中位数为 2541.96 tok/s、20.08 ms，同机 DAS 为 2535.90 tok/s、20.00 ms。JSON 由 DeepGEMM 运行环境提供。
+
+## 2026-11-20 MiniMax W4A8 CP Prefill 的共享专家 overlap
+
+`SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD=split` 在 normal DeepEP Combine 前后安排共享专家计算。Gate/up 和 down 使用模型的 side stream，输出相加前等待该流。限定 CP Prefill、W4A8 HIPC 和 normal DeepEP 的 async finish，其他模式保留已有路径。开关默认 `off`。
+
+在八卡 CP8 + DeepEP8、固定专家布局、FlashMLA v2 下，RSC BS4 共享 131,072 个前缀 token，每条新增 16,384 token、输出 1。Side stream 配合官方 QK/RoPE 的三轮 mean TTFT 中位数为 2140.36 ms，同机 DAS 为 2168.46 ms。GSM8K 为 19/20，全部正常停止。
+
+LightOp QK/RoPE 需要显式设置 `SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE=1`，且仅用于兼容的 CP Prefill 形状。开启时，四轮 mean TTFT 中位数为 2184.30 ms，GSM8K 为 18/20，无截断。默认采用官方 QK/RoPE。

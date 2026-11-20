@@ -1,4 +1,5 @@
 import os
+from functools import cache
 
 import torch
 
@@ -155,8 +156,36 @@ def _prepare_split(original, attn, positions, q, k, v, idx_q, idx_k, idx_v, forw
     return original(attn, positions, q, k, v, idx_q, idx_k, idx_v, forward_batch)
 
 
+@cache
+def _lightop_qk_rope():
+    try:
+        from lightop import minimax_qk_norm_rope, supports_minimax_qk_norm_rope
+    except ImportError:
+        return None
+    return minimax_qk_norm_rope if supports_minimax_qk_norm_rope() else None
+
+
+def _use_lightop_prefill(attn, mode):
+    return (
+        os.getenv("HCU_PREFILL_CP") == "1"
+        and os.getenv("SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE", "0") == "1"
+        and mode.is_extend_without_speculative()
+        and attn._can_use_rocm_sparse_qk_index_norm_rope_static
+        and (attn.num_heads, attn.num_kv_heads, attn.num_idx_heads, attn.head_dim) == _HEAD_COUNTS
+        and _lightop_qk_rope() is not None
+    )
+
+
 def _prepare_unpacked(original, attn, positions, hidden_states, forward_batch):
     mode = forward_batch.forward_mode
+    if _use_lightop_prefill(attn, mode) and attn._use_fused_qknorm_rope:
+        combined_was_enabled = attn._combined_qknorm_ok
+        attn._use_fused_qknorm_rope = attn._combined_qknorm_ok = False
+        try:
+            return original(attn, positions, hidden_states, forward_batch)
+        finally:
+            attn._use_fused_qknorm_rope = True
+            attn._combined_qknorm_ok = combined_was_enabled
     if (
         not attn._use_fused_qknorm_rope
         or attn._fused_qkv_index is not None
@@ -172,6 +201,37 @@ def _prepare_unpacked(original, attn, positions, hidden_states, forward_batch):
         attn._use_fused_qknorm_rope = True
 
 
+def _norm_rope_lightop(original, attn, positions, q, k, idx_q, idx_k):
+    inputs = (q, k, idx_q, idx_k)
+    weights = tuple(
+        norm.weight.data
+        for norm in (attn.q_norm, attn.k_norm, attn.index_q_norm, attn.index_k_norm)
+    )
+    rotation = attn.rotary_emb
+    cache = rotation.cos_sin_cache
+    if (
+        not attn._can_use_rocm_sparse_qk_index_norm_rope(positions, *inputs)
+        or attn.head_dim != 128
+        or any(x.shape != (q.shape[0], width) for x, width in zip(inputs, (8192, 512, 512, 128)))
+        or any(x.dtype != torch.bfloat16 or x.device != q.device for x in (*inputs, *weights))
+        or any(not weight.is_contiguous() for weight in weights)
+        or positions.dtype not in (torch.int32, torch.int64)
+        or not positions.is_contiguous()
+        or cache.dtype not in (torch.float32, torch.bfloat16)
+        or not cache.is_contiguous()
+        or not q.is_cuda
+        or q.shape[0] == 0
+    ):
+        return original(attn, positions, *inputs)
+    kernel = _lightop_qk_rope()
+    if kernel is None:
+        return original(attn, positions, *inputs)
+    return kernel(
+        *inputs, *weights, positions, cache, attn.q_norm.variance_epsilon,
+        attn.head_dim, attn.rotary_dim, rotation.is_neox_style,
+    )
+
+
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -183,5 +243,15 @@ def register_hooks():
         HookRegistry.register(
             "sglang.srt.models.minimax_m3.MiniMaxM3Attention." + name,
             hook,
+            HookType.AROUND,
+        )
+
+    if (
+        os.getenv("HCU_PREFILL_CP") == "1"
+        and os.getenv("SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE", "0") == "1"
+    ):
+        HookRegistry.register(
+            "sglang.srt.models.minimax_m3.MiniMaxM3Attention._sparse_qk_index_norm_rope",
+            _norm_rope_lightop,
             HookType.AROUND,
         )

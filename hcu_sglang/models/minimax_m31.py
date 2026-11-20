@@ -53,8 +53,10 @@ def register() -> None:
     if os.getenv("HCU_PREFILL_CP", "0") == "1":
         from hcu_sglang.eplb import placement
         from hcu_sglang.layers.attention import minimax_m31_cp
+        from hcu_sglang.layers.moe import minimax_m31_prefill_overlap
 
         minimax_m31_cp.register_hooks()
+        minimax_m31_prefill_overlap.register_hooks()
         placement.register_hooks()
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_DEEPEP", "0") == "1":
