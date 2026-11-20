@@ -2571,3 +2571,41 @@ DeepEP shared-expert overlap 按 Decode / Verify、DP8 EP8、W4A8 HIPC 和 low-l
 基于 0d77762 的 CP Prefill KV 交换，CP8 zigzag 的单位 scale E4M3FN K、V 和 index K 可通过 `HCU_MINIMAX_CP_PACK_FP8=1` 在发送端量化并按字节 AllGather。插件在接收端使用原有重排、slot mask 和 Triton scatter 写缓存。Adapter 提交 `a3cfef3` 和 `20c2f20` 提供发送端 kernel，启用前应先安装含该提交的 adapter。关闭开关并重启可恢复此分支上的 BF16 AllGather 和接收端量化。社区 SGLang 固定在 `297e54fd10`。
 
 nmz18 的 8 张 96 GB HCU 在 DTK 26.10 / Python 3.12 下完成逐字节检查。检查覆盖 1、19 和 128 行、行顺序重排、保留 slot 0 与特殊浮点值。单机 Prefill BS4，每条命中 128K 缓存并新增 16K token，输出 1。每行传输从 2304 B 降至 1152 B。八个 rank 的 CP KV AllGather 累计 GPU 时间中位数为 84.54 → 59.46 ms。三轮无 profiler 测量的平均 TTFT 中位数为 1841.92 → 1832.34 ms，新增输入吞吐为 22398.55 → 22675.33 token/s。两组顺序执行，端到端差值需要交替复测。真实双机 PD、Decode 和数据集精度尚待验证。
+
+## 2026-11-20 MiniMax W4A8 的 EPLB 权重和采集
+
+MiniMax 向官方 EPLB 提供当前 PP stage 的 routed expert 权重，包括可迁移的打包权重及 scale。视图在访问时读取权重并去重，排除共享专家和 correction bias。采集记录增加阶段、原始 DP token 数和 batch 信息。设置 `SGLANG_MINIMAX_EPLB_PREFILL_ONLY=1` 时，只记录有新增 token 的 Prefill step，重平衡计数按全局 Prefill 状态推进。
+
+八卡 DP8 + DeepEP8 的 fake PD 在 BS32 下对齐 276 个满批 Verify step，覆盖 57 层。BS24 在线重平衡实际更新了 7047/7296 个专家槽，八 rank 均应用目标映射并完成请求。CP8 Prefill 采集覆盖八 rank 和 57 个有路由的 MoE 层。重平衡验证使用 fake PD，真实请求的前后输出对照待测。
+
+## 2026-11-20 MiniMax W4A8 Decode 的共享专家 overlap 与 DSpark 预热
+
+关闭 TBO 时，官方 dispatcher 外仍可能包有 `MaybeTboDeepEPDispatcher`。解析出唯一的 DeepEP 子实例后，在 dispatch 和 combine receive 窗口分别执行共享专家 gate/up 和 down。回调退出时清理临时句柄并恢复接收状态。保留 DP8 + EP8、W4A8、low-latency 及 SBO/TBO 的门控。
+
+PD Decode 在 Draft Graph 捕获后，按捕获的最大批量逐一预热 eager Triton accept-output，并检查 Torch 参考输出。预热限于持有 Draft 模型的 MiniMax PD Decode worker。
+
+八卡官方 SGLang 0.5.23 与 Adapter `72484f4` 上，普通 IFB 的 GSM8K 为 195/200，一条到达输出上限。真实 RSC BS64 两轮 TPOT 为 16.94 / 15.99 ms，Verify 实测接受长度为 4.19 / 4.41。Fake PD HiSparse Off BS64 加载两份 CU64 HIPC 调优 JSON 后，三轮中位数为 2541.96 tok/s、20.08 ms，同机 DAS 为 2535.90 tok/s、20.00 ms。JSON 由 DeepGEMM 运行环境提供。
+
+## 2026-11-20 MiniMax W4A8 CP Prefill 的共享专家 overlap
+
+`SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD=split` 在 normal DeepEP Combine 前后安排共享专家计算。Gate/up 和 down 使用模型的 side stream，输出相加前等待该流。限定 CP Prefill、W4A8 HIPC 和 normal DeepEP 的 async finish，其他模式保留已有路径。开关默认 `off`。
+
+在八卡 CP8 + DeepEP8、固定专家布局、FlashMLA v2 下，RSC BS4 共享 131,072 个前缀 token，每条新增 16,384 token、输出 1。Side stream 配合官方 QK/RoPE 的三轮 mean TTFT 中位数为 2140.36 ms，同机 DAS 为 2168.46 ms。GSM8K 为 19/20，全部正常停止。
+
+LightOp QK/RoPE 需要显式设置 `SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE=1`，且仅用于兼容的 CP Prefill 形状。开启时，四轮 mean TTFT 中位数为 2184.30 ms，GSM8K 为 18/20，无截断。默认采用官方 QK/RoPE。
+
+## 2026-11-20 MiniMax W4A8 PD Decode 的 HiSparse 性能路径
+
+为 MiniMax HiSparse 增加独占热页回收，借用已有映射的请求仍走原有的去重回收。可用 `M31_HISPARSE_PIN_SLOT_INDICES=1` 启用 pinned slot index 拷贝，用 `SGLANG_HISPARSE_HCU_PIN_HOST_KV=1` 选择本地 HCA 的 host KV 注册。Host KV 在 HIP 注销后解除 HCA 注册。
+
+HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度镜像。`M31_HISPARSE_FUSED_QK_CACHE=1` 启用主 K/V 热槽和逻辑 Index K 槽的融合写入。`M31_HISPARSE_REUSE_VERIFY_METADATA=1` 在单次 Verify 前向中复用索引元数据，并允许 compact Stage 1 Graph。`M31_HISPARSE_SPLIT_ROUTER_M144=1` 允许 gfx938 的特定 M144 BF16 router 拆分。上述开关默认关闭。
+
+八卡 fake PD 的 HiSparse On BS64 热跑为 2462.73 tok/s、20.83 ms，同机 DAS 为 2429.99 tok/s、20.95 ms。BS128 热跑为 3180.55 tok/s、30.30 ms，同机 DAS 15 轮中位数为 3301.14 tok/s、32.23 ms。每轮 128 条请求完整结束，八 rank KV 归零。FP8 写入映射通过 24 个 eager/Graph 逐字节检查。八 rank trace 确认 FP8 Prepare、plan/swap 和 Draft SWA 命中。真实 Mooncake 传输和双 HTTP worker 的端到端验证待完成。
+
+## MiniMax CP Prefill 共享专家的 LightOp 激活与 INT8 量化
+
+在使用 SlimQuant W4A8、CP 和 DeepEP normal 的 MiniMax Prefill 中，`SGLANG_MINIMAX_PREFILL_SHARED_OAI_INT8` 默认取 `1`。对于本地复制、无偏置、无需归约的共享专家，LightOp 将 BF16 SwiGLU OAI 激活与逐行 INT8 量化融合，直接把量化结果和 scale 交给 Down GEMM。当前验证的 gate/up 宽度为 6144，Down GEMM 输入宽度为 3072。设置为 `0` 可恢复原激活与量化路径。缺少原生算子或输入不满足条件时也沿用原路径。共享专家 overlap 通过独立开关 `SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD=split` 启用。
+
+2026-11-20 在 gfx938、CP8+EP8、固定专家布局、FlashMLA `g5ef71a` 下，用四条各命中 128K、追加 16K、输出 1 token 的 RSC 请求验证了串行与 overlap 路径。无 overlap 时，rank 0 的 114 次共享专家激活与量化累计从 29.98 ms 降至 12.06 ms。两项都关闭、仅 LightOp、两项同时开启时，各 rank 首末 GPU kernel 时间跨度的中位数分别为 2312.6、2302.4、2251.1 ms。仅开 overlap 的两轮为 2285.7 和 2363.0 ms。
+
+在四个目标形状的单算子对照中，两条路径的 scale 一致，量化值最多相差一个 INT8 刻度。无 overlap 时，四条固定输入中有三条的首 token 随激活实现改变。开启 overlap 后，原激活和 LightOp 均观察到首 token 的跨轮波动。数据集精度仍待验证。

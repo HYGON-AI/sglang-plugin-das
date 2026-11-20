@@ -88,10 +88,6 @@ def _enable_draft_swa(_result, backend, model_runner, *args, **kwargs):
     ):
         return
 
-    from sglang.srt.runtime_context import get_memory
-
-    if get_memory().enable_hisparse:
-        return
     if backend.use_verify_shared_kv:
         fallback = backend.verify_shared_kv_fwd
     elif backend.use_verify_splitkv:

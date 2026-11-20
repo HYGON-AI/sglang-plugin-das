@@ -70,6 +70,9 @@ class TestMiniMaxStage1GraphVariants(unittest.TestCase):
                 self.assertIs(create(original, runner, modes.DECODE), original.return_value)
             memory.enable_hisparse = True
             self.assertIs(create(original, runner, modes.TARGET_VERIFY, 8), original.return_value)
+            with patch.dict(os.environ, {"M31_HISPARSE_REUSE_VERIFY_METADATA": "1"}):
+                self.assertEqual(create(original, runner, modes.TARGET_VERIFY, 8).verify_width, 8)
+                self.assertIs(create(original, runner, modes.DECODE), original.return_value)
             memory.enable_hisparse = False
             disagg.disaggregation_mode = "decode"
             runner.attn_backend.decode_backend = object()

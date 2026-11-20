@@ -1,3 +1,4 @@
+import os
 from functools import cache
 
 import torch
@@ -25,6 +26,22 @@ def _lightop_router():
 
 def _compute_router_logits(original, layer, hidden_states):
     weight = layer.gate.weight
+    if (
+        os.getenv("M31_HISPARSE_SPLIT_ROUTER_M144", "0") == "1"
+        and layer.bf16_router_gemm
+        and torch.version.hip
+        and hidden_states.shape == (144, 6144)
+        and weight.shape == (128, 6144)
+        and hidden_states.dtype == weight.dtype == torch.bfloat16
+        and hidden_states.is_cuda
+        and hidden_states.device == weight.device
+        and _is_gfx938(hidden_states.device)
+    ):
+        weight_t = weight.t()
+        return torch.cat((
+            torch.mm(hidden_states[:128], weight_t, out_dtype=torch.float32),
+            torch.mm(hidden_states[128:], weight_t, out_dtype=torch.float32),
+        ))
     if (
         not layer.bf16_router_gemm
         or not torch.version.hip

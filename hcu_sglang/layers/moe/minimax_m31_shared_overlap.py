@@ -1,11 +1,30 @@
+import logging
 import os
+from functools import cache
 
 import torch
 
 
-def _shared_in_receive_windows(moe, hidden_states):
+LOG = logging.getLogger(__name__)
+
+
+def resolve_single_dispatcher(dispatcher):
+    from sglang.srt.batch_overlap.two_batch_overlap import MaybeTboDeepEPDispatcher
+
+    from .deepep_current import DeepEPDispatcher
+
+    if isinstance(dispatcher, MaybeTboDeepEPDispatcher) and len(dispatcher._inners) == 1:
+        dispatcher = dispatcher._inners[0]
+    return dispatcher if isinstance(dispatcher, DeepEPDispatcher) else None
+
+
+@cache
+def _announce_decode():
+    LOG.info("MiniMax Decode shared expert overlap active")
+
+
+def _shared_in_receive_windows(moe, hidden_states, dispatcher):
     shared = moe.shared_experts
-    dispatcher = moe.experts.dispatcher
     low_latency = dispatcher._low_latency_dispatcher
     gate_up = shared_output = None
 
@@ -25,8 +44,8 @@ def _shared_in_receive_windows(moe, hidden_states):
     low_latency.return_recv_hook = True
     handles = []
     try:
-        handles.extend(dispatcher.register_deepep_combine_hook(project_down))
-        handles.extend(dispatcher.register_deepep_dispatch_hook(project_gate_up))
+        handles.append(dispatcher.register_deepep_combine_hook(project_down))
+        handles.append(dispatcher.register_deepep_dispatch_hook(project_gate_up))
         routed = moe.experts(hidden_states, topk)
         if shared_output is None:
             raise RuntimeError("DeepEP did not complete the MiniMax shared expert projections")
@@ -53,24 +72,22 @@ def _forward_deepep(original, moe, hidden_states, forward_batch):
         return original(moe, hidden_states, forward_batch)
 
     from sglang.srt.layers.moe.utils import is_sbo_enabled, is_tbo_enabled
-    from sglang.srt.runtime_context import get_memory, get_parallel
-
-    from .deepep_current import DeepEPDispatcher
+    from sglang.srt.runtime_context import get_parallel
 
     parallel = get_parallel()
-    dispatcher = moe.experts.dispatcher
+    dispatcher = resolve_single_dispatcher(moe.experts.dispatcher)
     if (
-        get_memory().enable_hisparse
-        or parallel.attn_dp_size != 8
+        parallel.attn_dp_size != 8
         or parallel.moe_ep_size != 8
         or is_sbo_enabled()
         or is_tbo_enabled()
-        or not isinstance(dispatcher, DeepEPDispatcher)
+        or dispatcher is None
         or not dispatcher.deepep_mode.enable_low_latency()
         or dispatcher._get_impl() is not dispatcher._low_latency_dispatcher
     ):
         return original(moe, hidden_states, forward_batch)
-    return _shared_in_receive_windows(moe, hidden_states)
+    _announce_decode()
+    return _shared_in_receive_windows(moe, hidden_states, dispatcher)
 
 
 def register_hooks():

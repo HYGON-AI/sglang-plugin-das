@@ -1,4 +1,5 @@
 import os
+from functools import cache
 
 import torch
 
@@ -35,18 +36,27 @@ def _eligible_sparse_backend(attn, mode):
     if (
         not has_forward_context()
         or get_model().quantization != "slimquant_w4a8_marlin"
-        or get_memory().enable_hisparse
         or get_parallel().dcp_size != 1
     ):
         return None
     sparse = native.sparse_backend_for_mode(get_forward_context().attn_backend, mode)
+    hisparse = get_memory().enable_hisparse
+    if hisparse and (
+        os.getenv("M31_HISPARSE_FUSED_QK_CACHE", "0") != "1"
+        or not mode.is_target_verify()
+        or sparse is None
+        or sparse.hisparse_coordinator is None
+        or not getattr(sparse.kv_pool, "_enable_hisparse", False)
+        or sparse._loc_mapping is None
+    ):
+        return None
     layer = attn.attn
     if (
         sparse is None
         or sparse.is_npu
-        or sparse._loc_mapping is not None
+        or (sparse._loc_mapping is not None and not hisparse)
         or sparse.indexer_cp is not None
-        or sparse.hisparse_coordinator is not None
+        or (sparse.hisparse_coordinator is not None and not hisparse)
         or sparse.score_type != "max"
         or sparse.block_size_k != 128
         or sparse.page_size != 128
@@ -106,22 +116,29 @@ def _prepare_buffers(attn, inputs, positions, batch):
         return None
     layer = attn.attn
     pool = sparse.kv_pool
+    mapping = (
+        pool.full_to_hisparse_device_index_mapping
+        if getattr(pool, "_enable_hisparse", False)
+        else None
+    )
     caches = (*pool.get_kv_buffer(layer.layer_id), pool.get_index_k_buffer(layer.layer_id))
     if any(
         x.dtype != _FP8
         or x.device != q.device
-        or x.shape != (caches[0].shape[0], heads, 128)
+        or x.ndim != 3
+        or x.shape[1:] != (heads, 128)
         or not x.is_contiguous()
         for x, heads in zip(caches, (4, 4, 1))
     ):
         return None
-    return caches
+    return caches, mapping
 
 
 def _prepare(attn, inputs, positions, batch):
-    caches = _prepare_buffers(attn, inputs, positions, batch)
-    if caches is None:
+    prepared = _prepare_buffers(attn, inputs, positions, batch)
+    if prepared is None:
         return None
+    caches, mapping = prepared
 
     from ...kernels.minimax_sparse_fp8_prepare import sparse_qk_index_gemma_rmsnorm_rope_cache
 
@@ -131,7 +148,7 @@ def _prepare(attn, inputs, positions, batch):
         attn.index_q_norm.weight, attn.index_k_norm.weight,
         positions, attn.rotary_emb.cos_sin_cache, attn.q_norm.variance_epsilon,
         attn.head_dim, attn.rotary_dim, attn.rotary_emb.is_neox_style,
-        fp8_cache=True,
+        fp8_cache=True, main_cache_mapping=mapping,
     )
     attn._mark_sparse_kv_cached_by_fusion(batch, attn.attn.layer_id)
     return result
@@ -155,8 +172,36 @@ def _prepare_split(original, attn, positions, q, k, v, idx_q, idx_k, idx_v, forw
     return original(attn, positions, q, k, v, idx_q, idx_k, idx_v, forward_batch)
 
 
+@cache
+def _lightop_qk_rope():
+    try:
+        from lightop import minimax_qk_norm_rope, supports_minimax_qk_norm_rope
+    except ImportError:
+        return None
+    return minimax_qk_norm_rope if supports_minimax_qk_norm_rope() else None
+
+
+def _use_lightop_prefill(attn, mode):
+    return (
+        os.getenv("HCU_PREFILL_CP") == "1"
+        and os.getenv("SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE", "0") == "1"
+        and mode.is_extend_without_speculative()
+        and attn._can_use_rocm_sparse_qk_index_norm_rope_static
+        and (attn.num_heads, attn.num_kv_heads, attn.num_idx_heads, attn.head_dim) == _HEAD_COUNTS
+        and _lightop_qk_rope() is not None
+    )
+
+
 def _prepare_unpacked(original, attn, positions, hidden_states, forward_batch):
     mode = forward_batch.forward_mode
+    if _use_lightop_prefill(attn, mode) and attn._use_fused_qknorm_rope:
+        combined_was_enabled = attn._combined_qknorm_ok
+        attn._use_fused_qknorm_rope = attn._combined_qknorm_ok = False
+        try:
+            return original(attn, positions, hidden_states, forward_batch)
+        finally:
+            attn._use_fused_qknorm_rope = True
+            attn._combined_qknorm_ok = combined_was_enabled
     if (
         not attn._use_fused_qknorm_rope
         or attn._fused_qkv_index is not None
@@ -172,6 +217,37 @@ def _prepare_unpacked(original, attn, positions, hidden_states, forward_batch):
         attn._use_fused_qknorm_rope = True
 
 
+def _norm_rope_lightop(original, attn, positions, q, k, idx_q, idx_k):
+    inputs = (q, k, idx_q, idx_k)
+    weights = tuple(
+        norm.weight.data
+        for norm in (attn.q_norm, attn.k_norm, attn.index_q_norm, attn.index_k_norm)
+    )
+    rotation = attn.rotary_emb
+    cache = rotation.cos_sin_cache
+    if (
+        not attn._can_use_rocm_sparse_qk_index_norm_rope(positions, *inputs)
+        or attn.head_dim != 128
+        or any(x.shape != (q.shape[0], width) for x, width in zip(inputs, (8192, 512, 512, 128)))
+        or any(x.dtype != torch.bfloat16 or x.device != q.device for x in (*inputs, *weights))
+        or any(not weight.is_contiguous() for weight in weights)
+        or positions.dtype not in (torch.int32, torch.int64)
+        or not positions.is_contiguous()
+        or cache.dtype not in (torch.float32, torch.bfloat16)
+        or not cache.is_contiguous()
+        or not q.is_cuda
+        or q.shape[0] == 0
+    ):
+        return original(attn, positions, *inputs)
+    kernel = _lightop_qk_rope()
+    if kernel is None:
+        return original(attn, positions, *inputs)
+    return kernel(
+        *inputs, *weights, positions, cache, attn.q_norm.variance_epsilon,
+        attn.head_dim, attn.rotary_dim, rotation.is_neox_style,
+    )
+
+
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -183,5 +259,15 @@ def register_hooks():
         HookRegistry.register(
             "sglang.srt.models.minimax_m3.MiniMaxM3Attention." + name,
             hook,
+            HookType.AROUND,
+        )
+
+    if (
+        os.getenv("HCU_PREFILL_CP") == "1"
+        and os.getenv("SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE", "0") == "1"
+    ):
+        HookRegistry.register(
+            "sglang.srt.models.minimax_m3.MiniMaxM3Attention._sparse_qk_index_norm_rope",
+            _norm_rope_lightop,
             HookType.AROUND,
         )

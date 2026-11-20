@@ -20,7 +20,7 @@ class TestMiniMaxSharedOverlap(unittest.TestCase):
         def register(name, hook):
             self.assertTrue(low.return_recv_hook)
             hooks[name] = hook
-            return [SimpleNamespace(remove=lambda: hooks.pop(name))]
+            return SimpleNamespace(remove=lambda: hooks.pop(name))
 
         dispatcher = SimpleNamespace(
             _low_latency_dispatcher=low,
@@ -54,7 +54,7 @@ class TestMiniMaxSharedOverlap(unittest.TestCase):
                 down_proj=lambda x: project("shared_down", x),
             ),
         )
-        torch.testing.assert_close(_shared_in_receive_windows(moe, torch.ones(1)), torch.tensor([10.0]))
+        torch.testing.assert_close(_shared_in_receive_windows(moe, torch.ones(1), dispatcher), torch.tensor([10.0]))
         self.assertEqual(calls, [
             "dispatch_send", "shared_gate_up", "dispatch_recv", "combine_send",
             "shared_down", "combine_recv",
@@ -67,7 +67,7 @@ class TestMiniMaxSharedOverlap(unittest.TestCase):
 
         moe.shared_experts.down_proj = fail
         with self.assertRaisesRegex(RuntimeError, "shared projection failed"):
-            _shared_in_receive_windows(moe, torch.ones(1))
+            _shared_in_receive_windows(moe, torch.ones(1), dispatcher)
         self.assertFalse(hooks)
         self.assertFalse(low.return_recv_hook)
 
@@ -84,15 +84,22 @@ class TestMiniMaxSharedOverlap(unittest.TestCase):
             def _get_impl(self):
                 return self.active
 
+        class Wrapper:
+            def __init__(self, inners):
+                self._inners = inners
+
         dispatcher = Dispatcher()
         moe = SimpleNamespace(
             shared_experts=object(), num_fused_shared_experts=0,
-            experts=SimpleNamespace(dispatcher=dispatcher, _minimax_w4a8_hipc=True),
+            experts=SimpleNamespace(dispatcher=Wrapper([dispatcher]), _minimax_w4a8_hipc=True),
         )
         forward_batch = SimpleNamespace(
             forward_mode=SimpleNamespace(is_decode=lambda: True)
         )
         modules = {
+            "sglang.srt.batch_overlap.two_batch_overlap": SimpleNamespace(
+                MaybeTboDeepEPDispatcher=Wrapper,
+            ),
             "sglang.srt.layers.moe.utils": SimpleNamespace(
                 is_sbo_enabled=lambda: False, is_tbo_enabled=lambda: False,
             ),
@@ -122,5 +129,8 @@ class TestMiniMaxSharedOverlap(unittest.TestCase):
             del dispatcher._low_latency_dispatcher
             self.assertIs(overlap._forward_deepep(original, moe, states, forward_batch),
                           original.return_value)
-        projected.assert_called_once_with(moe, states)
-        self.assertEqual(original.call_count, 2)
+            moe.experts.dispatcher = Wrapper([dispatcher, dispatcher])
+            self.assertIs(overlap._forward_deepep(original, moe, states, forward_batch),
+                          original.return_value)
+        projected.assert_called_once_with(moe, states, dispatcher)
+        self.assertEqual(original.call_count, 3)

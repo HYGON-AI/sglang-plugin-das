@@ -45,7 +45,13 @@ def _stage1_graph_variants(original, model_runner, capture_forward_mode, capture
     if (
         model.quantization != "slimquant_w4a8_marlin"
         or not is_minimax_sparse(model.hf_config)
-        or get_memory().enable_hisparse
+        or (
+            get_memory().enable_hisparse
+            and (
+                capture_forward_mode != ForwardMode.TARGET_VERIFY
+                or os.getenv("M31_HISPARSE_REUSE_VERIFY_METADATA", "0") != "1"
+            )
+        )
         or capture_forward_mode not in (ForwardMode.DECODE, ForwardMode.TARGET_VERIFY)
     ):
         return original(model_runner, capture_forward_mode, captured_req_width)
