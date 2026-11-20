@@ -345,7 +345,10 @@ def register() -> None:
         "sglang.srt.arg_groups.overrides._attention_backend_fa3_fp8_fallback",
         around_qwen4_fa3_fp8_fallback, HookType.AROUND)
     if not _RESOLUTION_REGISTERED:
+        from hcu_sglang.disagg.glm53_decode_radix import resolve_pd_disaggregation
+
         for name, wrapper in (
+            ("handle_pd_disaggregation", resolve_pd_disaggregation),
             ("handle_model_specific_adjustments", _model_resolution),
             ("handle_attention_backend_compatibility", _attention_resolution),
             ("handle_a2a_moe", _moe_resolution),

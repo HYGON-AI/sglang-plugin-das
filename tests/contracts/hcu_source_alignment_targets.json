@@ -459,6 +459,7 @@
     "sglang.srt.managers.scheduler.Scheduler.init_disaggregation",
     "sglang.srt.managers.scheduler.Scheduler.init_kv_event_lora_names",
     "sglang.srt.managers.scheduler.Scheduler.run_batch",
+    "sglang.srt.managers.scheduler_components.batch_result_processor.SchedulerBatchResultProcessor._normalize_decode_outputs",
     "sglang.srt.managers.scheduler_components.dp_attn.MLPSyncBatchInfo",
     "sglang.srt.managers.scheduler_components.dp_attn._local_prefill_cuda_graph_vote",
     "sglang.srt.managers.scheduler_components.dp_attn._resolve_elastic_world_num_dp_ranks",

@@ -3847,6 +3847,17 @@ buffer。host 仍只保存本 CP rank 持有的活动层，packed draft 使用�
 沿用现有 packed 字节，BF16 使用同一存储的字节视图。
 
 PD Decode 已有普通 Radix 前缀匹配、加锁、页对齐和后缀传输。结合 HiCache
-命中时，命中部分的 Index-K 由缓存保留或从 host 恢复。框架 #39 的
-EAGLE/NextN 启动放行与首个 forward 后的 prompt 入树仍待迁移。
+命中时，命中部分的 Index-K 由缓存保留或从 host 恢复。
 本轮只执行本地 lint、语法和结构检查，L2 搬运与 Decode 命中待实机核对。
+
+## 2026-11-20 GLM-5.3 PD Decode Radix 与 MTP
+
+参考 [框架 #39](https://github.com/maxiaobetter/sglang-das/pull/39)，GLM-5.3
+在 `DCP1`、EAGLE/NextN `topk=1`、真实 PD 传输及关闭 HiSparse 时允许
+Decode Radix。启动时只替换 v0.5.22 的对应 speculative guard，其他校验由
+宿主管理。已命中的 Main KV 和 Index-K 继续按现有的前缀保留和后缀传输逻辑处理。
+
+预分配记录已提交的 prompt 长度。首个 Decode 结果同步后，由宿主按对齐的
+prompt key 入树，同时迁移前缀锁并回收重复页。请求结束仅释放自己仍持有的页。
+同前缀并发请求沿用在飞 prompt 的等待判定。设备调用对齐、Graph 换输入重放和
+端到端精度待验证。
