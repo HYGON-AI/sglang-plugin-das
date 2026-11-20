@@ -77,21 +77,16 @@ def enabled(view=None):
 def around_backend_resolution(original, view):
     if not enabled(view):
         return original(view)
-    if view.speculative_algorithm not in (None, "NONE"):
-        raise ValueError(
-            "HCU GLM FP8 HiSparse speculative decoding is not aligned with the "
-            "installed native reference: the draft residency map is missing."
-        )
     if view.dcp_size > 1:
         raise ValueError("HCU GLM FP8 HiSparse does not support DCP.")
     declared = {}
     for field in ("dsa_prefill_backend", "dsa_decode_backend"):
         backend = getattr(view, field)
         if backend is None:
-            declared[field] = "tilelang"
-        elif backend != "tilelang":
+            declared[field] = "flashmla_kv"
+        elif backend != "flashmla_kv":
             raise ValueError(
-                "HCU GLM FP8 HiSparse requires both DSA backends to be tilelang; "
+                "HCU GLM FP8 HiSparse requires both DSA backends to be flashmla_kv; "
                 "raw and scaled FP8 KV layouts cannot be mixed."
             )
     return declared
@@ -103,8 +98,10 @@ def around_validate_backend(original, server_args, attr, label):
     view = resolved_view(server_args)
     if not enabled(view):
         return original(server_args, attr, label)
-    if getattr(view, attr) not in (None, "tilelang"):
-        raise ValueError(f"HCU GLM FP8 HiSparse requires the tilelang {label} backend.")
+    if getattr(view, attr) not in (None, "flashmla_kv"):
+        raise ValueError(
+            f"HCU GLM FP8 HiSparse requires the flashmla_kv {label} backend."
+        )
     return None
 
 
@@ -181,46 +178,54 @@ def _copy_module(block_size, is_mla, is_dsv4_layout, skip_io):
 def around_copy_module(original, block_size, is_mla, is_dsv4_layout, skip_io):
     if not enabled():
         return original(block_size, is_mla, is_dsv4_layout, skip_io)
-    return _copy_module(block_size, is_mla, is_dsv4_layout, skip_io)
+    return _copy_module(min(block_size, 256), is_mla, is_dsv4_layout, skip_io)
 
 
-def around_tilelang_sparse_fwd(original, q, kv, indices, sm_scale, d_v=512):
-    if not enabled():
-        return original(q, kv, indices, sm_scale, d_v)
-    import torch
-    from sglang.kernels.ops.attention.dsa import tilelang_kernel as kernels
+def around_validate_feature_combos(original, server_args):
+    from sglang.srt.arg_groups.model_override_base import resolving_view
 
-    assert q.ndim == kv.ndim == indices.ndim == 3
-    assert d_v == 512 and q.shape[-1] == kv.shape[-1] == 576
-    assert indices.shape[-1] == 2048 and kv.dtype == torch.float8_e4m3fn
-    if q.dtype != kv.dtype:
-        q = q.to(kv.dtype)
-    block_i, threads = 64, 256
-    block_per_cu, cu = (2, 256) if kernels._is_gfx95_supported else (1, 304)
-    ni = indices.shape[-1] // block_i
-    inner_iter = kernels._pick_inner_iter(q.shape[0], ni, cu, block_per_cu)
-    partial = kernels.sparse_mla_fwd_decode_partial_fp8(
-        q.shape[1],
-        d_v,
-        q.shape[-1] - d_v,
-        indices.shape[-1],
-        sm_scale=sm_scale,
-        block_I=block_i,
-        inner_iter=inner_iter,
-        threads=threads,
-    )
-    partial_o, partial_lse = partial(
-        q.unsqueeze(0), kv.unsqueeze(0), indices.unsqueeze(0)
-    )
-    combine = kernels.sparse_mla_fwd_decode_combine(
-        q.shape[1],
-        d_v,
-        ni // inner_iter * block_i,
-        head_per_block=4,
-        block_I=block_i,
-        threads=threads,
-    )
-    return combine(partial_o, partial_lse)
+    result = original(server_args)
+    view = resolving_view(server_args)
+    if not enabled(view):
+        return result
+    if view.disaggregation_mode not in ("null", "decode") or view.page_size != 64:
+        raise ValueError(
+            "HCU GLM FP8 HiSparse requires unified serving or PD decode, "
+            "with page size 64."
+        )
+    if view.speculative_algorithm in (None, "NONE"):
+        return result
+    width = view.speculative_num_draft_tokens
+    if (
+        view.speculative_algorithm not in ("EAGLE", "NEXTN")
+        or view.enable_multi_layer_eagle
+        or view.speculative_eagle_topk != 1
+        or view.speculative_adaptive
+        or view.speculative_num_steps is None
+        or width is None
+        or not 2 <= width <= 6
+        or width != view.speculative_num_steps + 1
+    ):
+        raise ValueError(
+            "HCU GLM FP8 HiSparse requires fixed linear EAGLE/NextN with "
+            "top-k 1, up to 6 draft tokens and draft tokens equal to steps + 1."
+        )
+    if view.pp_size != 1 or view.dcp_size != 1:
+        raise ValueError("HCU GLM FP8 HiSparse MTP requires PP=1 and DCP=1.")
+    if view.enable_two_batch_overlap or view.enable_pdmux:
+        raise ValueError("HCU GLM FP8 HiSparse MTP requires one verify transaction.")
+    if view.disaggregation_mode == "decode" and (
+        view.disaggregation_transfer_backend not in ("mooncake", "fake")
+    ):
+        raise ValueError("HCU GLM FP8 HiSparse MTP requires Mooncake or fake transfer.")
+    return result
+
+
+def after_capture_prepare(result, runner, *args, **kwargs):
+    coordinator = result[0].hisparse_coordinator
+    if coordinator is not None and enabled() and coordinator.spec_swap.enabled:
+        coordinator.num_real_reqs.zero_()
+    return result
 
 
 def register_hooks():
@@ -244,8 +249,13 @@ def register_hooks():
             around_copy_module,
         ),
         (
-            "sglang.kernels.ops.attention.dsa.tilelang_kernel.tilelang_sparse_fwd",
-            around_tilelang_sparse_fwd,
+            "sglang.srt.arg_groups.hisparse_hook.validate_hisparse_feature_combos",
+            around_validate_feature_combos,
         ),
     ):
         HookRegistry.register(target, hook, HookType.AROUND)
+    HookRegistry.register(
+        "sglang.srt.model_executor.runner.decode_cuda_graph_runner.DecodeCudaGraphRunner.capture_prepare",
+        after_capture_prepare,
+        HookType.AFTER,
+    )

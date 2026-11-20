@@ -4081,6 +4081,16 @@ routed FP8 从 380.0 降到 76.6 微秒，数据 dispatch 与共享 GEMM 的
 隔离试验，正式提交的 GPU 复采、真实请求端到端精度和 graph replay
 仍待验证。
 
+## GLM-5.3 Channel FP8 HiSparse IFB
+
+GLM-5.3 Channel FP8 在 PP1、DCP1 的单服务模式下复用 prefill staging。
+Prefill 写入 packed FP8 KV，host pool 备份完成后进入 HiSparse decode。
+Prefill 和 decode 均使用 FlashMLA KV。Mooncake 或 fake 的传输校验在
+PD decode 路径生效。非融合 DSA TopK 沿用 HCU 原生 TopK 的索引顺序。
+
+实机冒烟使用个人 fork `85c1b05` 上的补丁 `11f11e1`。两节点共八张
+gfx938，attention DP8 / EP8，EAGLE 5/1/6，full decode Graph。
+三条真实对话均返回预期答案。本次上游移植执行 lint 和结构检查。
 ## GLM-5.3 FP8 DCP Graph KV 占位写入
 
 HCU DSA FP8 KV 池把 Graph 的占位槽放在最后一个可分配页之后。
