@@ -1,4 +1,6 @@
+import logging
 import os
+import time
 from functools import cache, wraps
 from types import FunctionType, SimpleNamespace
 
@@ -184,6 +186,39 @@ def _draft_int8_kv_only(original, attention, hidden_states):
     return kv.split(attention.kv_size, dim=-1)
 
 
+def _warmup_accept_output(_result, worker):
+    if not _minimax_hip_dspark() or not worker._hosts_draft:
+        return
+    from sglang.srt.runtime_context import get_disagg
+    if (
+        get_disagg().disaggregation_mode != "decode"
+        or worker.verify_num_draft_tokens != worker.gamma + 1
+        or not worker.draft_model_runner.decode_cuda_graph_captured
+    ):
+        return
+
+    import torch
+    from sglang.kernels.ops.speculative.dspark.dspark_verify_window import BuildOutTokens
+
+    start = time.monotonic()
+    max_bs = max(worker.draft_model_runner.decode_cuda_graph_runner.capture_bs)
+    with torch.inference_mode():
+        draft = torch.arange(max_bs * worker.gamma, device=worker.device).view(max_bs, worker.gamma)
+        bonus = torch.full((max_bs,), 41, dtype=torch.int64, device=worker.device)
+        correct_len = torch.arange(max_bs, device=worker.device) % worker.verify_num_draft_tokens
+        for bs in range(1, max_bs + 1):
+            kwargs = dict(
+                draft_tokens=draft[:bs], correct_len=correct_len[:bs], bonus=bonus[:bs],
+                verify_num_draft_tokens=worker.verify_num_draft_tokens, gamma=worker.gamma,
+            )
+            if not torch.equal(BuildOutTokens.triton(**kwargs), BuildOutTokens.torch(**kwargs)):
+                raise RuntimeError(f"DSpark accept-output warmup mismatch at batch {bs}")
+    logging.getLogger(__name__).info(
+        "DSpark eager accept-output warmup finished for B=1..%d, T=%d in %.2f ms",
+        max_bs, worker.verify_num_draft_tokens, (time.monotonic() - start) * 1000,
+    )
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -213,6 +248,12 @@ def register_hooks() -> None:
     HookRegistry.register(
         "sglang.srt.speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2.__init__",
         _scope_verify_hidden_commit,
+        HookType.AFTER,
+    )
+
+    HookRegistry.register(
+        "sglang.srt.speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2.init_cuda_graphs",
+        _warmup_accept_output,
         HookType.AFTER,
     )
 

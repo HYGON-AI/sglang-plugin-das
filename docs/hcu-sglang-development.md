@@ -2577,3 +2577,11 @@ nmz18 的 8 张 96 GB HCU 在 DTK 26.10 / Python 3.12 下完成逐字节检查�
 MiniMax 向官方 EPLB 提供当前 PP stage 的 routed expert 权重，包括可迁移的打包权重及 scale。视图在访问时读取权重并去重，排除共享专家和 correction bias。采集记录增加阶段、原始 DP token 数和 batch 信息。设置 `SGLANG_MINIMAX_EPLB_PREFILL_ONLY=1` 时，只记录有新增 token 的 Prefill step，重平衡计数按全局 Prefill 状态推进。
 
 八卡 DP8 + DeepEP8 的 fake PD 在 BS32 下对齐 276 个满批 Verify step，覆盖 57 层。BS24 在线重平衡实际更新了 7047/7296 个专家槽，八 rank 均应用目标映射并完成请求。CP8 Prefill 采集覆盖八 rank 和 57 个有路由的 MoE 层。重平衡验证使用 fake PD，真实请求的前后输出对照待测。
+
+## 2026-11-20 MiniMax W4A8 Decode 的共享专家 overlap 与 DSpark 预热
+
+关闭 TBO 时，官方 dispatcher 外仍可能包有 `MaybeTboDeepEPDispatcher`。解析出唯一的 DeepEP 子实例后，在 dispatch 和 combine receive 窗口分别执行共享专家 gate/up 和 down。回调退出时清理临时句柄并恢复接收状态。保留 DP8 + EP8、W4A8、low-latency 及 SBO/TBO 的门控。
+
+PD Decode 在 Draft Graph 捕获后，按捕获的最大批量逐一预热 eager Triton accept-output，并检查 Torch 参考输出。预热限于持有 Draft 模型的 MiniMax PD Decode worker。
+
+八卡官方 SGLang 0.5.23 与 Adapter `72484f4` 上，普通 IFB 的 GSM8K 为 195/200，一条到达输出上限。真实 RSC BS64 两轮 TPOT 为 16.94 / 15.99 ms，Verify 实测接受长度为 4.19 / 4.41。Fake PD HiSparse Off BS64 加载两份 CU64 HIPC 调优 JSON 后，三轮中位数为 2541.96 tok/s、20.08 ms，同机 DAS 为 2535.90 tok/s、20.00 ms。JSON 由 DeepGEMM 运行环境提供。
