@@ -985,7 +985,7 @@ def _update_gather_batch(
     draft_require_mlp_tp_gather: Optional[bool] = None,
     skip_global_metadata=False,
 ):
-    if not N.require_mlp_tp_gather:
+    if not require_mlp_tp_gather:
         batch.global_num_tokens = [mlp_sync_info.num_tokens]
         batch.global_num_tokens_for_logprob = [mlp_sync_info.num_tokens_for_logprob]
         batch.global_cp_num_tokens = [mlp_sync_info.cp_num_tokens]
@@ -1099,7 +1099,7 @@ def prepare_mlp_sync_batch_raw(
     skip_all_gather = N.envs.SGLANG_SCHEDULER_SKIP_ALL_GATHER.get() or (
         N.get_parallel().num_dp_ranks == 1
         and attn_tp_size == 1
-        and not N.require_mlp_tp_gather
+        and not require_mlp_tp_gather
     )
     can_run_decode_cuda_graph = N._local_decode_cuda_graph_vote(
         local_batch=local_batch, disable_cuda_graph=disable_cuda_graph
@@ -1218,7 +1218,7 @@ def prepare_mlp_sync_batch_raw(
         N._update_gather_batch(
             batch_to_gather,
             mlp_sync_info,
-            N.require_mlp_tp_gather,
+            require_mlp_tp_gather,
             draft_require_mlp_tp_gather,
             skip_global_metadata=not metadata_ready,
         )

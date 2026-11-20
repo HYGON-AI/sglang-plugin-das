@@ -31,6 +31,11 @@ def should_remap_pd_dsa_seed_to_local_slots() -> bool:
             )
 
             return hcu_should_remap(get_glm5_next_runtime_args(), config)
+        if U.envs.SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS.get():
+            from hcu_sglang.layers.rotary import _glm53_fp8_model
+
+            if _glm53_fp8_model(config.hf_config):
+                return False
     return (
         (U.is_cuda() or U.is_hip())
         and U.envs.SGLANG_DSA_FUSE_TOPK.get()

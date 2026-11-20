@@ -28,6 +28,10 @@
 
 - [2026-11-12：PD prefill inflight 队列 rank 一致性](#2026-11-12-pd-prefill-inflight-队列-rank-一致性)
 - [2026-11-19：Qwen Gemma RMSNorm 与动态 INT8 量化融合](#2026-11-19-qwen-gemma-rmsnorm-与动态-int8-量化融合)
+- [2026-11-19：GLM-5.3 Channel FP8 基础运行时](#2026-11-19-glm-53-channel-fp8-基础运行时)
+- [2026-11-18：GLM-5.3 FP8 absorb BMM 分发对齐](#2026-11-18-glm-53-fp8-absorb-bmm-分发对齐)
+- [2026-11-19：DeepEP 清理接口兼容](#2026-11-19-deepep-清理接口兼容)
+- [2026-11-19：GLM-5.3 FP8 稳态 prefill 优化](#2026-11-19-glm-53-fp8-稳态-prefill-优化)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录（卷内同链）。历史结果不代表当前代码已重新验证。
@@ -4122,3 +4126,79 @@ HCU 插件在 CLI 进程注册时为 `Qwen3.6-35B-A3B` 和 `Qwen3.6-35B-A3B-Chan
 
 回归测试覆盖标准 CLI、位置参数、兼容启动入口、显式禁用、其他模型与非 HCU。与 W8A8 FP8 checkpoint 排除项测试合计 11 项通过。完整 EvalScope 在本次默认值变更前运行，当前实机复核关注零 `export` 启动与子进程继承。
 nmz16 gfx938 两组 TP4 在移除配方环境变量后，均完成 eager Prefill / Full Decode 启动和确定性短答，结束原因为 `stop`。两组的六个进程均继承各自配方，只有 Channel FP8 注入 ModelScope 默认值。
+## 2026-11-19 GLM-5.3 Channel FP8 基础运行时
+
+以官方 SGLang v0.5.22 为宿主。移入 fork 的 Channel FP8 量化、MoE、MLA、
+KV/index cache 和模型 Hook，并加入显式的 prefill、decode 候选开关。部署所需
+算子入口、模型条件和供应商扩展来源见[配置管理](configuration.md)。
+上游的模型注册及 P/D 调度入口保留，沿用 Scheduler 注册时安装的兼容方法。
+
+已有隔离环境记录覆盖 CP8 的 12K/MTP 调用对照和普通 eager decode。
+本分支只做本地结构与 lint 检查。DCP4、HiSparse 和完整 Graph 组合需要按
+实际部署配方另行复验；历史候选结果按原环境记录。
+
+## 2026-11-18 GLM-5.3 FP8 absorb BMM 分发对齐
+
+复用原生镜像 `sglang 0.5.18+glm.cc4dceb` 中的 `glm_absorb_bmm.py`，
+源码 SHA-256 为 `c51c3854924bc5502c1ec33159a1ae6f2cac8c85e1189db0dcc81af3d53b17e0`。
+GLM-5.3 MLA 的 prepare 和 core 将当前批次传给 Q/V BMM 分发。
+分发用 `effective_forward_mode` 识别 MLP-sync 前的阶段，在原生阶段和
+布局条件满足时优先尝试 Triton，再使用既有的 skinny 和 `torch.bmm` 回退。
+确定性推理、batch-invariant 和编译门控沿用原生条件。
+
+在两节点 EP8 上用 Handoff R 的 A/B 张量对拍。Draft extend 和 target verify
+的 Q/V 各 16 份与原生 Triton 输出逐位一致。普通 decode 的 32 份 Q/V
+保留 skinny 路径并逐位一致。8 个 rank 的算子级 HIP Graph 同址换入另一组
+输入后，64 份 draft extend 和 target verify 的 Q/V 输出也与原生参考逐位一致。
+证据见 Handoff R 的 `device-replay/absorb-bmm-q-replay/bmm-summary.json`。
+
+## 2026-11-19 DeepEP 清理接口兼容
+
+插件在加载时检查安装包的清理函数签名。镜像 DeepEP `g4afb59` 的清理
+实现内部使用 K=8，插件沿用原生 SGLang 的三参调用。接受 `num_topk`
+关键字的接口接收实际 `state.num_topk`。Normal → low-latency 在清理
+成功后切换分发模式。
+
+两节点使用真实 GLM-5.3 Channel FP8 请求的实参完成 EP8 同输入复验。
+八 rank 的 384 条 low-latency 路由、FP8 payload、FP32 scale 和 BF16
+combine 输出逐位一致，前后通信和清理 kernel 的符号、次数与首发尺寸
+一致。真实 eager IFB 两侧均为 8/8，完整输出 token、结束原因和 MTP
+接受统计逐请求相同，两侧八个 rank 都命中 low-latency decode。
+证据见 `device-replay/short-ab-20261119/RUN.md`。
+
+归档的 fake 性能使用固定 low-latency 和 full Graph。启用 DeepEP auto 时，
+Graph replay 恢复捕获的分发模式，若此前是 normal，会先清理 buffer。
+该切换场景的同址换输入回放尚未验证。
+
+## 2026-11-19 GLM-5.3 FP8 稳态 prefill 优化
+
+`SGLANG_GLM_OPT_PREFILL=1` 在既有模型和输入门控下启用 GLM-5.3 Channel
+FP8 的 packed KV、physical KV compact、Add RMS align16、K1 indirect
+和 EP K8 gather。两项 prefill 开关默认关闭。packed KV 的 CP all-gather 使用每行 656 字节的
+uint8 布局，逻辑长度等于物理长度时直接使用有效行。K8 和 Add RMS
+优先使用已有的显式扩展路径，随后尝试镜像中带对应参数的 LightOp 接口。
+K1 从 plugin 自带的 WASP 头文件和绑定编译。设置
+`SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD=1` 后，符合条件的 GLM-5.3
+Channel FP8 prefill worker 在启动时编译或加载节点缓存。各 rank
+通过文件锁和原子发布共享产物。K1 仍按模型结构、量化方式和张量布局选择，
+加载扩展时检查 ABI 和导出入口。配置见 [K1 indirect-A](configuration.md#8-glm-53-fp8-prefill-的-k1-indirect-a-候选)。
+本地用替代编译进程核对八进程并发只生成一份产物、热启动复用、
+Python 或 DTK 变化后重新构建，以及编译失败后可重试。DCU 上的实际
+编译、服务启动和 K1 命中待验证。
+HCU dcp=1 在 FlashMLA KV 分发前使用匹配 page table 的有效 top-k 行，
+保留隔离试验带入的 padding 行裁剪逻辑。
+
+`SGLANG_GLM_PREFILL_SHARED_OVERLAP=1` 单独启用受支持的 eager、normal
+DeepEP 路径。共享专家旁流在 `dispatch_a` 提交 routed FP8 量化后记录
+并等待事件，与 `dispatch_b` 中的通信并行。routed 结果与共享结果相加前
+等待共享旁流完成。每次 forward 退出时清理 dispatcher hook。
+
+设备性能证据来自两节点 BW1300、TP8/CP8/EP8、并发 8 的隔离试验。
+匹配输入和缓存后，8 rank 的稳态 1/5/2 对齐，等待量化完成使 bs=5
+routed FP8 从 380.0 降到 76.6 微秒，数据 dispatch 与共享 GEMM 的
+重叠从 2.7 增到 66.5 毫秒。关闭 profiler 的 ABBA 中，稳态整波中位数
+从 4.643 降到 4.605 秒。此前的同输入原生对照为 4.306 秒，整体仍
+慢约 7.0%。证据见隔离试验 `quant-event-ab-20261119-1643/RUN.md`。
+本次正式实现的检查范围为 CI lint、源码语法与文档导览。设备结果属于
+隔离试验，正式提交的 GPU 复采、真实请求端到端精度和 graph replay
+仍待验证。

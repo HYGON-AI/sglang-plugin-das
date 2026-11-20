@@ -7,6 +7,27 @@ import triton
 import triton.language as tl
 
 @triton.jit
+def _gate_k1(weights, q_scale, output, scale, m, BLOCK: tl.constexpr):
+    row = tl.program_id(0) * BLOCK + tl.arange(0, BLOCK)
+    weight = tl.load(weights + row, mask=row < m)
+    scaled = weight * scale
+    q = tl.load(q_scale + row, mask=row < m)
+    result = scaled * q
+    tl.store(output + row, result, mask=row < m)
+
+
+def prefill_gate_k1(weights, q_scale, n_heads, softmax_scale):
+    weights, q_scale = weights.contiguous(), q_scale.contiguous()
+    assert weights.numel() == q_scale.numel()
+    output = torch.empty_like(q_scale, dtype=torch.promote_types(weights.dtype, q_scale.dtype))
+    scale = softmax_scale * (n_heads**-0.5)
+    m = weights.numel()
+    if m:
+        _gate_k1[(triton.cdiv(m, 256),)](weights, q_scale, output, scale, m, BLOCK=256)
+    return output
+
+
+@triton.jit
 def _fused_gate_scale_kernel(
     weights_ptr,
     q_scale_ptr,

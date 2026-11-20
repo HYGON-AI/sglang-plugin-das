@@ -271,6 +271,21 @@ def apply_weights(
             compressed_tensor_quant=True,
         )
     else:
+        from sglang.srt.environ import envs
+
+        if envs.SGLANG_HCU_GLM53_FP8_TOKEN_INVERSE.get():
+            from hcu_sglang.layers.quantization.glm53_fp8_token_inverse import projection_scope
+
+            with projection_scope(self, layer, x):
+                return Q.apply_fp8_linear(
+                    input=x,
+                    weight=layer.weight,
+                    weight_scale=layer.weight_scale,
+                    input_scale=layer.input_scale,
+                    bias=bias,
+                    use_per_token_if_dynamic=True,
+                    compressed_tensor_quant=True,
+                )
         return Q.apply_fp8_linear(
             input=x,
             weight=layer.weight,

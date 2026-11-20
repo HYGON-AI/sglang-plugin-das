@@ -14,7 +14,10 @@ class HcuSkipNorm:
 def around_prepare(original, stage, hidden_states, forward_batch, *, cache=None, **call):
     skip_norm = call.pop("hcu_skip_layernorm", False)
     if not skip_norm:
-        return original(stage, hidden_states, forward_batch, cache=cache, **call)
+        from hcu_sglang.layers.glm53_decode import prepare_norm_stage
+
+        invocation = prepare_norm_stage(stage, forward_batch)
+        return original(invocation, hidden_states, forward_batch, cache=cache, **call)
     # Consume the HCU option before public prepare dispatches to the strict
     # attention reader. Keep the reusable plan immutable across forwards.
     invocation = copy(stage)

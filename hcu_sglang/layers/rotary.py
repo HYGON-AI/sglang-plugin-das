@@ -3,15 +3,127 @@
 """HCU rotary fallback consumer: typed cache view and bounded launches.
 
 Head splitting derives from pinned HCU 5f67ce01c3 rotary_embedding/base.py.
-The canonical FP32 cache remains owned by the upstream layer and its indexers.
 """
 from __future__ import annotations
+import hashlib
+import sys
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 import torch
 from sglang.srt.environ import envs
 from hcu_sglang.utils.detection import is_hcu
 
 _HCU_ROPE_MAX_THREADS = 256
+_GLM53_ROPE_AOT_SHA256 = "07752f007a0ab720538514eb084e82297136c1d9ec9ac87353b6471766804e57"
+
+
+def _glm53_fp8_model(config):
+    if (
+        tuple(getattr(config, "architectures", None) or ())
+        not in (("GlmMoeDsaForCausalLM",), ("GlmMoeDsaForCausalLMNextN",))
+        or getattr(config, "model_type", None) != "glm_moe_dsa"
+        or getattr(config, "num_hidden_layers", None) != 78
+        or getattr(config, "hidden_size", None) != 6144
+        or getattr(config, "n_routed_experts", None) != 256
+        or getattr(config, "num_experts_per_tok", None) != 8
+        or getattr(config, "moe_intermediate_size", None) != 2048
+        or getattr(config, "num_attention_heads", None) != 64
+        or getattr(config, "q_lora_rank", None) != 2048
+        or getattr(config, "kv_lora_rank", None) != 512
+        or getattr(config, "qk_rope_head_dim", None) != 64
+        or getattr(config, "rope_interleave", None) is not True
+    ):
+        return False
+    quant = getattr(config, "quantization_config", None)
+    if quant is not None and not isinstance(quant, dict):
+        to_dict = getattr(quant, "to_dict", None)
+        quant = to_dict() if callable(to_dict) else None
+    if not isinstance(quant, dict):
+        return False
+    groups = quant.get("config_groups")
+    if (
+        quant.get("quant_method") != "compressed-tensors"
+        or quant.get("format") != "float-quantized"
+        or not isinstance(groups, dict)
+        or len(groups) != 1
+    ):
+        return False
+    group = next(iter(groups.values()))
+    if not isinstance(group, dict) or group.get("targets") != ["Linear"]:
+        return False
+    weight = group.get("weights") or {}
+    activation = group.get("input_activations") or {}
+    if not isinstance(weight, dict) or not isinstance(activation, dict):
+        return False
+    return (
+        weight.get("type") == "float"
+        and weight.get("num_bits") == 8
+        and weight.get("strategy") == "channel"
+        and weight.get("dynamic") is False
+        and weight.get("block_structure") is None
+        and activation.get("type") == "float"
+        and activation.get("num_bits") == 8
+        and activation.get("strategy") == "token"
+        and activation.get("dynamic") is True
+    )
+
+
+@lru_cache(maxsize=1)
+def _glm53_aot_rotary():
+    module = sys.modules.get("sgl_kernel.common_ops")
+    path = Path(getattr(module, "__file__", ""))
+    if (
+        sys.version_info[:2] != (3, 10)
+        or torch.__version__ != "2.11.0"
+        or torch.version.hip != "6.3.26113"
+        or not torch.compiled_with_cxx11_abi()
+        or module is None
+        or not path.is_file()
+        or hashlib.sha256(path.read_bytes()).hexdigest() != _GLM53_ROPE_AOT_SHA256
+        or not torch._C._dispatch_has_kernel_for_dispatch_key(
+            "sgl_kernel::rotary_embedding", "CUDA"
+        )
+    ):
+        raise RuntimeError("GLM-5.3 FP8 RoPE AOT provider identity or ABI mismatch")
+    return torch.ops.sgl_kernel.rotary_embedding.default
+
+
+def _rope_head_layout(tensor, tokens):
+    if tensor.ndim == 2 and tensor.shape[0] == tokens and tensor.shape[1] % 64 == 0:
+        return tensor.shape[1] // 64, 64
+    if tensor.ndim == 3 and tensor.shape[0] == tokens and tensor.shape[2] == 64:
+        return tensor.shape[1], tensor.stride(1)
+    return 0, 0
+
+
+def _use_glm53_fp8_aot_rope(layer, positions, query, key, offsets, fused):
+    if (
+        getattr(layer, "_hcu_glm53_fp8_aot_fallback", None) is None
+        or offsets is not None
+        or fused is not None
+        or key is None
+        or positions.ndim != 1
+    ):
+        return False
+    cache = layer.cos_sin_cache
+    q_heads, q_head_stride = _rope_head_layout(query, positions.numel())
+    k_heads, k_head_stride = _rope_head_layout(key, positions.numel())
+    return (
+        positions.dtype == torch.int64
+        and positions.is_contiguous()
+        and layer.head_size == layer.rotary_dim == 64
+        and q_heads > 0
+        and k_heads > 0
+        and q_heads % k_heads == 0
+        and (k_heads == 1 or q_head_stride == k_head_stride)
+        and query.stride(-1) == key.stride(-1) == 1
+        and query.dtype == key.dtype == cache.dtype == torch.bfloat16
+        and cache.ndim == 2
+        and cache.shape[1] == 64
+        and cache.is_contiguous()
+        and positions.device == query.device == key.device == cache.device
+    )
 
 def _max_q_heads_within_launch_bound(rot_dim: int) -> int:
     if rot_dim <= 0:
@@ -103,8 +215,14 @@ class HcuRotaryFallback:
             self.original(positions, query, key, head_size, cache, is_neox)
 
 
-def configure_glm_rope_cache(layer):
+def configure_glm_rope_cache(layer, config):
     layer.cos_sin_cache = layer.cos_sin_cache.to(dtype=layer.dtype)
+    if (
+        _glm53_fp8_model(config)
+        and layer.dtype == torch.bfloat16
+        and getattr(layer, "_hcu_lightop_rope", None) is None
+    ):
+        layer._hcu_glm53_fp8_aot_fallback = HcuRotaryFallback(_glm53_aot_rotary())
 
 
 def after_rotary_init(result, layer, *args, **kwargs):
@@ -126,6 +244,10 @@ def after_rotary_init(result, layer, *args, **kwargs):
 def forward_cuda(original_fn, layer, positions, query, key, offsets=None,
                  fused_set_kv_buffer_arg=None):
     native = getattr(layer, '_hcu_lightop_rope', None)
+    if native is None and _use_glm53_fp8_aot_rope(
+        layer, positions, query, key, offsets, fused_set_kv_buffer_arg
+    ):
+        native = layer._hcu_glm53_fp8_aot_fallback
     if native is None or fused_set_kv_buffer_arg is not None:
         return original_fn(
             layer, positions, query, key, offsets=offsets,

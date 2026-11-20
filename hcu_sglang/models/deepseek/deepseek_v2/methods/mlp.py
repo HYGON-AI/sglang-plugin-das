@@ -33,6 +33,16 @@ def forward(
     input_quant_args: N0.Optional[N0.Tuple[N0.torch.Tensor, N0.torch.Tensor]] = None,
     gateup_pre_quant: N0.Optional[N0.Tuple[N0.torch.Tensor, N0.torch.Tensor]] = None,
 ):
+    if (
+        getattr(self, "_lightop_norm_input", False)
+        and N0.envs.SGLANG_LIGHTOP_NORM_QUANT.get()
+        and isinstance(x, tuple)
+        and len(x) == 3
+        and isinstance(x[2], N0.torch.Tensor)
+    ):
+        quant, scale, x = x
+        if gateup_pre_quant is None:
+            gateup_pre_quant = (quant, scale, x.dtype)
     if self.is_replicated and x.shape[0] == 0:
         return x
 

@@ -79,3 +79,9 @@ hcu-sglang-plugin 方法与工具抽取，2026-10-20。
 `68a0c53ee9a0bdbd94b504e5a1e77e41a6c46e26`，沿用
 [Apache-2.0](../licenses/sglang-das.LICENSE)。迁移与修订记录见
 [源 PR #686](https://github.com/HYGON-AI/sglang-das/pull/686)。
+
+### GLM-5.3 Channel FP8 源码来源
+
+- `concat_mla_hcu.py` 随海光原生 `sglang-das` 的 `1a094374cc` 快照迁入，原路径为 `python/sglang/kernels/ops/attention/concat_mla_hcu.py`，迁入时文件内容一致。
+- `glm53_decode_mla.py` 改编了 [SGLang 的 ROCm MLA 准备函数](https://github.com/sgl-project/sglang/blob/baa9befa381511cd4d56f83980951e5a45fffc6d/python/sglang/srt/models/deepseek_common/attention_forward_methods/forward_mla_rocm.py)。`hisparse.py` 的 FP8 TileLang 调度改编自宿主的 `python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py`。两处均注明 SGLang 和海光的版权。
+- `lplb_dispatch.py`、`page_fusion.py`、`glm53_decode.py` 以及 K1 的构建脚本、加载器和 C++ 绑定是海光插件实现。
