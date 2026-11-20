@@ -4080,3 +4080,30 @@ routed FP8 从 380.0 降到 76.6 微秒，数据 dispatch 与共享 GEMM 的
 本次正式实现的检查范围为 CI lint、源码语法与文档导览。设备结果属于
 隔离试验，正式提交的 GPU 复采、真实请求端到端精度和 graph replay
 仍待验证。
+
+## GLM-5.3 FP8 DCP Graph KV 占位写入
+
+HCU DSA FP8 KV 池把 Graph 的占位槽放在最后一个可分配页之后。
+普通 decode 每请求预留一行，EAGLE 根据 draft 分支数和 verify/extend
+所需的最大 draft token 数确定行数。启用 prefill Graph 时同时考虑其
+最大 token bucket。取各阶段最大值并向上按页对齐。DCP=1、仅 eager
+和已转换为本地槽号的池沿用原分配路径。
+
+在个人 fork 的 `6d8ad63` 基线上，本地复现了小 batch 写到最后一个
+可分配页以及普通 decode batch 128 触发容量断言。修复后用 CPU 桩
+执行池分配和槽号转换，覆盖普通 decode、EAGLE、prefill bucket、
+eager 和 DCP=1。DCU 上的服务、换输入 Graph replay、调用对齐、
+性能和端到端精度待验证。
+
+DCP4 验收配方使用 FP8 KV、64 token 页、`ag_rs` 和双阶段 `flashmla_kv`。
+EAGLE 需要 PP1、attnCP1、DP attention，attention TP 与 DCP 均为 4
+且组内 rank 一致。DCP 运行时关闭 prefill CP、fused DSA top-k、
+HiSparse、HiCache 和 symmetric memory。首次实机复验应核对同步上游后
+首次 draft 的 TopK 接线，再对照原生采集调用和换输入 Graph replay。
+
+DCP4 的 EAGLE 启动校验读取实际生效的 DP attention 状态。用
+`--attn-dp-size 2` 启动时，旧的 `enable_dp_attention` 参数仍可能为
+False，导致已启用 DP attention 的配方被拒绝。在 `85c1b05` 基线上
+应用此补丁后，两节点 DCP4 服务完成 target verify、draft decode 和
+draft extend 的 full Graph 捕获，三条真实对话均返回预期答案。
+该结果覆盖启动和小样本对话。
