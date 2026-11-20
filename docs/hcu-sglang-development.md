@@ -3734,3 +3734,190 @@ HumanEval 有 1 题仅基线通过、2 题仅融合通过。MATH-500 两组各�
 将此变更同步到 0.5.22 发布分支后，以同一 SGLang 版本和模型参数启动融合副本。
 健康检查、真实接口生成和两 rank 的融合分发通过。64 token 请求执行 16 轮 MTP
 verify。新版 GDN 三项单测、原有 RMSNorm INT8 三项单测和 L0 检查通过。
+
+
+## 2026-11-17：W4A8 MoE 激活与 INT8 量化融合（默认关闭）
+
+用途：吸收 vLLM `act_and_mul_quant_kernel_opt1_new` 在 SGLang 侧对应的融合。
+现有 `fused_experts_impl_w4a8_triton` 把 SiLU(gate)*up 与
+`per_token_quant_int8` 分成两步，中间写出并读回一份 BF16 激活张量；lightop 的
+`fuse_silu_mul_per_token_quant` 在同一次遍历内完成，省掉该次往返。
+
+接入方式：`SGLANG_W4A8_TPMOE_FUSED_ACT_QUANT=1` 时走融合，默认 0 保持原两步。
+融合分支只覆盖 `activation == "silu"`；gelu 与 lightop 缺少该算子时都回到原路径，
+不改变任何权重布局、路由或 GEMM 调用。
+
+验证（容器 `yht-pd-w4a8`、DTK2604、单卡 HCU4）：
+- 逐位等价：tokens 128/1024/4096/16384 × topk 1/10，量化输出 `q` 与 `scale`
+  全部 `torch.equal` 相同；再以输入乘 1e-3/1.0/300 做极值压力，仍逐位相同。
+  MoE 下游第二 GEMM 消费的就是这两个张量，因此该融合不改变模型数值。
+- 组件耗时（token_count=4096、topk=10、n1=2560）：两步 0.908ms，融合 0.430ms，
+  2.11×；token_count=256 时 0.143→0.038ms（3.78×）。
+- 5 项 CPU 开关测试通过；L0 与导览快照通过。
+
+未验证：未做完整模型精度评测，也未在 TP>1 服务下测 SLA，故默认关闭。
+端到端 token 对比未能作为证据：4 卡 DP 服务在 temperature 0 下同一版本连续两次
+输出即不同（见本轮 `results/output-*.json`），该环境不可贪心复现，token 哈希
+不能用于接受或拒绝内核替换；本轮以算子级逐位等价代替。
+
+## 2026-11-18：把可选激活量化融合接入 AITER W4A8 prefill
+
+用途：实际 PD 配置使用 `SGLANG_W4A8_TPMOE_BACKEND=aiter`，前一条记录的
+融合只接在 Triton 分支，单独打开开关不会加速该配置。直接复用 LightOP 融合
+在本次宽度 640 的大矩阵上反而慢约 4%，因此新增对应形状的 Triton 融合。
+
+接入方式：沿用 `SGLANG_W4A8_TPMOE_FUSED_ACT_QUANT=1`，默认仍为 0。
+私有 AITER 调用链保留权重布局、排序、专家映射、第一 GEMM 和第二 GEMM，
+只替换激活生产者及第二 GEMM 的 INT8 codes/scale 输入。限定 BF16 SiLU、
+中间宽度 640、W4A8、无 block quant、无外部第二激活 scale，并且原量化会
+选择 Triton 的 chunk。HIP 量化的小矩阵保留原路径，其 scale 算法不同。
+小 batch 和编译路径使用原始入口。关闭开关完整回到原路径，源码不兼容时报错。
+
+新 kernel 按每 CTA 8 行、4 warp 分组，融合 SiLU、up 乘法、absmax、量化。
+使用与 vendor 相同的 exp2/rcp 指令和两处 BF16 舍入，再执行原 Triton 量化
+公式。减少 BF16 中间激活写回和重读。运行时 M 参数避免逐 batch 长度重新 JIT。
+
+私有入口绕过 AITER 已注册原始 orchestration 的 torch op，不修改 vendor
+模块、torch op 注册或安装文件。现有 MoE apply 的 Dynamo 禁用边界保持有效。
+入口在第一次非小 batch 调用时构建，确保捕获已初始化的专家排序和配置修补；
+随后缓存。vendor torch_guard 包装层沿单一闭包链定位，叶函数和四个调用函数
+校验 AST SHA256。本次仅核对 gfx936；其它硬件和 vendor 升级需要重新验证。
+
+验证：6 项 CPU 执行测试覆盖生产者/第二 GEMM 消费者、短尾不复用旧 codes、
+其它激活和量化回退、HIP/Triton 分界、延迟初始化、原入口不被修改。单卡完整
+W4A8 MoE 对比包含 M=4/128/1024/4096/16384 及浮点、显式 INT8 两种输入，
+10 组输出逐位一致，4096/16384 确认命中融合并把 codes/scale 送入第二 GEMM。
+40960/40963/327680 行的零值及幅值 1e-3/1/8/300 共 15 组压力比较中，
+codes/scale 全部逐位一致。宽度 640、356000 行组件耗时 2.273→1.466ms，
+约 1.55×；40960 行 0.281→0.176ms，约 1.60×。
+
+八卡 2P1D 模型 smoke 已通过 8 项 math/vision/sequence 与 4 项约 9k token
+新前缀检查。P 为 TP2/attention-DP2/EP2，D 为 TP4/attention-DP4/EP4，
+MTP 正常。250k/1250、实测缓存 85.76%、C5/N20 的一轮未开启 profiler 测试，
+配合提前转发 D 首字的实验 router，TTFT P90=9.588s、TPOT P90=19.342ms；
+C6/C8 未通过 10s TTFT。该结果不单独归因于融合，也不代表容量已稳定。
+服务 trace 的实际 kernel 命中和最终扩样待验证。默认关闭。
+
+## 2026-11-18：DP2 prefill 的 native MoE 排序
+
+启用 `SGLANG_MOE_C_NATIVE_SORT=1` 时，把已有 129 专家（本地128加 drop
+sentinel）特化扩展到 257 专家（本地256加 drop sentinel），用于 W4A8 P 端
+DP2/EP2。沿用 topk10、INT32 contiguous、块16/32/64/128 等限制；其它形状
+继续走原逻辑。没有修改 native ABI、expert map、排序转换或 GEMM。
+
+gfx936 独立 GPU 验证覆盖 M=1/4/17/129/1025/35600 和四种块大小，共24组；
+检查每条本地和重复远端路由完整保留、专家映射正确、整个尾部为 padding。
+M=4/129/1025/4096/16384 的真实 AITER W4A8 MoE 下游输出逐位一致。
+global_num_experts 显式设为257，与服务一致；省略这个参数的早期脚本结果
+不作为正确性证据。35600 token 的四阶段 Triton 排序约1.46–2.12ms，
+native 路径约0.28ms。此处是排序组件收益，模型合批精度和最终 SLA 仍待验证。
+
+## 2026-11-18：长 K 的 QSA MQA query tile
+
+可选 key-parallel QSA MQA 路径仍使用 TileLang。K长度至少32768、当前 query
+块至少128行时，query tile 从32调整为16，key tile 仍64；其它形状仍32。
+workspace、key span、mask、原始 logits 和 top-k 消费者保持相同，未改变
+压缩比、top-k预算或 sparse attention 的 FP8 reader。
+
+gfx936 对2144×62500的六种 tile 比较，logits全部逐位一致。32×64原配置
+的 MQA+mask+top-k 约5.049ms，16×64约4.297ms。完整35600×62500的分块
+调用链含选中分数收集，从89.222ms降到76.216ms，约14.6%。127/128/129行
+及变动row start、2144/2147尾块、完整35600行的6组选择分数多重集逐位一致。
+相等分数的合法 top-k tie 次序不要求固定。模型 smoke、服务 trace 和 SLA
+仍需在该提交上复测，组件收益不直接等同于端到端收益。
+真实 `prefill` 入口的7项GPU测试通过，包括长K的145行尾块、127行回退、
+不同row start/end的有限区间和FP32数学参考对比；CPU tuning测试7项通过。
+
+## 2026-11-18：新 SLA 的模型与 trace 验证
+
+本条补充上述融合、E257排序和BQ16的实际服务证据。运行时代码为`c1d6477`，
+基于plugin upstream `release/sglang_v0.5.22@6dd3943`；官方SGLang为
+`release/v0.5.22@baa9befa381511cd4d56f83980951e5a45fffc6d`，adapter为
+`bcec3e046cb5835410d0c8ab5503acbfdf0a3e9c`。后续文档提交不改变已测kernel。
+环境为gfx936、DTK2604、Torch2.11.0，八卡2P1D：每P为TP2/attention-DP2/EP2，
+D为TP4/attention-DP4/EP4，保留EAGLE3/MTP、BF16计算和FP8 E5M2 KV。
+
+实际融合路径是AITER/moe_c，而不是只打开旧Triton分支开关。最新四rank P trace
+实际出现1152次`silu_mul_int8`，同时确认BQ16 grid和E257 native排序。
+同一组10条250000/1250请求、cache214400，prompt SHA256多重集相同。
+有新query的10次forward平均GPU span从5456.10降到4944.89ms，约减少9.37%。
+MQA为622.84→468.62ms；activation加quant/conversion为339.76→233.18ms；
+routing/combine为474.72→311.27ms。top-k与paged FP8 reader基本不变。
+这是多项优化及参数组合的对照；组件归因仍以独立逐位检查和microbenchmark为准。
+
+有效forward内所有stream同时空闲占0.66%，没有发现足以解释数秒差距的计算空泡。
+中间17.75秒空档没有P请求待处理，是闭环客户端等待D输出。EP-only轮次通信驻留
+包含等对端计算的时间，不能按整张trace的通信比例判断链路带宽已饱和。
+最新trace尚未包含后续实验router的SSE终止防护和endpoint-age策略；GPU代码相同。
+
+最终无profiler、无特殊header的验收配合实验router early转发、成功终止事件防护
+与endpoint-age派发；P实际chunk49152、max-prefill-requests=1、pairing500ms、
+mem-fraction=.70、PLE inplace和allocator max_split_size_mb:256：
+
+| 输入/输出 | cache | 并发/正式N | TTFT P90 | TPOT P90 / max |
+|---|---:|---:|---:|---:|
+| 250000/1250 | 85.76% | 5/20 | 9.457s | 20.263 / 22.307ms |
+| 250000/1250 | 85.1968% | 5/20 | 7.302s | 20.401 / 28.247ms |
+| 60000/6000 | 85.3333% | 28/28 | 9.045s | 25.594 / 26.584ms |
+
+这些点满足TTFT P90<10s及每条平均TPOT<40ms；250k C6/N12为10.977s，未通过。
+60k C30的TTFT P90=9.781s、TPOT P90=26.788ms，按benchmark P90口径通过，
+但一条MTP接受率11.27%的请求TPOT=52.425ms，故严格逐条口径失败。
+250k两轮N20的MTP平均接受长度分别3.243/3.165、接受率74.76%/72.17%；
+60k C28为3.552/85.08%。正式请求精确输入输出、全部成功、retractions=0。
+cache按实际native meta核对，不声称恰好85.00%。60k无case warmup，250k一轮。
+
+标准8项math/vision/sequence、8条约9k并发新前缀、4条约135k冷输入检查通过。
+额外约250k重复背景冷输入首次随机Case为3/4，一条算术题重复输出“蓝色”。
+随后固定8个payload，在优化版与最新upstream各8/8通过，SHA、长度一致且0缓存。
+首次随机payload未保存，固定任务并非精确复现，未宣称该异常已解决；上述smoke
+与算子逐位一致不替代完整长上下文数据集精度验收。
+
+附加配置：BQ8或CTA128线程的logits虽逐位一致，但均更慢，未采纳。
+缩小P池到300032 KV token、Mamba CLI24（每rank12槽），空闲显存增加约2.64GB，
+使73728 chunk通过冷预热和20项smoke。C6出现一次两请求71200新token合批，
+对应native span约10.71s（包含潜在GPU排队）；C6/N12 TTFT P90=11.935s，
+仍未通过，故恢复49152配置。未用降低SSM精度、减少top-k预算或关闭MTP提速。
+
+定向GPU检查通过；宿主完整CPU suite为160项、1 failure/2 errors/13 skipped，
+upstream独立对照149项存在相同问题：无Torch的两个导入错误、CLI stub缺少
+`field_names`。全量suite未标为通过。L0及导览生成/快照检查通过；无浏览器
+渲染环境，未验证导览交互/窄屏。没有硬件计数器，不报告峰值带宽/算力利用率。
+这些运行时改动仅暂存本地分支，未push；官方SGLang与adapter没有新增代码改动。
+
+## 2026-11-20：W4A8 prefill 优化同步最新 0.5.22
+
+用途：将已测的融合、DP2 排序与 QSA query tile 优化整理为基于最新 upstream
+`release/sglang_v0.5.22@c47683ec37984d382b960aa900bdedbf9cbfe059` 的本地评审分支
+`feat/qwen38-prefill-opt-v0522-sync-20261120`，尚未 push。
+来源为 `499dfe7bb0dfb2a8aac1eff7a0b8b0d8b0b4a613` 的六条本地提交；采用 squash
+整理为一个 Conventional Commit，不修改原分支或运行服务使用的工作区。
+
+实际冲突仅为本文末尾的追加记录和生成页 `architecture.html`。保留上游文档全部
+记录，再追加原优化记录，并用 `tools/build_guide.py` 重建生成页。
+运行时代码无文本冲突。`slimquant_w4a8_marlin.py` 同时包含上游 HY4 CT 权重处理
+及类拆分修复与本地优化；本地补丁的 stable patch-id 与来源一致。按 AST 复核，
+AITER 类的上游 `process_weights_after_loading` 与本地 `apply` 分别完整保留。
+其余三个运行时模块与来源逐字节相同，没有退回上游已有修复。
+
+开关与原适用范围不变：`SGLANG_W4A8_TPMOE_FUSED_ACT_QUANT=1` 显式启用融合，
+默认仍为 0；AITER 支持 BF16、宽度 640 的既定 Triton 量化条件，小 batch、
+编译模式及其它激活/scale 契约保留原入口。native route sort 沿用既有开关，
+扩展至 E257；key-split QSA 仅在长 K/足够 query 行数下选 BQ16。
+
+本次验证：L0（673 Python、8 Skill）、生成页快照检查通过；6 项 AITER
+生产者/消费者回退测试与 5 项融合开关/接线测试全部通过。
+在容器 Python 3.10、官方 SGLang `baa9befa381511cd4d56f83980951e5a45fffc6d`
+源码及隐藏 GPU 的同一环境执行全量 CPU discovery：候选 195 项、upstream 对照
+184 项，均为 3 errors / 13 skipped，三个错误测试与终端原因完全一致：HY4
+配置 setUpClass、HY4 权重转换和 mrope 导入访问 GPU 属性，报
+`No CUDA GPUs are available`。不将这些环境受限项或跳过项记为通过。
+命令为仓库根目录的 `python3 -m unittest discover -s tests -v`，设置
+`HCU_ADAPTER_HOST=none`、`PYTHONPATH=$OFFICIAL/python` 及空的 HIP/CUDA 可见设备。
+没有为消除错误改变测试、放宽断言或改用在用 GPU。
+
+adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
+`bcec3e046cb5835410d0c8ab5503acbfdf0a3e9c`，无本地差异，无配套 adapter PR。
+本文前面的 GPU/Graph/模型/性能数字均为旧证据，不外推至本次新 upstream 组合；
+本次没有重启服务、重跑 GPU kernel、完整模型、SLA 或浏览器渲染。导览模板与交互
+未修改，仅重建文档快照，快照检查不代替视觉验收。
