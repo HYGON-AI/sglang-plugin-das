@@ -6,6 +6,7 @@ import logging
 from typing import Any, Callable, List, Tuple
 
 from hcu_sglang.utils.detection import is_hcu
+from hcu_sglang.disagg import state_layout as _state_layout
 
 logger = logging.getLogger(__name__)
 
@@ -129,44 +130,8 @@ def hcu_get_mha_kv_ptrs_with_pp(
             ]
         return src_k_ptrs, src_v_ptrs, dst_k_ptrs, dst_v_ptrs, len(src_k_ptrs)
 
-    def is_mha_layer_type(layer_type) -> bool:
-        layer_type = str(layer_type)
-        return layer_type in ("attention", "full_attention", "sliding_attention")
-
-    def get_global_full_attention_layer_ids():
-        hf_text_config = getattr(self.model_config, "hf_text_config", None)
-        layer_types = getattr(hf_text_config, "layer_types", None)
-        if layer_types is None:
-            layer_types = getattr(hf_text_config, "layers_block_type", None)
-        if layer_types is None:
-            hf_config = getattr(self.model_config, "hf_config", None)
-            layer_types = getattr(hf_config, "layer_types", None)
-            if layer_types is None:
-                layer_types = getattr(hf_config, "layers_block_type", None)
-        if layer_types:
-            return [
-                layer_id
-                for layer_id, layer_type in enumerate(layer_types)
-                if is_mha_layer_type(layer_type)
-            ]
-        full_attention_layer_ids = getattr(
-            self.model_config, "full_attention_layer_ids", None
-        )
-        if not full_attention_layer_ids:
-            return None
-        full_attention_layer_ids = list(full_attention_layer_ids)
-        num_hidden_layers = getattr(self.model_config, "num_hidden_layers", None)
-        if (
-            num_hidden_layers is not None
-            and len(full_attention_layer_ids) < num_hidden_layers
-            and start_layer > 0
-            and all(layer_id >= start_layer for layer_id in full_attention_layer_ids)
-        ):
-            return None
-        return full_attention_layer_ids
-
     num_hidden_layers = getattr(self.model_config, "num_hidden_layers", None)
-    full_attention_layer_ids = get_global_full_attention_layer_ids()
+    full_attention_layer_ids = _state_layout.get_global_full_attention_layer_ids(self, start_layer)
     is_compact_full_attention_layout = (
         full_attention_layer_ids is not None
         and num_hidden_layers is not None

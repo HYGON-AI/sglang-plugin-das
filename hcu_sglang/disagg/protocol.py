@@ -7,6 +7,11 @@ import enum
 import json
 import struct
 from typing import List, Optional
+
+from hcu_sglang.disagg.state_layout import (
+    pack_state_types,
+    resolve_state_component_dst_index,
+)
 import numpy as np
 import numpy.typing as npt
 from sglang.srt.disaggregation.common.staging_handler import StagingRegisterInfo, StagingTransferInfo
@@ -100,45 +105,11 @@ def unpack_string_list(buf: bytes) -> List[str]:
     return [value.decode("utf-8") for value in unpack_list_of_buffers(buf)]
 
 
-def pack_state_types(state_types) -> bytes:
-    return ",".join(state_type.value for state_type in (state_types or [])).encode(
-        "ascii"
-    )
-
-
 def unpack_state_types(data: bytes):
 
     if not data:
         return []
     return [StateType(value) for value in data.decode("ascii").split(",") if value]
-
-
-def resolve_state_component_dst_index(src_state_types, dst_state_types, src_index: int):
-    if not dst_state_types:
-        return src_index
-    if not src_state_types:
-        raise RuntimeError(
-            "Destination state_types are present but source state_types are empty."
-        )
-    if src_index >= len(src_state_types):
-        raise RuntimeError(
-            f"Source state component index {src_index} exceeds "
-            f"state_types length {len(src_state_types)}."
-        )
-    state_type = src_state_types[src_index]
-    occurrence = sum(
-        1 for item in src_state_types[: src_index + 1] if item == state_type
-    )
-    seen = 0
-    for dst_index, dst_state_type in enumerate(dst_state_types):
-        if dst_state_type == state_type:
-            seen += 1
-            if seen == occurrence:
-                return dst_index
-    raise RuntimeError(
-        f"Decode peer is missing state component {state_type!s} "
-        f"occurrence {occurrence}."
-    )
 
 
 @dataclasses.dataclass
