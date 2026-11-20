@@ -2601,3 +2601,11 @@ LightOp QK/RoPE 需要显式设置 `SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE=1`，且�
 HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度镜像。`M31_HISPARSE_FUSED_QK_CACHE=1` 启用主 K/V 热槽和逻辑 Index K 槽的融合写入。`M31_HISPARSE_REUSE_VERIFY_METADATA=1` 在单次 Verify 前向中复用索引元数据，并允许 compact Stage 1 Graph。`M31_HISPARSE_SPLIT_ROUTER_M144=1` 允许 gfx938 的特定 M144 BF16 router 拆分。上述开关默认关闭。
 
 八卡 fake PD 的 HiSparse On BS64 热跑为 2462.73 tok/s、20.83 ms，同机 DAS 为 2429.99 tok/s、20.95 ms。BS128 热跑为 3180.55 tok/s、30.30 ms，同机 DAS 15 轮中位数为 3301.14 tok/s、32.23 ms。每轮 128 条请求完整结束，八 rank KV 归零。FP8 写入映射通过 24 个 eager/Graph 逐字节检查。八 rank trace 确认 FP8 Prepare、plan/swap 和 Draft SWA 命中。真实 Mooncake 传输和双 HTTP worker 的端到端验证待完成。
+
+## MiniMax CP Prefill 共享专家的 LightOp 激活与 INT8 量化
+
+在使用 SlimQuant W4A8、CP 和 DeepEP normal 的 MiniMax Prefill 中，`SGLANG_MINIMAX_PREFILL_SHARED_OAI_INT8` 默认取 `1`。对于本地复制、无偏置、无需归约的共享专家，LightOp 将 BF16 SwiGLU OAI 激活与逐行 INT8 量化融合，直接把量化结果和 scale 交给 Down GEMM。当前验证的 gate/up 宽度为 6144，Down GEMM 输入宽度为 3072。设置为 `0` 可恢复原激活与量化路径。缺少原生算子或输入不满足条件时也沿用原路径。共享专家 overlap 通过独立开关 `SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD=split` 启用。
+
+2026-11-20 在 gfx938、CP8+EP8、固定专家布局、FlashMLA `g5ef71a` 下，用四条各命中 128K、追加 16K、输出 1 token 的 RSC 请求验证了串行与 overlap 路径。无 overlap 时，rank 0 的 114 次共享专家激活与量化累计从 29.98 ms 降至 12.06 ms。两项都关闭、仅 LightOp、两项同时开启时，各 rank 首末 GPU kernel 时间跨度的中位数分别为 2312.6、2302.4、2251.1 ms。仅开 overlap 的两轮为 2285.7 和 2363.0 ms。
+
+在四个目标形状的单算子对照中，两条路径的 scale 一致，量化值最多相差一个 INT8 刻度。无 overlap 时，四条固定输入中有三条的首 token 随激活实现改变。开启 overlap 后，原激活和 LightOp 均观察到首 token 的跨轮波动。数据集精度仍待验证。
