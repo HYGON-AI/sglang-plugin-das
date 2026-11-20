@@ -3874,3 +3874,6 @@ host 索引使用本 rank 的 target host 层数之后的槽位。Index-K 沿用
 
 发布分支冒烟发现 v0.5.22 同时传入 AFTER hook 的位置返回值和宿主 `result=` 参数。
 Decode hook 将处理后的输出作为仅限位置参数接收，避免与宿主关键字冲突。
+
+本次发布镜像的 DeepGEMM pair32 要求 masked FP8 GEMM 的 A scale 连续。
+回移主线 #46 的两处连续化，覆盖 gate/up 和 down GEMM。
