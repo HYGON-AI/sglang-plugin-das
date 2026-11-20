@@ -3861,3 +3861,13 @@ Decode Radix。启动时只替换 v0.5.22 的对应 speculative guard，其他�
 prompt key 入树，同时迁移前缀锁并回收重复页。请求结束仅释放自己仍持有的页。
 同前缀并发请求沿用在飞 prompt 的等待判定。设备调用对齐、Graph 换输入重放和
 端到端精度待验证。
+
+GLM-5.3 的 PD Decode 在 overlap 模式下可能先提交下一轮 forward，再处理上一轮结果。
+仅当待处理批次有待入树的 prompt 且下一轮已经提交时，等待 forward stream 完成，
+再迁移前缀锁、重绑页表和释放重复页。这样 Mooncake 可接收后续请求的 KV，
+且它获得的页不会再被前一轮 forward 读取。
+
+GLM-5.3 的 PP1 Prefill CP LayerSplit 单层 MTP 配方中，draft Main-KV 的 L2 备份和
+回载只在该层 owner 上执行。设备索引仍是 target 模型层数之后的 packed draft 索引，
+host 索引使用本 rank 的 target host 层数之后的槽位。Index-K 沿用已有的 owner 过滤。
+本轮只做本地 lint、语法和结构检查，DCU 上的搬运、重叠调度及端到端精度待验证。

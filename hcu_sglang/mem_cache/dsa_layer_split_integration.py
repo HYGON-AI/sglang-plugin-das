@@ -191,11 +191,88 @@ class HCUKVCacheConfigurator(NativeKVCacheConfigurator):
         )
 
 
+class _PackedDraftMLAHostView:
+    def __init__(self, host_pool, draft_pool):
+        self._host_pool = host_pool
+        self.owns_draft_layer = draft_pool._is_layer_owned(draft_pool.start_layer)
+
+    def __getattr__(self, name):
+        return getattr(self._host_pool, name)
+
+    def _is_device_layer_owned(self, device_pool, layer_id):
+        return self.owns_draft_layer
+
+    def _host_layer_index(self, layer_id, device_pool=None):
+        return self.target_layer_num
+
+
+def _glm53_packed_draft_mla_host(host_pool, layer_id):
+    if layer_id != host_pool.device_pool.layer_num:
+        return None
+    drafts = host_pool.mtp_draft_device_pools
+    if len(drafts) != 1:
+        return None
+    draft = drafts[0]
+    if getattr(draft, "layer_split_scratch_source", None) is not host_pool.device_pool:
+        return None
+
+    from hcu_sglang.layers.glm53_decode import model_matches
+    from sglang.srt.runtime_context import get_memory, process_model_config
+
+    if (
+        get_memory().hicache_storage_backend is None
+        and model_matches(process_model_config().hf_config)
+    ):
+        return _PackedDraftMLAHostView(host_pool, draft)
+    return None
+
+
+def around_mla_load_layer(
+    original, host_pool, device_pool, host_indices, device_indices, layer_id,
+    io_backend, *, is_draft=False,
+):
+    if is_draft:
+        view = _glm53_packed_draft_mla_host(host_pool, layer_id)
+        if view is not None:
+            if view.owns_draft_layer:
+                return original(
+                    view, device_pool, host_indices, device_indices, layer_id, io_backend,
+                )
+            return None
+    return original(
+        host_pool, device_pool, host_indices, device_indices, layer_id, io_backend,
+        is_draft=is_draft,
+    )
+
+
+def around_mla_backup_layer(
+    original, host_pool, host_indices, device_indices, layer_id, io_backend,
+    *, is_draft=False,
+):
+    if is_draft:
+        view = _glm53_packed_draft_mla_host(host_pool, layer_id)
+        if view is not None:
+            if view.owns_draft_layer:
+                return original(view, host_indices, device_indices, layer_id, io_backend)
+            return None
+    return original(
+        host_pool, host_indices, device_indices, layer_id, io_backend, is_draft=is_draft,
+    )
+
+
 def register_hooks():
     if not is_hcu():
         return
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    HookRegistry.register(
+        "sglang.srt.mem_cache.pool_host.mla.MLATokenToKVPoolHost.load_to_device_per_layer",
+        around_mla_load_layer, HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.mem_cache.pool_host.mla.MLATokenToKVPoolHost._backup_from_device_per_layer",
+        around_mla_backup_layer, HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.srt.speculative.eagle_worker_v2.EagleDraftWorker.alloc_memory_pool",
         before_draft_alloc, HookType.BEFORE,

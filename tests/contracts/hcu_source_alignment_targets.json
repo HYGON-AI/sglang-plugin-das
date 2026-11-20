@@ -531,6 +531,8 @@
     "sglang.srt.mem_cache.ple_state_pool.NGramPool.reset_slots",
     "sglang.srt.mem_cache.ple_state_pool.ShortConvPool.reset_slots",
     "sglang.srt.mem_cache.pool_host.mha.get_mha_host_pool_cls",
+    "sglang.srt.mem_cache.pool_host.mla.MLATokenToKVPoolHost._backup_from_device_per_layer",
+    "sglang.srt.mem_cache.pool_host.mla.MLATokenToKVPoolHost.load_to_device_per_layer",
     "sglang.srt.mem_cache.prefill_budget.PrefillBudget.check_prefill",
     "sglang.srt.mem_cache.prefill_budget.SWAPrefillBudget.check_prefill",
     "sglang.srt.mem_cache.prefill_budget.SharedSWAPrefillBudget.check_prefill",

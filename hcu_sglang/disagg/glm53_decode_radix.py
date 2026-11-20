@@ -66,12 +66,17 @@ def resolve_pd_disaggregation(server_args, previous):
     return previous(server_args)
 
 
+def has_pending_glm53_radix_prompt(req):
+    return (
+        getattr(req, "glm53_decode_radix_prompt_len", 0)
+        and not req.finished()
+        and not req.is_retracted
+        and req.kv.holds_kv
+    )
+
+
 def after_decode_outputs(result, processor, *, batch, **kwargs):
-    pending = [
-        req for req in batch.reqs
-        if getattr(req, "glm53_decode_radix_prompt_len", 0)
-        and not req.finished() and not req.is_retracted and req.kv.holds_kv
-    ]
+    pending = [req for req in batch.reqs if has_pending_glm53_radix_prompt(req)]
     if not pending:
         return result
 

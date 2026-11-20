@@ -4136,11 +4136,19 @@ class SchedulerDisaggregationDecodeMixin:
 
     @torch.no_grad()
     def event_loop_overlap_disagg_decode(self: Scheduler):
+        from hcu_sglang.disagg.glm53_decode_radix import has_pending_glm53_radix_prompt
+
         self.result_queue = deque()
         self.last_batch: Optional[ScheduleBatch] = None
 
-        def pop_and_process():
+        def pop_and_process(*, next_forward_launched=False):
             tmp_batch, tmp_result = self.result_queue.popleft()
+            if (
+                next_forward_launched
+                and tmp_batch.forward_mode.is_decode()
+                and any(has_pending_glm53_radix_prompt(req) for req in tmp_batch.reqs)
+            ):
+                self.forward_stream.synchronize()
             self.process_batch_result(tmp_batch, tmp_result)
 
         while True:
@@ -4191,7 +4199,7 @@ class SchedulerDisaggregationDecodeMixin:
             # Process the last batch
             if self.last_batch:
                 if not disable_overlap_for_batch:
-                    pop_and_process()
+                    pop_and_process(next_forward_launched=batch is not None)
             elif batch is None:
                 self.on_idle()
 
