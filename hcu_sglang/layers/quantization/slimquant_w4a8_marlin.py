@@ -1186,6 +1186,13 @@ class SlimQuantW4A8Int8MarlinMoEMethod:
                     requires_grad=False,
                 )
                 if _is_hcu:
+                    # gate-landing: minimax-M3.1 DeepEP dispatcher wiring
+                    # (proj line #82) — replaces the HIPC config path when
+                    # the m31 opt-in env is set.
+                    if get_bool_env_var("HCU_PLUGIN_MINIMAX_M31_DEEPEP"):
+                        from hcu_sglang.layers.moe.minimax_m31_moe import configure_dispatcher
+
+                        configure_dispatcher(layer)
                     masked = get_bool_env_var("SGLANG_USE_W4A8_MASKED_HIPC")
                     contiguous = get_bool_env_var("SGLANG_USE_W4A8_CONTIGUOUS_HIPC")
                     if masked or contiguous:

@@ -628,6 +628,12 @@ def forward_groupgemm_w8a8_fp8_masked(
     return down_output
 
 def around_ep_init(original, layer, *args, **kwargs):
+    # gate-landing: minimax-M3.1 DeepEP arm (proj line #82 wiring) — the
+    # opt-in env routes EP init through the m31 dispatcher builder.
+    if _is_hcu and get_bool_env_var("HCU_PLUGIN_MINIMAX_M31_DEEPEP"):
+        from hcu_sglang.layers.moe import minimax_m31_moe
+
+        return minimax_m31_moe.init_on_hip(original, layer, args, kwargs)
     result = original(layer, *args, **kwargs)
     if _is_hcu:
         import inspect
