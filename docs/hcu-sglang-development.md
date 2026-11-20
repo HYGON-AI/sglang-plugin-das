@@ -2593,3 +2593,11 @@ PD Decode 在 Draft Graph 捕获后，按捕获的最大批量逐一预热 eager
 在八卡 CP8 + DeepEP8、固定专家布局、FlashMLA v2 下，RSC BS4 共享 131,072 个前缀 token，每条新增 16,384 token、输出 1。Side stream 配合官方 QK/RoPE 的三轮 mean TTFT 中位数为 2140.36 ms，同机 DAS 为 2168.46 ms。GSM8K 为 19/20，全部正常停止。
 
 LightOp QK/RoPE 需要显式设置 `SGLANG_USE_LIGHTOP_MINIMAX_QK_ROPE=1`，且仅用于兼容的 CP Prefill 形状。开启时，四轮 mean TTFT 中位数为 2184.30 ms，GSM8K 为 18/20，无截断。默认采用官方 QK/RoPE。
+
+## 2026-11-20 MiniMax W4A8 PD Decode 的 HiSparse 性能路径
+
+为 MiniMax HiSparse 增加独占热页回收，借用已有映射的请求仍走原有的去重回收。可用 `M31_HISPARSE_PIN_SLOT_INDICES=1` 启用 pinned slot index 拷贝，用 `SGLANG_HISPARSE_HCU_PIN_HOST_KV=1` 选择本地 HCA 的 host KV 注册。Host KV 在 HIP 注销后解除 HCA 注册。
+
+HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度镜像。`M31_HISPARSE_FUSED_QK_CACHE=1` 启用主 K/V 热槽和逻辑 Index K 槽的融合写入。`M31_HISPARSE_REUSE_VERIFY_METADATA=1` 在单次 Verify 前向中复用索引元数据，并允许 compact Stage 1 Graph。`M31_HISPARSE_SPLIT_ROUTER_M144=1` 允许 gfx938 的特定 M144 BF16 router 拆分。上述开关默认关闭。
+
+八卡 fake PD 的 HiSparse On BS64 热跑为 2462.73 tok/s、20.83 ms，同机 DAS 为 2429.99 tok/s、20.95 ms。BS128 热跑为 3180.55 tok/s、30.30 ms，同机 DAS 15 轮中位数为 3301.14 tok/s、32.23 ms。每轮 128 条请求完整结束，八 rank KV 归零。FP8 写入映射通过 24 个 eager/Graph 逐字节检查。八 rank trace 确认 FP8 Prepare、plan/swap 和 Draft SWA 命中。真实 Mooncake 传输和双 HTTP worker 的端到端验证待完成。

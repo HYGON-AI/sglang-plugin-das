@@ -37,12 +37,11 @@ def _enabled(scheduler):
 
     from sglang.srt.configs.model_config import is_minimax_sparse
     from sglang.srt.managers.overlap_utils import _DEBUG_ASSERT
-    from sglang.srt.runtime_context import get_memory, get_parallel
+    from sglang.srt.runtime_context import get_parallel
 
     return (
         not _DEBUG_ASSERT
         and is_minimax_sparse(scheduler.model_config.hf_config)
-        and not get_memory().enable_hisparse
         and get_parallel().pp_size == 1
     )
 
@@ -143,11 +142,16 @@ def _forward_isolation(original, scheduler, batch, *, overlap):
         yield
 
 
-def _forward_decode(original, worker, batch, *args, **kwargs):
+def consume_published_lengths(batch):
     step = _decode_step.get()
     if step is not None and step.batch is batch and step.mirror is not None:
-        step.lengths = step.mirror.read(batch.req_pool_indices_cpu)
+        if step.lengths is None:
+            step.lengths = step.mirror.read(batch.req_pool_indices_cpu)
         batch.seq_lens_cpu, batch.seq_lens_sum = step.lengths
+
+
+def _forward_decode(original, worker, batch, *args, **kwargs):
+    consume_published_lengths(batch)
     return original(worker, batch, *args, **kwargs)
 
 

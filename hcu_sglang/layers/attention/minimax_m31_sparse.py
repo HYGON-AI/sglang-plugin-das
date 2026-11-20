@@ -218,7 +218,8 @@ def _decode(original, *args, **kwargs):
 
     _announce("decode")
     group = p["packed_queries"]
-    plan = _decode_plan(p, reuse=context is None)
+    reuse_metadata = context is None or os.getenv("M31_HISPARSE_REUSE_VERIFY_METADATA", "0") == "1"
+    plan = _decode_plan(p, reuse=reuse_metadata)
     slots, table = plan.slots, plan.table
     topk = p["cached_topk_idx"]
     if topk is None:
@@ -249,7 +250,7 @@ def _decode(original, *args, **kwargs):
         raise ValueError("MiniMax HiSparse requires DSpark verify8")
 
     def hot_indices(selected, lengths):
-        return verify.swap(slots, layer_id, selected, lengths)
+        return verify.swap(slots.to(torch.int64), layer_id, selected, lengths.to(torch.int32))
 
     if verify.query_chunk_size < group:
         from hcu_sglang.layers.attention.minimax_hisparse import flash_mla_chunked_verify
@@ -260,7 +261,7 @@ def _decode(original, *args, **kwargs):
             **main_args,
         )
     return None, native.flash_mla_sparse_decode_main(
-        **main_args, hot_indices=hot_indices(topk, p["seq_lens"])
+        **main_args, hot_indices=hot_indices(topk, plan.k_end)
     )
 
 

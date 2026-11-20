@@ -73,6 +73,7 @@ def _bind(original, patch):
     namespace = {**seed.__globals__, "os": os, "is_hcu": is_hcu}
     namespace["_CUDA_HOST_REGISTERED_RANGES_ATTR"] = _CUDA_HOST_REGISTERED_RANGES_ATTR
     namespace["init_minimax_host_pool"] = FunctionType(impl.init_minimax_host_pool.__code__, namespace)
+    namespace["alloc_device_buffer_with_layout"] = impl.alloc_device_buffer_with_layout
     patched = FunctionType(patch.__code__, namespace, seed.__name__, seed.__defaults__, seed.__closure__)
     patched.__kwdefaults__ = seed.__kwdefaults__
     return patched
@@ -109,6 +110,10 @@ def _host_pool(self, *args, **kwargs):
     from sglang.srt.mem_cache.pool_host.mha import HiSparseMHATokenToKVPoolHost
 
     return isinstance(self, HiSparseMHATokenToKVPoolHost) and self.head_num == 4
+
+
+def _pinned_host_pool(self, *args, **kwargs):
+    return getattr(self, "pin_slot_indices", False) and _host_pool(self)
 
 
 def _dspark(self, *args, **kwargs):
@@ -175,6 +180,18 @@ def _verify_decode(original, self, q, k, v, layer, forward_batch, *args, **kwarg
         verify_context.reset(token)
 
 
+def _destroy_pinned_kv(original, pool):
+    from sglang.srt.mem_cache.pool_host.common import _CUDA_HOST_REGISTERED_RANGES_ATTR
+
+    buffer = getattr(pool, "kv_buffer", None)
+    registration = getattr(buffer, "_sglang_hisparse_local_mr", None)
+    result = original(pool)
+    if registration is not None and not getattr(buffer, _CUDA_HOST_REGISTERED_RANGES_ATTR, ()):
+        registration.close()
+        del buffer._sglang_hisparse_local_mr
+    return result
+
+
 def register_hooks():
     from hcu_sglang.models import _minimax_hisparse_runtime as impl
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
@@ -191,6 +208,14 @@ def register_hooks():
     pool = "mem_cache.pool_host.mha.MHATokenToKVPoolHost."
     add(pool + "_initialize_transfer_views", _around(impl.host_transfer_views, _host_pool))
     add(pool + "init_kv_buffer", _around(impl.host_init_kv_buffer, _host_pool))
+    if os.getenv("SGLANG_HISPARSE_HCU_PIN_HOST_KV", "0") == "1":
+        add("mem_cache.pool_host.base.HostKVCache.destroy", _destroy_pinned_kv)
+
+    HookRegistry.register(
+        "sglang.srt.mem_cache.pool_host.hisparse.HiSparseHostPoolMixin.alloc_paged_token_slots",
+        _around(impl.alloc_paged_token_slots, _pinned_host_pool),
+        HookType.AROUND,
+    )
     add("mem_cache.allocator.hisparse.HiSparseTokenToKVPoolAllocator.__init__", _around(impl.allocator_init, _minimax_allocator))
     add("mem_cache.memory_pool.MiniMaxSparseKVPool.__init__", _around(impl.minimax_pool_init, _any_minimax_pool))
     add("speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2._forward_decode", _around(impl.dspark_decode, _dspark))

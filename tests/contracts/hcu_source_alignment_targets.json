@@ -504,6 +504,8 @@
     "sglang.srt.mem_cache.memory_pool.conv_window_dedup_enabled",
     "sglang.srt.mem_cache.memory_pool.get_minimax_sparse_index_dtype",
     "sglang.srt.mem_cache.multimodal_cache.MultiModalStaticCache.set",
+    "sglang.srt.mem_cache.pool_host.base.HostKVCache.destroy",
+    "sglang.srt.mem_cache.pool_host.hisparse.HiSparseHostPoolMixin.alloc_paged_token_slots",
     "sglang.srt.mem_cache.pool_host.mha.get_mha_host_pool_cls",
     "sglang.srt.mem_cache.prefill_budget.PrefillBudget.check_prefill",
     "sglang.srt.mem_cache.prefill_budget.SWAPrefillBudget.check_prefill",

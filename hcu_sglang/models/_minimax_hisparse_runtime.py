@@ -126,6 +126,7 @@ def coordinator_init(
     self.req_device_buffer_size = torch.zeros(
         max_num_req_slots, dtype=torch.int64, device="cpu"
     )
+    self._whole_page_device_buffers: set[int] = set()
     self.req_to_host_pool = torch.full(
         (max_num_req_slots, max_compressed_context_len + self.page_size),
         -1,
@@ -254,6 +255,52 @@ def init_minimax_host_pool(self, host_to_device_ratio: float) -> None:
         self.mem_pool_host.kv_buffer.zero_()
 
 
+def alloc_paged_token_slots(
+    self,
+    req_to_host_pool: torch.Tensor,
+    req_to_host_pool_allocated_len: torch.Tensor,
+    req_pool_idx: int,
+    start_pos: int,
+    num_tokens: int,
+) -> torch.Tensor:
+    """Allocate request host slots by page and return token-granular slots."""
+    device = req_to_host_pool.device
+    if num_tokens <= 0:
+        return torch.empty((0,), dtype=torch.int64, device=device)
+
+    allocated_len = int(req_to_host_pool_allocated_len[req_pool_idx])
+    end_pos = start_pos + num_tokens
+    page_end = self._round_up_to_page_size(end_pos)
+    assert start_pos <= allocated_len
+
+    if page_end > allocated_len:
+        num_new_pages = (page_end - allocated_len) // self.page_size
+        host_locs = self.alloc_page(num_new_pages)
+        if host_locs is None:
+            logger.error(
+                "HiSparse: host mem pool alloc failed for %d host pages "
+                "(req_pool_idx=%d, start_pos=%d, num_tokens=%d)",
+                num_new_pages,
+                req_pool_idx,
+                start_pos,
+                num_tokens,
+            )
+            raise RuntimeError(
+                f"HiSparse host mem pool alloc failed for {num_new_pages} pages"
+            )
+
+        destination = req_to_host_pool[req_pool_idx, allocated_len:page_end]
+        if device.type == "cuda":
+            # Pool allocation returns ordinary CPU indices. Use pinned
+            # storage for the async copy directly into the destination row.
+            destination.copy_(host_locs.pin_memory(), non_blocking=True)
+        else:
+            destination[...] = host_locs.to(device=device, non_blocking=True)
+        req_to_host_pool_allocated_len[req_pool_idx] = page_end
+
+    return req_to_host_pool[req_pool_idx, start_pos:end_pos]
+
+
 def admit_request_direct(self, req: Req) -> None:
     """Direct-to-host path: KV data already resides in host pool via RDMA.
 
@@ -291,6 +338,46 @@ def admit_request_direct(self, req: Req) -> None:
     logger.debug("HiSparse: admitting request %s directly", req.rid)
 
 
+def alloc_device_buffer_with_layout(self, allocated_indices, need_size: int) -> tuple[torch.Tensor, bool]:
+    import torch
+
+    assert need_size % self.page_size == 0
+    # clear original reference and isolate the buffer from outside addressing, allocate new buffer if needed
+    hisparse_indices = self.full_to_hisparse_device_index_mapping[allocated_indices]
+    self.full_to_hisparse_device_index_mapping[allocated_indices] = 0
+    # Zero means unmapped; after alloc_logical_only the mapping is all zeros.
+    hisparse_indices = hisparse_indices[hisparse_indices > 0]
+    owns_whole_pages = hisparse_indices.numel() == 0
+    if len(hisparse_indices) >= need_size:
+        buffer_indices = hisparse_indices[:need_size]
+        self.free_hisparse_indices(hisparse_indices[need_size:])
+    else:
+        # page alignment, claiming the residual space for an incomplete page
+        page_residual_length = len(hisparse_indices) % self.page_size
+        if page_residual_length != 0:
+            hisparse_indices = torch.cat(
+                [
+                    hisparse_indices,
+                    torch.arange(
+                        hisparse_indices[-1] + 1,
+                        hisparse_indices[-1]
+                        + self.page_size
+                        - page_residual_length
+                        + 1,
+                        device=self.device,
+                    ),
+                ]
+            )
+        extra_indices = self.hisparse_attn_allocator.alloc(
+            need_size - len(hisparse_indices)
+        )
+        assert extra_indices is not None, (
+            "Hisparse allocation failed in alloc_device_buffer"
+        )
+        buffer_indices = torch.cat([hisparse_indices, extra_indices])
+    return buffer_indices, owns_whole_pages
+
+
 def alloc_device_buffer(self, req: Req) -> None:
     if self.is_dsv4_hisparse:
         allocated_len = req.extend_end
@@ -319,9 +406,17 @@ def alloc_device_buffer(self, req: Req) -> None:
     )
     compressed_len = len(compressed_logical_indices)
 
-    buffer_indices = self.token_to_kv_pool_allocator.alloc_device_buffer(
-        compressed_logical_indices, alloc_size
-    )
+    allocator = self.token_to_kv_pool_allocator
+    if self.m3_flashmla_verify is not None:
+        buffer_indices, owns_whole_pages = alloc_device_buffer_with_layout(
+            allocator, compressed_logical_indices, alloc_size
+        )
+        if owns_whole_pages:
+            self._whole_page_device_buffers.add(req.kv.req_pool_idx)
+    else:
+        buffer_indices = allocator.alloc_device_buffer(
+            compressed_logical_indices, alloc_size
+        )
     if buffer_indices is None:
         logger.error(
             "HiSparse: alloc_device_buffer failed for req %s "
@@ -378,9 +473,19 @@ def request_finished(self, req: Req):
                 :, req_pool_idx, :current_cap
             ].reshape(-1)
             owned_locs = self.spec_swap.extend_owned_locs(req_pool_idx, owned_locs)
-        all_hi = torch.unique(owned_locs[owned_locs > 0])
-        if all_hi.numel() > 0:
-            self.token_to_kv_pool_allocator.free_hisparse_indices(all_hi)
+        allocator = self.token_to_kv_pool_allocator
+        if req_pool_idx in self._whole_page_device_buffers:
+            # MiniMax keeps ownership in req_to_device_buffer. Paging only
+            # changes the per-head slot mapping, not the reserved page IDs.
+            page_ids = owned_locs[:: allocator.page_size] // allocator.page_size
+            allocator.hisparse_attn_allocator.free_page_ids(
+                page_ids.to(dtype=torch.int64).sort().values
+            )
+            self._whole_page_device_buffers.remove(req_pool_idx)
+        else:
+            all_hi = torch.unique(owned_locs[owned_locs > 0])
+            if all_hi.numel() > 0:
+                allocator.free_hisparse_indices(all_hi)
 
         compressed_locs = (
             self.mem_pool_device.translate_loc_from_full_to_compressed(
@@ -490,13 +595,23 @@ def host_init_kv_buffer(self):
     self.token_stride_size = self.head_num * self.head_dim * self.dtype.itemsize
     self.layout_dim = self.token_stride_size * self.layer_num
 
+    allocator = self.allocator
+    if (
+        is_hcu()
+        and self.pin_memory
+        and os.getenv("SGLANG_HISPARSE_HCU_PIN_HOST_KV", "0") == "1"
+    ):
+        from hcu_sglang.models._minimax_rocm_pinned_kv import RocmPinnedKVAllocator
+
+        allocator = RocmPinnedKVAllocator()
+
     alloc_func = ALLOC_MEMORY_FUNCS[self._transfer_device.type]
     buffer = alloc_func(
         dims,
         dtype=self.dtype,
         device=self.device,
         pin_memory=self.pin_memory,
-        allocator=self.allocator,
+        allocator=allocator,
         registration_granularity_bytes=(
             # page_unified's block carries both components, so its page is
             # twice page_size * layout_dim.
@@ -821,6 +936,9 @@ def dspark_decode(
         if self._prepare_inputs_once
         else None
     )
+    from hcu_sglang.models.minimax_m31_seq_lens import consume_published_lengths
+
+    consume_published_lengths(batch)
     window_seq_lens_cpu = (
         batch.seq_lens_cpu
         if batch.seq_lens_cpu is not None
