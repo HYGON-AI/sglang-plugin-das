@@ -2571,3 +2571,9 @@ DeepEP shared-expert overlap 按 Decode / Verify、DP8 EP8、W4A8 HIPC 和 low-l
 基于 0d77762 的 CP Prefill KV 交换，CP8 zigzag 的单位 scale E4M3FN K、V 和 index K 可通过 `HCU_MINIMAX_CP_PACK_FP8=1` 在发送端量化并按字节 AllGather。插件在接收端使用原有重排、slot mask 和 Triton scatter 写缓存。Adapter 提交 `a3cfef3` 和 `20c2f20` 提供发送端 kernel，启用前应先安装含该提交的 adapter。关闭开关并重启可恢复此分支上的 BF16 AllGather 和接收端量化。社区 SGLang 固定在 `297e54fd10`。
 
 nmz18 的 8 张 96 GB HCU 在 DTK 26.10 / Python 3.12 下完成逐字节检查。检查覆盖 1、19 和 128 行、行顺序重排、保留 slot 0 与特殊浮点值。单机 Prefill BS4，每条命中 128K 缓存并新增 16K token，输出 1。每行传输从 2304 B 降至 1152 B。八个 rank 的 CP KV AllGather 累计 GPU 时间中位数为 84.54 → 59.46 ms。三轮无 profiler 测量的平均 TTFT 中位数为 1841.92 → 1832.34 ms，新增输入吞吐为 22398.55 → 22675.33 token/s。两组顺序执行，端到端差值需要交替复测。真实双机 PD、Decode 和数据集精度尚待验证。
+
+## 2026-11-20 MiniMax W4A8 的 EPLB 权重和采集
+
+MiniMax 向官方 EPLB 提供当前 PP stage 的 routed expert 权重，包括可迁移的打包权重及 scale。视图在访问时读取权重并去重，排除共享专家和 correction bias。采集记录增加阶段、原始 DP token 数和 batch 信息。设置 `SGLANG_MINIMAX_EPLB_PREFILL_ONLY=1` 时，只记录有新增 token 的 Prefill step，重平衡计数按全局 Prefill 状态推进。
+
+八卡 DP8 + DeepEP8 的 fake PD 在 BS32 下对齐 276 个满批 Verify step，覆盖 57 层。BS24 在线重平衡实际更新了 7047/7296 个专家槽，八 rank 均应用目标映射并完成请求。CP8 Prefill 采集覆盖八 rank 和 57 个有路由的 MoE 层。重平衡验证使用 fake PD，真实请求的前后输出对照待测。

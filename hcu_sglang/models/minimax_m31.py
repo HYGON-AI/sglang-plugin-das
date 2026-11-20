@@ -28,6 +28,10 @@ def register() -> None:
     minimax_m31_dspark.register_hooks()
     minimax_m31_seq_lens.register_hooks()
 
+    from hcu_sglang.eplb import minimax_m31 as minimax_eplb
+
+    minimax_eplb.register_hooks()
+
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_FLASHMLA", "0") == "1":
         from hcu_sglang.layers.attention import (
             minimax_m31_decode_graph,
