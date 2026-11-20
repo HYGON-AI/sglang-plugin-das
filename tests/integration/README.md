@@ -56,6 +56,10 @@ python3 -m tools.l15_model_smoke \
 except 吞成 warning——wrap 在 register 之前已生效，功能无损，但每轮跑都打噪音，应在
 adapter 仓补 catalog 条目或跳过登记。
 
+## 当前布局默认值（2026-11-19）
+
+`SGLANG_KV_LAYOUT_HCU_FA` 已恢复公司主线默认 false，未设置时不再切换公共 KV 布局。HY3 vendor FA 配方如需 HCU 布局，仍须显式设置 `SGLANG_KV_LAYOUT_HCU_FA=1`。上面 10/10 为历史组合结果，不作为本次完整模型或跨节点传输的重新验收。
+
 ## L1.6（规划）
 
 特有模型 tiny 家族（bailing/dspark/hunyuan/glm4_moe/minimax_m2/qwen3_5）

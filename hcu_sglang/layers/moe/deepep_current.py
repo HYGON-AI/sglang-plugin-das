@@ -17,6 +17,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import sys
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, NamedTuple, Optional, Tuple, Union
@@ -126,8 +127,71 @@ def _set_nvshmem_qp_depth(num_max_dispatch_tokens_per_rank: int) -> None:
 _DEEPEP_LL_DISPATCH_USES_QUANT_TYPE = (
     _is_hcu
     and use_deepep
-    and "quant_type" in inspect.signature(Buffer.low_latency_dispatch).parameters
+    and (
+        hasattr(Buffer.low_latency_dispatch, "_hcu_quant_type_dispatch")
+        or "quant_type" in inspect.signature(Buffer.low_latency_dispatch).parameters
+    )
 )
+
+
+def _deepep_ll_clean_accepts_num_topk() -> bool:
+    if not use_deepep:
+        return False
+    try:
+        parameter = inspect.signature(Buffer.clean_low_latency_buffer).parameters.get(
+            "num_topk"
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return parameter is not None and parameter.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    )
+
+
+_DEEPEP_LL_CLEAN_ACCEPTS_NUM_TOPK = _deepep_ll_clean_accepts_num_topk()
+
+
+def deepep_ll_dispatch_abi_error() -> Optional[str]:
+    """Say which term disabled the vendor quant_type low-latency ABI.
+
+    Returns None when the ABI is available. Callers that already know the ABI
+    is missing use this to name the cause instead of leaving users to guess
+    between host detection, the deep_ep import, and the wheel's signature.
+    """
+    if not _is_hcu:
+        return "this host is not detected as an HCU device"
+    if not use_deepep:
+        return f"deep_ep failed to import: {_deepep_import_error!r}"
+    if "quant_type" in inspect.signature(Buffer.low_latency_dispatch).parameters:
+        return None
+
+    deep_ep = sys.modules.get("deep_ep")
+    where = getattr(deep_ep, "__file__", "unknown path")
+    version = getattr(deep_ep, "__version__", "unknown version")
+    dispatch = Buffer.low_latency_dispatch
+    # The adapter's HCU_DEEPEP_BRIDGE (on by default, HCU_ADAPTER_HOST=sglang)
+    # rewrites the vendor function with an upstream-shaped wrapper, so the wheel
+    # is right and only the signature is hidden. Name that case separately:
+    # telling users to "install the vendor wheel" would send them the wrong way.
+    if getattr(dispatch, "__module__", "").startswith("hcu_adapter."):
+        return (
+            "the HCU adapter's HCU_DEEPEP_BRIDGE wrapper "
+            f"({dispatch.__module__}) replaced low_latency_dispatch and hides "
+            f"quant_type (deep_ep from {where}); set HCU_DEEPEP_BRIDGE=0"
+        )
+    return (
+        "the imported deep_ep exposes the upstream use_fp8 dispatch ABI, not the "
+        f"BW1100 quant_type ABI (deep_ep {version} from {where}); install the "
+        "vendor deep_ep wheel that accepts quant_type"
+    )
+
+def _quant_type_dispatch(buffer, *args, **kwargs):
+    dispatch = buffer.low_latency_dispatch
+    native = getattr(dispatch, "_hcu_quant_type_dispatch", None)
+    if native is not None:
+        return native(buffer, *args, **kwargs)
+    return dispatch(*args, **kwargs)
 
 
 def _low_latency_dispatch_compat(
@@ -158,7 +222,8 @@ def _low_latency_dispatch_compat(
         # Vendor quant types: 0=unquantized, 2=FP8 E4M3, 3=FP8 UE8M0.
         quant_type = 3 if use_ue8m0 else (2 if use_fp8 else 0)
         quant_group_size = 128 if use_ue8m0 else 0
-        return buffer.low_latency_dispatch(
+        return _quant_type_dispatch(
+            buffer,
             x=hidden_states,
             topk_idx=topk_ids,
             topk_weight=topk_weights,
@@ -640,10 +705,14 @@ class DeepEPBuffer:
         state = cls._state()
         if not state.buffer.low_latency_mode:
             return
+        kwargs = {}
+        if _DEEPEP_LL_CLEAN_ACCEPTS_NUM_TOPK:
+            kwargs["num_topk"] = state.num_topk
         state.buffer.clean_low_latency_buffer(
             state.num_max_dispatch_tokens_per_rank,
             state.hidden_size,
             state.num_experts,
+            **kwargs,
         )
 
     @classmethod
@@ -839,7 +908,10 @@ class _DeepEPDispatcherImplBase:
         if (
             _is_hcu
             and self.deepep_output_dtype == DispatcherOutputDtype.INT8
-            and (self.quant_config or {}).get("hcu_w4a8_int8_dispatch", False)
+            and (
+                (self.quant_config or {}).get("hcu_w4a8_int8_dispatch", False)
+                or (self.quant_config or {}).get("hcu_w8a8_int8_dispatch", False)
+            )
         ):
             return  # The HCU DeepEP W4A8 kernels support INT8 communication.
         if _is_npu and self.deepep_output_dtype == DispatcherOutputDtype.FP8:
@@ -881,6 +953,15 @@ class _DeepEPDispatcherImplBase:
 
 
 class _DeepEPDispatcherImplNormal(_DeepEPDispatcherImplBase):
+    def set_quant_config(self, quant_config: dict) -> None:
+        if _is_hcu and quant_config.get("hcu_slimquant_w4a8_contiguous_hipc", False):
+            quant_config = {
+                **quant_config,
+                "normal_dispatcher_output_dtype": "int8",
+                "hcu_w4a8_int8_dispatch": True,
+            }
+        super().set_quant_config(quant_config)
+
     dispatch_mode = DeepEPMode.NORMAL
 
     def __init__(self, async_finish: bool, **kwargs):
@@ -900,6 +981,12 @@ class _DeepEPDispatcherImplNormal(_DeepEPDispatcherImplBase):
         if self.quant_config.get("preserve_input_dtype", False):
             # BF16 drafts must not inherit target activation quantization.
             pass
+        elif _is_hcu and self.quant_config.get("hcu_w8a8_int8_dispatch", False):
+            from sglang.kernels.ops.quantization.int8_kernel import (
+                per_token_quant_int8 as triton_per_token_quant_int8,
+            )
+
+            hidden_states = triton_per_token_quant_int8(hidden_states)
         elif _is_hcu and self.quant_config.get("hcu_w4a8_int8_dispatch", False):
             hidden_states = per_token_quant_int8(hidden_states)
         elif (
@@ -1033,8 +1120,8 @@ class _DeepEPDispatcherImplNormal(_DeepEPDispatcherImplBase):
         needs_256_alignment = self.quant_config.get("normal_expert_alignment") == 256 or _hcu_deepgemm_is_selected() or (
             use_groupgemm
             and (
-                get_model().quantization
-                in ("slimquant_marlin", "slimquant_w4a8_marlin")
+                self.quant_config.get("hcu_slimquant_w4a8_contiguous_hipc", False)
+                or get_model().quantization in ("slimquant_marlin", "slimquant_w4a8_marlin")
                 or _use_fp8_w8a8_moe
                 or _use_marlin_w16a16_moe
                 or self.quant_config.get("preserve_input_dtype", False)
@@ -1164,6 +1251,13 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
         self._combine_input_ready_event_pending = False
 
     def set_quant_config(self, quant_config: dict) -> None:
+        if _is_hcu and quant_config.get("hcu_slimquant_w4a8_masked_hipc", False):
+            quant_config = {
+                **quant_config,
+                "low_latency_dispatcher_output_dtype": "int8",
+                "hcu_w4a8_int8_dispatch": True,
+                "hcu_legacy_groupgemm": True,
+            }
         super().set_quant_config(quant_config)
         if _is_hcu and quant_config.get("hcu_w4a8_int8_dispatch", False):
             self.return_recv_hook = True
@@ -1277,11 +1371,16 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
                 # DeepEPMoE kept the HCU groupgemm kernels: vendor quant_type.
                 or self.quant_config.get("hcu_legacy_groupgemm", False)
                 or self.quant_config.get("hcu_w4a8_int8_dispatch", False)
+                or self.quant_config.get("hcu_w8a8_int8_dispatch", False)
             )
         ):
-            if _is_hcu and self.quant_config.get("hcu_w4a8_int8_dispatch", False):
+            if _is_hcu and (
+                self.quant_config.get("hcu_w4a8_int8_dispatch", False)
+                or self.quant_config.get("hcu_w8a8_int8_dispatch", False)
+            ):
                 packed_recv_hidden, self.packed_recv_count, self.handle, event, hook = (
-                    buffer.low_latency_dispatch(
+                    _quant_type_dispatch(
+                        buffer,
                         hidden_states,
                         topk_ids,
                         topk_weights,
@@ -1295,7 +1394,8 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
                 )
             elif _use_fp8_w8a8_moe and not preserve_input_dtype:
                 packed_recv_hidden, self.packed_recv_count, self.handle, event, hook = (
-                    buffer.low_latency_dispatch(
+                    _quant_type_dispatch(
+                        buffer,
                         hidden_states,
                         topk_ids,
                         topk_weights,
@@ -1314,7 +1414,8 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
                 or _use_marlin_w4a16_moe
             ):
                 packed_recv_hidden, self.packed_recv_count, self.handle, event, hook = (
-                    buffer.low_latency_dispatch(
+                    _quant_type_dispatch(
+                        buffer,
                         hidden_states,
                         topk_ids,
                         topk_weights,
@@ -1328,7 +1429,8 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
                 )
             else:
                 packed_recv_hidden, self.packed_recv_count, self.handle, event, hook = (
-                    buffer.low_latency_dispatch(
+                    _quant_type_dispatch(
+                        buffer,
                         hidden_states,
                         topk_ids,
                         topk_weights,
@@ -1354,6 +1456,11 @@ class _DeepEPDispatcherImplLowLatency(_DeepEPDispatcherImplBase):
                     input_global_scale=input_global_scale,
                     round_scale=fp8_deepgemm_scale_opts.get("round_scale", False),
                     use_ue8m0=fp8_deepgemm_scale_opts.get("use_ue8m0", False),
+                    **(
+                        {"quant_group_size": 0}
+                        if _is_hcu and self.quant_config.get("hcu_legacy_groupgemm", False)
+                        else {}
+                    ),
                     **npu_mxfp_quantization_opts,
                     async_finish=not self.return_recv_hook,
                     return_recv_hook=self.return_recv_hook,
@@ -1731,3 +1838,4 @@ def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     HookRegistry.register("sglang.srt.layers.moe.token_dispatcher.deepep.DeepEPBuffer", DeepEPBuffer, HookType.REPLACE)
     HookRegistry.register("sglang.srt.layers.moe.token_dispatcher.deepep.DeepEPDispatcher", DeepEPDispatcher, HookType.REPLACE)
+    HookRegistry.register("sglang.srt.batch_overlap.two_batch_overlap.DeepEPDispatcher", DeepEPDispatcher, HookType.REPLACE)

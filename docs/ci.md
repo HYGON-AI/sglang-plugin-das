@@ -25,9 +25,14 @@ python3 -m unittest discover -s tests -v
 
 ## 2. 自动化接入现状
 
-[GitHub Quality Gate](../.github/workflows/quality-gate.yml) 已声明 PR 触发，并调用 `HYGON-AI/quality-gate` 的 `stable` 可复用工作流；实际结果以对应 PR run 为准。它与 [.workflow/l0-gate.yml](../.workflow/l0-gate.yml) 的本地结构门禁配方不同，不能据此声称 L0、完整测试或 GPU 验证已自动执行。
+GitHub Actions 已配置以下 workflow（配置文件存在不等于真实触发已验证）：
 
-继续接入结构或硬件门禁时，需明确平台、触发事件、Python 版本、工作目录、凭据使用方式、日志与退出码，再做一次真实触发验证。参考 adapter 的分层思路，不直接复制其镜像、硬件占用策略和已有门禁脚本。
+| 文件 | 触发 | 内容 | 依赖 |
+|---|---|---|---|
+| [.github/workflows/quality-gate.yml](../.github/workflows/quality-gate.yml) | PR | 复用 `HYGON-AI/quality-gate` 的 PR 门禁 | 组织复用 workflow |
+| [.github/workflows/nightly-wheel.yml](../.github/workflows/nightly-wheel.yml) | push `main` / 手动 dispatch | [packaging/build.sh](../packaging/build.sh) 构建 wheel；push 时经 CIUpload 上传 `das_nightly/dtk2610`，dispatch 只保留 artifact | 自托管 runner `hygon-build`、`vars.HARBOR_SITE`、`vars.PYPI_URL`、`secrets.PYPI_PASSWORD` |
+
+nightly 在构建期把版本打成 `<pyproject 版本>+hcu.<YYMMDDHHMM>.g<commit6>`，产物即最终包，不做上传后改写。[.workflow/l0-gate.yml](../.workflow/l0-gate.yml) 仍只是 runner-neutral 命令配方，nightly 不执行 L0 与单测；workflow 生效前需完成一次真实 push 触发核对并记录结果。
 
 ## 3. 验证分层与运行时门禁规划
 
@@ -46,7 +51,7 @@ python3 -m unittest discover -s tests -v
 - **放行顺序**：adapter 格 L1.5 绿 → adapter+plugin 格 L1.5 diff 干净 → L1.6 绿 → L2；每级失败定位到唯一责任仓，不得假定任何两个最新 HEAD 兼容。
 - 「官方 + plugin（无 adapter）」不是验收组合，仅诊断（见 [governance](governance.md#3-组合验证矩阵)）；L2 天然只有组合格。
 
-首次引入 `pyproject.toml` 或运行时目录时，要先更新 [架构阶段](architecture.md#4-当前运行时职责与整理边界)、L0 的当前排除约束与相应测试。不能只删除禁止规则而不增加运行时质量约束。
+首次引入 `pyproject.toml` 或运行时目录时，要先更新 [架构阶段](architecture.md#4-未来运行时目录规划)、L0 的当前排除约束与相应测试。不能只删除禁止规则而不增加运行时质量约束。
 
 ## 4. 失败与缺失条件的处理
 
@@ -57,6 +62,12 @@ python3 -m unittest discover -s tests -v
 | 缺外部依赖或 GPU | lane 记 pending，说明解除条件；不记 passed |
 | 能力明确不支持某组合 | 记 not-applicable，关联设计/支持范围 |
 | 历史已知失败 | 固定版本和签名、记录风险；不自动增加宽松阈值 |
+
+### CPU 测试的启动环境与代码指纹
+
+冷导入与命令行枚举测试用 `python -S` 启动子进程，且 `PYTHONPATH` 仅指向当前仓库，排除容器全局 `sitecustomize`、已安装 Adapter 入口和外部路径预加载 `torch` 的影响。这只隔离测试进程，不改变实际服务的启动方式。命令行测试的最小依赖替身应包含调用方实际使用的 `is_record`、`field_names` 接口。L2Norm 的 vendor 分支测试在导入被测模块前提供替身 `sgl_kernel.l2norm`，让模块自行选择该分支；该测试验证接线与形状恢复，不验证 GPU 算子数值。
+
+迁移代码指纹统一使用 `tools/build_migration_manifest.py` 的 `node_hash`。Python 3.12 为函数和类增加的空 `type_params=[]` 不表示代码逻辑变化，计算指纹时只移除这个空字段；实际类型参数、函数内容和常量仍参与计算，原语法树保持不变。生成与检查使用同一规则，历史 manifest 的源版本和预期指纹不批量刷新。若统一格式后仍不匹配，应审查实际代码差异，不把历史迁入快照改写为当前实现完全相同的证明。
 
 工具测试仅在临时目录创建小型 Git 仓库。运行服务或探针时按 [共享资源约定](contributing.md#5-共享节点与产物管理) 限定本任务资源，不能为自动门禁无条件抢占设备。
 
@@ -72,7 +83,7 @@ python3 -m unittest discover -s tests -v
 
 [离线导览](../architecture.html) 内嵌当前文档与 Skill 内容，不在浏览时读取外部网络。修改共享文件或 [网页模板](../templates/architecture.html) 后，运行 `python3 tools/build_guide.py` 重新生成，随后运行 `python3 tools/build_guide.py --check`；后者只读比较，快照过期时非零退出。完整原文仍在 docs/skills/tools 等目录维护，不直接手改生成页。
 
-浏览器或 DOM 验证覆盖页面内跳转、文档章节链接、搜索与无结果状态、请求复制反馈、移动导航和历史返回；实际视觉渲染与 DOM 测试分别记录，不以语法或链接检查代替渲染结论。当前 L0 runner 配方包含快照检查；该项接入平台后才形成自动快照门禁，不能与现有 PR Quality Gate 混为一谈。
+浏览器或 DOM 验证覆盖页面内跳转、文档章节链接、搜索与无结果状态、请求复制反馈、移动导航和历史返回；实际视觉渲染与 DOM 测试分别记录，不以语法或链接检查代替渲染结论。当前 runner 配方包含快照检查，接入平台后才形成自动 CI。
 
 模块迁移规划页另由 `python3 tools/build_migration_plan.py --check` 检查计划定义、保存的源码盘点与 HTML 是否一致；该命令不重新访问输入仓库。三份来源版本变化后按 [规划维护指南](sglang-das-migration-plan.md#4-重新采集与维护) 显式重新采集，不能把缓存页面通过当作当前源码已审计。
 

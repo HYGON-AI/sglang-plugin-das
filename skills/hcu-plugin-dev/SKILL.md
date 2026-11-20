@@ -67,3 +67,5 @@ FileIO key/LRU 接口迁移按 [分片状态与淘汰归属](references/test-con
 KV 事件/LoRA 名称迁移按 [namespace 的生产与消费](references/test-contract.md#kv-事件-namespace-的生产与消费) 验证最终 namespace、延迟写回和事件合并；Python、Rust binding 与发布端分别提供证据。
 
 Rust crate 或 token hash 迁移按 [provider、事件 ABI 与宽 token hash](references/test-contract.md#rust-provider事件-abi-与宽-token-hash) 配对预检/loader、编译资产与真实 tuple 生产消费，并验证跨语言编码和 eviction ownership。
+
+GLM5.2 INT4 的专项复现输入、脚本与验证边界见 [适配与0518对照](../../docs/glm52-int4-adaptation.md)。历史组合性能不作为新分支或其他硬件的默认验收结果。

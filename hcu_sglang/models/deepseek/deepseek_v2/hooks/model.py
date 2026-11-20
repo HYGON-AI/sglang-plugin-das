@@ -29,4 +29,45 @@ def register_hooks() -> int:
         around_forward,
         HookType.AROUND,
     )
-    return 1
+    HookRegistry.register(
+        "sglang.srt.models.deepseek_v2.DeepseekV2DecoderLayer.__init__",
+        around_decoder_init,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.layers.layernorm.RMSNorm.forward_cuda",
+        around_rms_forward_cuda,
+        HookType.AROUND,
+    )
+    return 3
+
+
+def around_decoder_init(original, self, *args, **kwargs):
+    result = original(self, *args, **kwargs)
+    from hcu_sglang.layers.glm53_decode import mark_decoder
+
+    mark_decoder(self)
+    from sglang.srt.environ import envs
+
+    if (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get()
+    ):
+        from hcu_sglang.layers.glm53_fp8_add_rms import mark_decoder_norms
+
+        mark_decoder_norms(self)
+    return result
+
+
+def around_rms_forward_cuda(original, self, x, residual=None, post_residual_addition=None, quant_linear=None):
+    from sglang.srt.environ import envs
+
+    if (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16.get()
+    ):
+        from hcu_sglang.layers.glm53_fp8_add_rms import try_add_rms
+
+        if try_add_rms(self, x, residual, post_residual_addition, quant_linear):
+            return x, residual
+    return original(self, x, residual, post_residual_addition, quant_linear)

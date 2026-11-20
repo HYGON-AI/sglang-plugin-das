@@ -53,6 +53,13 @@ class LazySlimQuantW4A8Int8MarlinConfig(metaclass=_LazyConfigMeta):
             "slimquant_marlin",
         ):
             return SLIMQUANT_MARLIN_NAME
+        if (
+            hf_quant_cfg.get("quant_method") == "compressed-tensors"
+            and user_quant == SLIMQUANT_MARLIN_NAME
+        ):
+            return _load_config_class().override_quantization_method(
+                hf_quant_cfg, user_quant
+            )
         return None
 
 
@@ -117,9 +124,10 @@ def install_quantization_method() -> bool:
         quantization.QUANTIZATION_METHODS.setdefault("quark_mxfp4", quark_config)
 
     model_config = sys.modules.get("sglang.srt.configs.model_config")
-    if model_config is not None:
+    legacy_methods = getattr(model_config, "QUANTIZATION_METHODS", None)
+    if legacy_methods is not None:
         for name, config in methods.items():
-            model_config.QUANTIZATION_METHODS.setdefault(name, config)
+            legacy_methods.setdefault(name, config)
     return True
 
 

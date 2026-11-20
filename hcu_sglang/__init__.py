@@ -1,12 +1,17 @@
 """SGLang HCU general plugin - model and layer adaptations."""
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 
 def register() -> None:
     """Entry point for sglang.srt.plugins (called by load_plugins)."""
+    from hcu_sglang import hook_guard
+
+    hook_guard.install()
+
     from hcu_sglang.compat.aiter import install_aiter_compat
 
     install_aiter_compat()
@@ -14,6 +19,11 @@ def register() -> None:
     from hcu_sglang.environ import register_envs
 
     register_envs()
+
+    if os.environ.get("HCU_KIMI31_DAY0") == "1":
+        from hcu_sglang.kimi31_day0 import register_hooks
+        register_hooks()
+        return
 
     from hcu_sglang import (
         batch_overlap,
@@ -34,6 +44,7 @@ def register() -> None:
         dsa_kernels,
         dsa_topk,
         current_dsa,
+        hisparse,
         dsv4_compressor,
         flashattention_backend,
         index_topk_share,
@@ -57,18 +68,12 @@ def register() -> None:
     from hcu_sglang.models import bailing_moe
     from hcu_sglang.models import dspark
     from hcu_sglang.models import hunyuan
+    from hcu_sglang.models import hunyuan_v4 as hunyuan_v4_hooks
     from hcu_sglang.models import glm4_moe
     from hcu_sglang.models import minimax_m2
     from hcu_sglang.models import utils as model_utils
-    from hcu_sglang.multimodal_gen import attention as multimodal_attention
-    from hcu_sglang.multimodal_gen import config_compat as multimodal_config
-    from hcu_sglang.multimodal_gen import minimax_h3
-    from hcu_sglang.multimodal_gen import platform as multimodal_platform
-    from hcu_sglang.multimodal_gen import profiling
-    from hcu_sglang.multimodal_gen import qknorm_rope
-    from hcu_sglang.multimodal_gen import wan_sla
     from hcu_sglang.models.deepseek import register_hooks as register_deepseek
-    from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_moe
+    from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_moe, qwen3_5
 
     jit_overlay_loader.register_hooks()
     configs.register_hooks()
@@ -83,6 +88,8 @@ def register() -> None:
     distributed.register_hooks()
     disaggregation.register_hooks()
     kernel_compat.register_hooks()
+    from hcu_sglang import sampling
+    sampling.register_hooks()
     hcu_mla_registry.register()
     base_backend.register_hooks()
     flashattention_backend.register()
@@ -90,6 +97,7 @@ def register() -> None:
     dsa_kernels.register_hooks()
     dsa_topk.register_hooks()
     current_dsa.register_hooks()
+    hisparse.register_hooks()
     dsv4_compressor.register_hooks()
     index_topk_share.register_hooks()
     triton_hcu.register_hooks()
@@ -118,6 +126,8 @@ def register() -> None:
     from hcu_sglang import dsa_utils
     dsa_utils.register_hooks()
     forward_batch.register_hooks()
+    from hcu_sglang import mrope_delta
+    mrope_delta.register_hooks()
     from hcu_sglang import prefill_output, prefill_graph_runner
     prefill_output.register_hooks()
     from hcu_sglang import speculative_vp
@@ -161,8 +171,14 @@ def register() -> None:
     from hcu_sglang.utils.detection import is_hcu
     if is_hcu():
         from hcu_sglang.layers.moe import deepep_current, deepep_fp8
+        from sglang.srt.environ import envs
+
         deepep_current.register_hooks()
         deepep_fp8.register_hooks()
+        if envs.SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD.get():
+            from hcu_sglang.layers.moe import glm53_fp8_k1_indirect
+
+            glm53_fp8_k1_indirect.register_hooks()
     aiter_w4a8.register_hooks()
     lightop_runner.register_hooks()
     mega_moe.register_hooks()
@@ -170,6 +186,9 @@ def register() -> None:
     dsv4_ops.register_hooks()
     from hcu_sglang.layers.moe import deepseek_gate
     deepseek_gate.register_hooks()
+    from hcu_sglang import http_worker
+
+    http_worker.register_hooks()
     quantization.register_hooks()
     norm_activation.register_hooks()
     linear_fusion.register_hooks()
@@ -186,20 +205,24 @@ def register() -> None:
     bailing_moe.register()
     dspark.register_hooks()
     hunyuan.register_hooks()
+    hunyuan_v4_hooks.register_hooks()
     glm4_moe.register_hooks()
     minimax_m2.register_hooks()
-    multimodal_platform.register_hooks()
-    multimodal_config.register_hooks()
-    profiling.register_hooks()
-    multimodal_attention.register_hooks()
-    minimax_h3.register_hooks()
-    qknorm_rope.register_hooks()
-    wan_sla.register_hooks()
+    from hcu_sglang.multimodal_gen import register_legacy
+
+    register_legacy()
     register_deepseek()
+    from hcu_sglang.layers import glm53_decode
+    glm53_decode.register_hooks()
     model_utils.register_hooks()
     qwen2.register()
     qwen3.register()
     qwen3_moe.register()
+    qwen3_5.register()
+    from hcu_sglang.models.qwen import qwen4_exp
+    qwen4_exp.register_hooks()
     from hcu_sglang import speculative_dspark
     speculative_dspark.register_hooks()
+    from hcu_sglang.layers.gemm import hooks as gemm_hooks
+    gemm_hooks.register()
     logger.info("[hcu_sglang] optimization hooks registered")

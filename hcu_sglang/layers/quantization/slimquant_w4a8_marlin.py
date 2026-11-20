@@ -294,8 +294,26 @@ def _patch_moe_c_align_non_cub_to_triton() -> None:
     import aiter.fused_moe_c as fmc
 
     orig = fmc.moe_align_block_size
+    native_sort = envs.SGLANG_MOE_C_NATIVE_SORT.get()
+    if native_sort:
+        import aiter
+        if not all(hasattr(aiter, name) for name in ("moe_sorting_fwd", "moe_sorting_ck_ids_to_moe_c")):
+            raise RuntimeError("native MoE sorting and ID conversion APIs are required")
+        from hcu_sglang.layers.moe.moe_c_native_sort import moe_c_native_sort
 
     def moe_align_block_size(topk_ids, block_size, num_experts, expert_map=None):
+        if (
+            native_sort and num_experts == 129 and expert_map is not None
+            and expert_map.numel() == num_experts and topk_ids.ndim == 2
+            and topk_ids.shape[1] == 10 and 0 < topk_ids.shape[0] < 2**24
+            and topk_ids.dtype == torch.int32 and topk_ids.is_contiguous()
+            and topk_ids.is_cuda and torch.version.hip is not None
+            and block_size in (16, 32, 64, 128)
+        ):
+            if not getattr(moe_align_block_size, "_native_reported", False):
+                logger.info("QWEN4_MOE_NATIVE_SORT experts=%s topk=%s block=%s", num_experts, topk_ids.shape[1], block_size)
+                moe_align_block_size._native_reported = True
+            return moe_c_native_sort(topk_ids, block_size, num_experts, expert_map)
         if num_experts in (64, 128, 256, 896) or (
             num_experts >= 224 and num_experts != 512
         ):
@@ -714,6 +732,8 @@ def fused_experts_impl_w4a8_triton(
     return output
 
 
+HY4_CT_W4A8_FORMAT = "hy4_compressed_tensors_w4a8"
+
 _QWEN4_EXP_ARCHS = (
     "Qwen4ExpForConditionalGeneration",
     "Qwen4ExpForCausalLMMTP",
@@ -785,6 +805,8 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
         w8a8_include: Optional[list[str]] = None,
         packed_modules_mapping: Optional[Dict[str, List[str]]] = None,
         compressed_tensors_packed: bool = False,
+        checkpoint_format: Optional[str] = None,
+        linear_targets: Optional[list[str]] = None,
     ):
         super().__init__()
         self.ignore = ignore
@@ -796,6 +818,8 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
         self.w8a8_include = list(w8a8_include or [])
         self.packed_modules_mapping = packed_modules_mapping or {}
         self.compressed_tensors_packed = compressed_tensors_packed
+        self.checkpoint_format = checkpoint_format
+        self.linear_targets = linear_targets
 
     @classmethod
     def get_supported_act_dtypes(cls) -> List[torch.dtype]:
@@ -819,40 +843,80 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
         experts_only_linear = any(arch in _QWEN4_EXP_ARCHS for arch in archs)
         mixed = config.get("mixed_precision") or {}
         w8a8 = mixed.get("w8a8_include") or {}
+        checkpoint_format = config.get("checkpoint_format")
+        linear_targets = None
+        is_hyv4 = any(arch.startswith("HYV4") for arch in archs)
+        has_int8_group = any(
+            (group.get("weights") or {}).get("num_bits") == 8
+            for group in (config.get("config_groups") or {}).values()
+        )
+        if config.get("quant_method") == "compressed-tensors" and (
+            is_hyv4 or has_int8_group
+        ):
+            if not cls._supports_compressed_config(config):
+                raise ValueError("Unsupported compressed-tensors W4A8 scheme")
+            if not is_hyv4:
+                raise ValueError(
+                    "Mixed INT4/INT8 compressed-tensors slimquant_w4a8_marlin "
+                    "requires an HYV4 architecture, got %r" % (archs,)
+                )
+            checkpoint_format = HY4_CT_W4A8_FORMAT
+            linear_targets = [
+                target
+                for group in config["config_groups"].values()
+                if group["weights"]["num_bits"] == 8
+                for target in group["targets"]
+            ]
         return cls(
             ignore=config.get("ignore"),
             experts_only_linear=experts_only_linear,
             w8a8_include=list(w8a8.get("modules") or []),
             packed_modules_mapping=config.get("packed_modules_mapping") or {},
             compressed_tensors_packed=config.get("format") == "pack-quantized",
+            checkpoint_format=checkpoint_format,
+            linear_targets=linear_targets,
         )
+
+    @staticmethod
+    def _supports_compressed_config(config) -> bool:
+        groups = config.get("config_groups") or {}
+        if not groups:
+            return False
+        has_int4 = False
+        for group in groups.values():
+            weight = group.get("weights") or {}
+            act = group.get("input_activations") or {}
+            bits = weight.get("num_bits")
+            if not (
+                bits in (4, 8)
+                and weight.get("type") == "int"
+                and weight.get("strategy") == "channel"
+                and weight.get("symmetric") is True
+                and not weight.get("dynamic")
+                and weight.get("group_size") in (None, -1)
+                and weight.get("actorder") is None
+                and act.get("num_bits") == 8
+                and act.get("type") == "int"
+                and act.get("strategy") == "token"
+                and act.get("symmetric") is True
+                and act.get("dynamic") is True
+                and group.get("output_activations") is None
+                and group.get("format", config.get("format"))
+                == ("pack-quantized" if bits == 4 else "int-quantized")
+                and group.get("targets")
+            ):
+                return False
+            has_int4 |= bits == 4
+        return has_int4
 
     @classmethod
     def override_quantization_method(cls, hf_quant_cfg, user_quant) -> Optional[str]:
         if (
             user_quant == cls.get_name()
             and hf_quant_cfg.get("quant_method") == "compressed-tensors"
-            and hf_quant_cfg.get("format") == "pack-quantized"
+            and cls._supports_compressed_config(hf_quant_cfg)
         ):
-            groups = hf_quant_cfg.get("config_groups", {})
-            for group in groups.values():
-                weight = group.get("weights") or {}
-                activation = group.get("input_activations") or {}
-                if not (
-                    weight.get("num_bits") == 4
-                    and weight.get("type") == "int"
-                    and weight.get("strategy") == "channel"
-                    and weight.get("symmetric") is True
-                    and weight.get("dynamic") is False
-                    and activation.get("num_bits") == 8
-                    and activation.get("type") == "int"
-                    and activation.get("strategy") == "token"
-                    and activation.get("symmetric") is True
-                    and activation.get("dynamic") is True
-                ):
-                    return None
-            if groups:
-                return cls.get_name()
+            return cls.get_name()
         if hf_quant_cfg.get("quant_method") == "slimquant_w4a8" and user_quant in (
             "slimquant_w4a8_marlin",
             "slimquant_marlin",
@@ -883,6 +947,14 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
                 ignore=self.ignore,
                 fused_mapping=fused_mapping,
             ):
+                return UnquantizedLinearMethod()
+            if self.linear_targets is not None:
+                if should_ignore_layer(
+                    layer_name=prefix,
+                    ignore=self.linear_targets,
+                    fused_mapping=fused_mapping,
+                ):
+                    return SlimQuantW4A8Int8LinearMethod(self)
                 return UnquantizedLinearMethod()
             # Qwen3.8 Flash-Next: MoE experts are W4; denselinears are BF16
             # unless listed in mixed_precision.w8a8_include (W8A8). Without
@@ -969,6 +1041,15 @@ class SlimQuantW4A8Int8MarlinConfig(QuantizationConfig):
 
     def get_scaled_act_names(self) -> List[str]:
         return []
+
+    def normalize_checkpoint_weights(self, layer: torch.nn.Module) -> None:
+        if self.checkpoint_format != HY4_CT_W4A8_FORMAT:
+            return
+        for name in ("w13_weight", "w2_weight"):
+            packed = getattr(layer, name).data.view(torch.uint8)
+            packed.bitwise_xor_(0x88)
+            packed.copy_((packed << 4) | (packed >> 4))
+            getattr(layer, name + "_scale").data.div_(16.0)
 
 
 from hcu_sglang.layers.quantization.compressed_w4a8 import HCUW4A8Int8DeepEPMoEMethod
@@ -1067,6 +1148,7 @@ class SlimQuantW4A8Int8MarlinMoEMethod:
         layer.register_parameter("w2_input_scale", w2_input_scale)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
+        self.quant_config.normalize_checkpoint_weights(layer)
         if get_moe_a2a_backend().is_megamoe():
             from sglang.srt.layers.moe.mega_moe import (
                 build_hcu_w4a8_mega_moe_experts_weights,
@@ -1077,6 +1159,11 @@ class SlimQuantW4A8Int8MarlinMoEMethod:
         if not _use_lightop_w4a8_marlin_moe:
             if self.use_deepep:
                 from deepgemm import pack_w4a8_moe_hipc_weight
+
+                if _is_hcu and get_bool_env_var("SGLANG_USE_W4A8_CONTIGUOUS_HIPC"):
+                    from hcu_sglang.layers.moe.deepep_w4a8 import pad_contiguous_hipc_weights
+
+                    pad_contiguous_hipc_weights(layer)
 
                 layer.w13_weight = Parameter(
                     pack_w4a8_moe_hipc_weight(layer.w13_weight.data),
@@ -1098,6 +1185,13 @@ class SlimQuantW4A8Int8MarlinMoEMethod:
                     layer.w2_weight_scale.data * scale_mul,
                     requires_grad=False,
                 )
+                if _is_hcu:
+                    masked = get_bool_env_var("SGLANG_USE_W4A8_MASKED_HIPC")
+                    contiguous = get_bool_env_var("SGLANG_USE_W4A8_CONTIGUOUS_HIPC")
+                    if masked or contiguous:
+                        from hcu_sglang.layers.moe.deepep_w4a8 import configure_hipc
+
+                        configure_hipc(layer, masked=masked, contiguous=contiguous)
             else:
                 # mxfp4_to_int4.py packs (even_k << 4) | odd_k with two's
                 # complement nibbles and stores scale/16 (the legacy lightop
@@ -1479,6 +1573,7 @@ class SlimQuantW4A8Int8TritonMoEMethod:
         layer.register_parameter("w2_input_scale", w2_input_scale)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
+        self.quant_config.normalize_checkpoint_weights(layer)
         layer.w13_weight = Parameter(layer.w13_weight, requires_grad=False)
         layer.w2_weight = Parameter(layer.w2_weight, requires_grad=False)
         layer.w13_weight_scale = Parameter(
@@ -1671,6 +1766,8 @@ class SlimQuantW4A8Int8TritonMoEMethod:
 class SlimQuantW4A8Int8AiterMoEMethod:
     """MoE method for W4A8INT8 AITER."""
 
+    supports_int8_prequant = True
+
     def __new__(cls, *args, **kwargs):
 
         if not hasattr(cls, "_initialized"):
@@ -1754,6 +1851,7 @@ class SlimQuantW4A8Int8AiterMoEMethod:
         layer.register_parameter("w2_input_scale", w2_input_scale)
 
     def process_weights_after_loading(self, layer: torch.nn.Module) -> None:
+        self.quant_config.normalize_checkpoint_weights(layer)
         if self.use_deepep:
             # DeepEP grouped GEMM consumes the HIPC pack, not the Aiter TP
             # shuffle layout. The HIPC kernel applies the checkpoint's x16
@@ -1816,12 +1914,27 @@ class SlimQuantW4A8Int8AiterMoEMethod:
         self,
         layer: torch.nn.Module,
         dispatch_output,
+        i_q: Optional[torch.Tensor] = None,
+        i_s: Optional[torch.Tensor] = None,
+        use_int8_prequant: bool = False,
     ):
         from aiter.moe import MoeQuantType, aiter_moe, get_aiter_moe_config
 
         from sglang.srt.layers.moe.token_dispatcher.standard import StandardCombineInput
 
         x = dispatch_output.hidden_states
+        if not use_int8_prequant:
+            i_q = i_s = None
+        elif i_q is None or i_s is None:
+            raise ValueError("explicit AITER INT8 dispatch requires codes and scales")
+        if i_q is not None and (
+            self.moe_runner_config.apply_router_weight_on_input
+            or x.dtype != torch.bfloat16 or i_q.dtype != torch.int8
+            or i_s.dtype != torch.float32 or i_q.shape != x.shape
+            or i_s.shape != (x.shape[0], 1) or i_q.device != x.device
+            or i_s.device != x.device or not i_q.is_contiguous() or not i_s.is_contiguous()
+        ):
+            raise ValueError("invalid AITER per-token INT8 codes/scales or weighted input")
         topk_weights, topk_ids, _ = dispatch_output.topk_output
         # x, topk_weights = apply_topk_weights_cpu(
         #     self.moe_runner_config.apply_router_weight_on_input, topk_weights, x
@@ -1835,7 +1948,6 @@ class SlimQuantW4A8Int8AiterMoEMethod:
         n2 = layer.w2_weight.size(1)
         topk_ids = topk_ids.to(torch.int32)
         topk_weights = topk_weights.to(torch.float32)
-        from sglang.srt.distributed import get_moe_expert_parallel_world_size
         from sglang.srt.layers.moe.utils import get_moe_runner_backend
 
         # moe_c GEMM zeros remote blocks when expert_id==-1. Cub align cannot
@@ -1843,7 +1955,7 @@ class SlimQuantW4A8Int8AiterMoEMethod:
         # - Triton dispatcher already remapped to local ids with -1 drops:
         #   retarget drops to extra expert `e`, then map that id back to -1.
         # - AITER dispatcher keeps global ids: pass the real EP expert_map.
-        ep_size = get_moe_expert_parallel_world_size()
+        ep_size = get_parallel().moe_ep_size
         ids_are_local = not get_moe_runner_backend().is_aiter()
         if ep_size > 1 and ids_are_local:
             drop_id = e
@@ -1904,7 +2016,7 @@ class SlimQuantW4A8Int8AiterMoEMethod:
             self._logged_aiter_sol = True
 
         output = aiter_moe(
-            x,
+            x if i_q is None else i_q,
             w1=layer.w13_weight,
             w2=layer.w2_weight,
             topk_weights=topk_weights,
@@ -1916,6 +2028,8 @@ class SlimQuantW4A8Int8AiterMoEMethod:
             global_num_experts=global_num_experts,
             expert_map=expert_map,
             routed_scaling_factor=self.moe_runner_config.routed_scaling_factor,
+            a1_scale=i_s,
+            output_dtype=x.dtype,
         )
         return StandardCombineInput(hidden_states=output)
 

@@ -231,10 +231,26 @@ def _ep_gather_with_optional_lightop(
     topk_weights: torch.Tensor,
     input_index: torch.Tensor,
     output_tensor: torch.Tensor,
+    *,
+    glm53_fp8_layer=None,
 ) -> None:
     if _can_use_lightop_ep_gather(
         input_tensor, topk_ids, topk_weights, input_index, output_tensor
     ):
+        if glm53_fp8_layer is not None:
+            from sglang.srt.environ import envs
+
+            if (
+                envs.SGLANG_GLM_OPT_PREFILL.get()
+                or envs.SGLANG_HCU_GLM53_FP8_EP_GATHER_K8.get()
+            ):
+                from hcu_sglang.layers.moe.glm53_fp8_prefill_ops import try_gather_k8
+
+                if try_gather_k8(
+                    glm53_fp8_layer, input_tensor, topk_ids, topk_weights,
+                    input_index, output_tensor,
+                ):
+                    return
         lightop_op.ep_gather(
             input_tensor, topk_ids, topk_weights, input_index, None, output_tensor
         )
@@ -400,20 +416,22 @@ def forward_groupgemm_w8a8_fp8_contiguous(
 
     hidden_states_shape = hidden_states.shape
     hidden_states_device = hidden_states.device
-    input_tensor = [
-        torch.empty(
-            (all_tokens, K),
-            device=hidden_states.device,
-            dtype=hidden_states.dtype,
-        ),
-        (
+    from sglang.srt.environ import envs
+    indirect_enabled = (
+        envs.SGLANG_GLM_OPT_PREFILL.get()
+        or envs.SGLANG_HCU_GLM53_FP8_K1_INDIRECT.get()
+        or envs.SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD.get()
+    )
+    input_tensor = None
+    if not indirect_enabled:
+        input_tensor = [
+            torch.empty((all_tokens, K), device=hidden_states.device, dtype=hidden_states.dtype),
             torch.empty(
                 (all_tokens, hidden_states_scale.shape[-1]),
                 device=hidden_states.device,
                 dtype=torch.float32,
-            )
-        ),
-    ]
+            ),
+        ]
     if get_offloader().forbid_copy_engine_usage:
         num_recv_tokens_per_expert_gpu = copy_list_to_gpu_no_ce(
             num_recv_tokens_per_expert
@@ -428,38 +446,71 @@ def forward_groupgemm_w8a8_fp8_contiguous(
     counts_are_aligned = all(
         count % 256 == 0 for count in num_recv_tokens_per_expert
     )
-    m_indices, output_index = _ep_scatter_with_optional_lightop(
-        hidden_states,
-        hidden_states_scale,
-        topk_ids,
-        num_recv_tokens_per_expert_gpu,
-        input_tensor[0],
-        input_tensor[1],
-        all_tokens,
-        counts_are_aligned=counts_are_aligned,
-    )
+    indirect = None
+    if indirect_enabled:
+        from hcu_sglang.layers.moe.glm53_fp8_k1_indirect import try_indirect
 
-    gateup_output_factory = torch.empty if counts_are_aligned else torch.zeros
-    gateup_output = gateup_output_factory(
-        (all_tokens, N),
-        device=hidden_states_device,
-        dtype=torch.bfloat16,
-    )
-
-    m_grouped_fp8_gemm_nt_contiguous(
-        (input_tensor[0], input_tensor[1].squeeze(-1)),
-        (w13_weight_fp8[0], w13_weight_fp8[1].squeeze(-1)),
-        gateup_output,
-        m_indices,
-    )
-    del input_tensor
+        indirect = try_indirect(
+            self,
+            hidden_states,
+            hidden_states_scale,
+            topk_ids,
+            topk_weights,
+            num_recv_tokens_per_expert,
+            num_recv_tokens_per_expert_gpu,
+            w13_weight_fp8,
+            N,
+        )
+    if indirect is not None:
+        gateup_output, m_indices, output_index = indirect
+    else:
+        if input_tensor is None:
+            input_tensor = [
+                torch.empty((all_tokens, K), device=hidden_states.device, dtype=hidden_states.dtype),
+                torch.empty(
+                    (all_tokens, hidden_states_scale.shape[-1]),
+                    device=hidden_states.device,
+                    dtype=torch.float32,
+                ),
+            ]
+        m_indices, output_index = _ep_scatter_with_optional_lightop(
+            hidden_states,
+            hidden_states_scale,
+            topk_ids,
+            num_recv_tokens_per_expert_gpu,
+            input_tensor[0],
+            input_tensor[1],
+            all_tokens,
+            counts_are_aligned=counts_are_aligned,
+        )
+        gateup_output_factory = torch.empty if counts_are_aligned else torch.zeros
+        gateup_output = gateup_output_factory(
+            (all_tokens, N),
+            device=hidden_states_device,
+            dtype=torch.bfloat16,
+        )
+        m_grouped_fp8_gemm_nt_contiguous(
+            (input_tensor[0], input_tensor[1].squeeze(-1)),
+            (w13_weight_fp8[0], w13_weight_fp8[1].squeeze(-1)),
+            gateup_output,
+            m_indices,
+        )
+        del input_tensor
 
     swiglu_limit = self.moe_runner_config.swiglu_limit
     if swiglu_limit is None:
-        q_a2_all, q_a2_scale = fuse_silu_mul_fp8_quant(
-            gateup_output,
-            fp8type=0,
-        )
+        inverse_result = None
+        if envs.SGLANG_HCU_GLM53_FP8_EXPERT_INVERSE.get():
+            from hcu_sglang.layers.moe.glm53_fp8_prefill_ops import try_expert_activation_inverse
+
+            inverse_result = try_expert_activation_inverse(self, gateup_output)
+        if inverse_result is None:
+            q_a2_all, q_a2_scale = fuse_silu_mul_fp8_quant(
+                gateup_output,
+                fp8type=0,
+            )
+        else:
+            q_a2_all, q_a2_scale = inverse_result
     else:
         q_a2_all, q_a2_scale = fuse_silu_mul_fp8_quant(
             gateup_output,
@@ -488,7 +539,8 @@ def forward_groupgemm_w8a8_fp8_contiguous(
     )
 
     _ep_gather_with_optional_lightop(
-        down_output, topk_ids, topk_weights, output_index, gather_out
+        down_output, topk_ids, topk_weights, output_index, gather_out,
+        glm53_fp8_layer=self,
     )
     del down_output
 
@@ -531,7 +583,7 @@ def forward_groupgemm_w8a8_fp8_masked(
     from deepgemm import m_grouped_fp8_gemm_nt_masked
 
     m_grouped_fp8_gemm_nt_masked(
-        (hidden_states, hidden_states_scale),
+        (hidden_states, hidden_states_scale.contiguous()),
         (w13_weight, w13_scales),
         gateup_output,
         masked_m,
@@ -560,7 +612,7 @@ def forward_groupgemm_w8a8_fp8_masked(
         )
 
     m_grouped_fp8_gemm_nt_masked(
-        (q_a2_all, q_a2_scale),
+        (q_a2_all, q_a2_scale.contiguous()),
         (w2_weight, w2_scales),
         down_output,
         masked_m,
@@ -582,6 +634,14 @@ def around_ep_init(original, layer, *args, **kwargs):
         from hcu_sglang.layers.moe.deepep_int8 import configure_layer
         bound = inspect.signature(original).bind(layer, *args, **kwargs)
         configure_layer(layer, bound.arguments.get("quant_config"))
+        if getattr(layer, "use_int8_w8a8_deepgemm", False):
+            layer.dispatcher.set_quant_config({
+                **(getattr(layer.dispatcher, "quant_config", None) or {}),
+                "hcu_w8a8_int8_dispatch": True,
+                "dispatcher_output_dtype": "int8",
+                "normal_dispatcher_output_dtype": "int8",
+                "low_latency_dispatcher_output_dtype": "int8",
+            })
     if _is_hcu and getattr(getattr(layer, "quant_method", None), "hcu_w4a8_hipc", False):
         from sglang.srt.layers.moe.utils import get_deepep_mode
         layer.deprecate_flag = False
@@ -609,6 +669,20 @@ def around_run_moe_core(original, layer, dispatch_output, *args, **kwargs):
     if _is_hcu and getattr(getattr(layer, "quant_method", None), "hcu_w4a8_hipc", False):
         from hcu_sglang.layers.moe.ct_w4a8 import run_moe_core
         return run_moe_core(layer, dispatch_output)
+    if _is_hcu and getattr(layer, "_hcu_slimquant_w4a8_hipc", False):
+        from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker
+
+        if DispatchOutputChecker.format_is_deepep_ll(dispatch_output):
+            from hcu_sglang.layers.moe.deepep_w4a8 import run_masked_moe_core
+
+            return run_masked_moe_core(layer, dispatch_output)
+    if _is_hcu and getattr(layer, "_hcu_slimquant_w4a8_contiguous_hipc", False):
+        from sglang.srt.layers.moe.token_dispatcher import DispatchOutputChecker
+
+        if DispatchOutputChecker.format_is_deepep_normal(dispatch_output):
+            from hcu_sglang.layers.moe.deepep_w4a8 import run_contiguous_moe_core
+
+            return run_contiguous_moe_core(layer, dispatch_output)
     if _is_hcu and getattr(layer, "use_int8_w8a8_deepgemm", False):
         from hcu_sglang.layers.moe.deepep_int8 import run_moe_core
         return run_moe_core(layer, dispatch_output)

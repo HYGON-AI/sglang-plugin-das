@@ -12,9 +12,12 @@ import torch
 
 
 def patch_sampling_params_field() -> None:
-    from hcu_sglang.compat.aiter import install_aiter_compat
+    # Lazy shim, not the eager install: register() runs on aiter-less hosts
+    # and during JIT builds; bootstrap defers to a real vendor install when
+    # present and only answers the fused import when it is absent.
+    from hcu_sglang.compat.aiter import bootstrap_aiter_compat
 
-    install_aiter_compat()
+    bootstrap_aiter_compat()
     from sglang.multimodal_gen.configs.sample.sampling_params import SamplingParams
 
     if "profile_start_step" in SamplingParams.__dataclass_fields__:
@@ -172,8 +175,11 @@ def around_profile_execution(
     return profile_context()
 
 
-def register_hooks() -> None:
+def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
+
+    if registry is not None:
+        HookRegistry = registry
 
     patch_sampling_params_field()
     target = (

@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 import torch
 
+from hcu_sglang.layers.attention.linear import gdn_commit
 from hcu_sglang.utils.detection import is_hcu
 
 
@@ -106,6 +107,29 @@ def patch_broken_torchaudio_availability() -> None:
         transformers_utils.is_torchaudio_available = lambda: False
 
 
+def commit_mamba_states_after_verify(
+    wrapped: Callable[..., None],
+    target_worker: Any,
+    batch: Any,
+    accept_lens: Any,
+    accept_index: Any,
+    draft_token_num: int,
+    *args,
+    **kwargs,
+) -> None:
+    # Graph replay never reruns the verify forward, so its recorded draft width
+    # is stale. Publish the live one for the GDN plain commit's replay.
+    linear = getattr(
+        target_worker.model_runner.attn_backend, "linear_attn_backend", None
+    )
+    if linear is not None:
+        gdn_commit.state(linear).live_T = int(draft_token_num)
+    return wrapped(
+        target_worker, batch, accept_lens, accept_index, draft_token_num,
+        *args, **kwargs
+    )
+
+
 def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
@@ -113,6 +137,21 @@ def register_hooks() -> None:
 
     eagle_sampling.register_hooks()
     patch_broken_torchaudio_availability()
+    from hcu_sglang.speculative_sampling import (
+        around_can_use_sparse_target_sampling,
+        around_sample_tree_target_tokens,
+    )
+
+    HookRegistry.register(
+        "sglang.srt.speculative.eagle_utils._can_use_sparse_uno_tree_target_sampling",
+        around_can_use_sparse_target_sampling,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.speculative.uno_utils.sample_uno_tree_target_tokens",
+        around_sample_tree_target_tokens,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.srt.arg_groups.speculative_hook._handle_dspark",
         around_handle_dspark,
@@ -151,5 +190,10 @@ def register_hooks() -> None:
         "sglang.srt.batch_overlap.two_batch_overlap."
         "TboForwardBatchPreparer.filter_batch",
         around_tbo_filter_batch,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.speculative.spec_utils.commit_mamba_states_after_verify",
+        commit_mamba_states_after_verify,
         HookType.AROUND,
     )

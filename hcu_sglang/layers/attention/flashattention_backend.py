@@ -6,9 +6,15 @@ import logging
 import sys
 import types
 
+import torch
+
+
 from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 from hcu_sglang.models.fused_rotary import has_fused_kv_store
 from hcu_sglang.utils.detection import is_hcu
+
+# Largest head dim the fa3 fp8 path builds a descale tile for.
+FA3_MAX_DESCALE_HEAD_DIM = 256
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +30,20 @@ _INIT_TARGET = (
     "sglang.srt.layers.attention.flashattention_backend."
     "FlashAttentionBackend.__init__"
 )
+_PREPARE_TARGET = (
+    "sglang.srt.layers.attention.flashattention_backend."
+    "FlashAttentionBackend.prepare_paged_mha_query"
+)
 
 
 def register() -> None:
     hooks = (
         (_INIT_TARGET, around_init),
+        ("sglang.srt.layers.attention.flashattention_backend.FlashAttentionBackend.prepare_paged_mha_query", around_prepare_paged_mha_query),
         ("sglang.srt.layers.attention.flashattention_backend.FlashAttentionBackend.get_paged_mha_kv_cache", around_get_paged_mha_kv_cache),
         (_FORWARD_EXTEND_TARGET, around_forward_extend),
         (_FORWARD_DECODE_TARGET, around_forward_decode),
+        (_PREPARE_TARGET, prepare_paged_mha_query),
     )
     for target, hook in hooks:
         logger.info("[hcu_sglang] register AROUND hook: %s", target)
@@ -73,11 +85,61 @@ def around_init(original_fn, backend, *args, **kwargs):
             sys.modules.pop(module_name, None)
         else:
             sys.modules[module_name] = previous
-    backend.flash_attn_varlen_func = flash_attn_varlen_func
-    backend.flash_attn_with_kvcache = flash_attn_with_kvcache
+    # 0.5.22 binds both names at module import and the forward methods call
+    # those module globals. Assign the module's current values, not the raw
+    # plugin functions: the registry's wrapper chain (BEFORE/AFTER hooks) must
+    # stay in front of the plugin AROUND hook.
+    fb_module = sys.modules.get("sglang.srt.layers.attention.flashattention_backend")
+    if fb_module is not None:
+        backend.flash_attn_varlen_func = fb_module.flash_attn_varlen_func
+        backend.flash_attn_with_kvcache = fb_module.flash_attn_with_kvcache
+    else:
+        backend.flash_attn_varlen_func = flash_attn_varlen_func
+        backend.flash_attn_with_kvcache = flash_attn_with_kvcache
     backend._get_scheduler_metadata = None
     backend._get_fa_runtime_policy = None
+    from hcu_sglang.utils.detection import get_gcn_arch
+    from hcu_sglang.mem_cache.hcu_mha_pool import _layout_enabled
+    model_runner = args[0] if args else kwargs.get("model_runner")
+    model_config = getattr(model_runner, "model_config", None)
+    hf_config = getattr(model_config, "hf_config", None)
+    architectures = getattr(hf_config, "architectures", None) or ()
+    backend._hcu_bf16_fp8_kv_query = (
+        get_gcn_arch().split(":", 1)[0] == "gfx936"
+        and _layout_enabled()
+        and getattr(backend, "page_size", None) == 64
+        and len(architectures) == 1
+        and architectures[0] in (
+            "Qwen3_5ForConditionalGeneration",
+            "Qwen3_5MoeForConditionalGeneration",
+            "Qwen3_5ForCausalLM",
+            "Qwen3_5ForCausalLMMTP",
+        )
+        and getattr(backend, "fa_impl_ver", None) == 3
+        and getattr(backend, "kv_cache_dtype_str", None) == "fp8_e5m2"
+        and not getattr(backend, "use_mla", False)
+    )
     return result
+
+
+def around_prepare_paged_mha_query(
+    original, backend, q, q_rope, k_rope, layer, *,
+    logical_batch_size, kv_head_num, is_prefill,
+):
+    import torch
+
+    if (not is_hcu() or not getattr(backend, "_hcu_bf16_fp8_kv_query", False)
+            or q.dtype != torch.bfloat16 or layer.head_dim > 256
+            or q_rope is not None or k_rope is not None):
+        return original(backend, q, q_rope, k_rope, layer,
+            logical_batch_size=logical_batch_size, kv_head_num=kv_head_num,
+            is_prefill=is_prefill)
+    if layer.k_scale is not None or layer.v_scale is not None:
+        raise RuntimeError(
+            "HCU BF16 query with FP8 E5M2 KV requires unscaled KV cache; "
+            "the DTK paged attention kernel ignores K/V descales"
+        )
+    return q, q_rope, k_rope, None, None
 
 
 def _should_skip_kv_store(args, kwargs) -> bool:
@@ -152,12 +214,68 @@ def around_get_paged_mha_kv_cache(original_fn, backend, layer, *, head_group_num
     key, value = pool.get_kv_buffer(layer.layer_id)
     page = backend.page_size
     assert tuple(key.shape[1:]) == (layer.tp_k_head_num, page, layer.head_dim)
-    assert tuple(value.shape[1:]) == (layer.tp_v_head_num, layer.v_head_dim, page)
+    assert tuple(value.shape[1:]) == (layer.tp_v_head_num, page, layer.v_head_dim)
     if (head_group_num < 1 or layer.tp_k_head_num % head_group_num or
             layer.tp_v_head_num % head_group_num):
         raise ValueError('head_group_num must divide the K/V head counts')
     # These contiguous NHD-shaped carriers preserve HCU physical byte order.
-    # The plugin FA interface restores K[pages,H,page,D]/V[pages,H,D,page]
+    # The plugin FA interface restores K and V as [pages, heads, page, dim]
     # immediately before the native HCU call; a permute here would corrupt it.
     return (key.view(-1, page, layer.tp_k_head_num // head_group_num, layer.head_dim),
             value.view(-1, page, layer.tp_v_head_num // head_group_num, layer.v_head_dim))
+
+
+def _descale_tile(scale, shape, device):
+    """Per-row descale tile, 1.0 when the model carries no scale."""
+    if scale is None:
+        return torch.ones(shape, dtype=torch.float32, device=device)
+    try:
+        return scale.expand(shape)
+    except RuntimeError:  # stored as [1]
+        return scale.reshape(-1)[:1].expand(shape)
+
+
+def prepare_paged_mha_query(
+    wrapped,
+    self,
+    q,
+    q_rope,
+    k_rope,
+    layer,
+    *,
+    logical_batch_size,
+    kv_head_num,
+    is_prefill,
+):
+    """Fill fp8 KV descales when the upstream path leaves them unset.
+
+    0.5.18 fell back to the backend-level k_scale/v_scale; 0.5.22 only uses
+    ``layer.k_scale``. The fa3 varlen entry requires q/k/v descales for an
+    fp8 prefix decode, so fill the missing ones (1.0 when no scale is set).
+    """
+    out = wrapped(
+        self,
+        q,
+        q_rope,
+        k_rope,
+        layer,
+        logical_batch_size=logical_batch_size,
+        kv_head_num=kv_head_num,
+        is_prefill=is_prefill,
+    )
+    if out[3] is not None or self.kv_cache_dtype_str == "auto":
+        return out
+    if (
+        layer.head_dim > FA3_MAX_DESCALE_HEAD_DIM
+        or logical_batch_size <= 0
+        or kv_head_num <= 0
+    ):
+        return out
+    shape = (int(logical_batch_size), int(kv_head_num))
+    return (
+        out[0],
+        out[1],
+        out[2],
+        _descale_tile(layer.k_scale, shape, q.device),
+        _descale_tile(layer.v_scale, shape, q.device),
+    )

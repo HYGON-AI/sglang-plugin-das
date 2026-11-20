@@ -41,7 +41,7 @@ def _use_native_eh_norm(config, quant_config) -> bool:
         H.is_hcu()
         and is_glm_moe_dsa(config)
         and quant_config is not None
-        and quant_config.get_name() == "compressed_tensors"
+        and quant_config.get_name() in ("compressed_tensors", "slimquant_w4a8", "slimquant_w4a8_marlin")
     )
 
 

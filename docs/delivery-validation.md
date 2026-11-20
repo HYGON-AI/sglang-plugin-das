@@ -312,7 +312,7 @@ wheel-readoutfix-runtime.json 是初次隔离助手错误引用外部源码时�
 
 两种运行时形态分别通过 435 项 CPU、37 项 GPU、363 项加载合同及四卡 native Graph 重放；各保留一个 CPU skip 和一个 GPU skip。独立 wheel 完成 435 项 CPU、入口/启动隔离及 363 项加载；未运行 wheel GPU/模型服务。两种形态的 MiniMax TP4 原配方派生服务均完成自有 health 200、三次最终答案 `2`、`2`、`Paris`、正常结束和清理。正式输出与测试提交/包内容相同，并另验模块来源。
 
-模块清单、真实测试位置、所有日志、原配方差异、HCU 逻辑对照及未覆盖范围统一见 [最终实施与需求验收](hcu-sglang-development.md#2026-10-26-8-最终交付与需求验收)。完整 HCU fork 等价、TP8、性能和全模型数据集精度均未宣称通过。方法库保持现有 HEAD/暂存区，变更仅保存为工作区文档、Skill 与此前工具修正；没有推送或外部发布。
+模块清单、真实测试位置、所有日志、原配方差异、HCU 逻辑对照及未覆盖范围统一见 [最终实施与需求验收](hcu-sglang-development-202610.md#2026-10-26-8-最终交付与需求验收)。完整 HCU fork 等价、TP8、性能和全模型数据集精度均未宣称通过。方法库保持现有 HEAD/暂存区，变更仅保存为工作区文档、Skill 与此前工具修正；没有推送或外部发布。
 
 ## 2026-10-27 方法库提交前检查
 
@@ -332,7 +332,7 @@ wheel-readoutfix-runtime.json 是初次隔离助手错误引用外部源码时�
 
 新增 `hcu-plugin-assistant` 作为检索、任务匹配与必要输入补全入口；原 7 个专项 Skill 继续按任务执行。README 补全文件树、功能、开发/安装/诊断案例及直接使用方法工具的路线。网页加入离线阅读器、内部路由、全文检索和导航状态处理，由 `tools/build_guide.py` 与 `templates/architecture.html` 维护。
 
-本轮 L0、53 项工具测试、8 个 Skill 元信息、网页快照及 DOM 交互检查通过。实际浏览器安全策略拒绝本地 file URL，未执行截图或真实布局验收，未以 DOM 状态代替视觉验证。未启动外部插件或模型服务。详细范围与证据见 [方法库入口实施记录](hcu-sglang-development.md#2026-10-27-v3-方法库导览与统一任务入口实施记录)。
+本轮 L0、53 项工具测试、8 个 Skill 元信息、网页快照及 DOM 交互检查通过。实际浏览器安全策略拒绝本地 file URL，未执行截图或真实布局验收，未以 DOM 状态代替视觉验证。未启动外部插件或模型服务。详细范围与证据见 [方法库入口实施记录](hcu-sglang-development-202610.md#2026-10-27-v3-方法库导览与统一任务入口实施记录)。
 
 ## DAS 模块盘点与插件开发计划（2026-10-28）
 
@@ -345,7 +345,7 @@ wheel-readoutfix-runtime.json 是初次隔离助手错误引用外部源码时�
 
 ## V3 分阶段实现与当前包交付工具（2026-10-29）
 
-本轮本地代码提交 `af5c635`、`42fe693`：迁移/审计/内嵌工具支持 `hcu_sglang`，保留旧包兼容；新增 HCU 标准分发的无效专家 ID 保留逻辑、当前目标合同及全差异执行台账。详细来源、命令与边界见 [开发迁移记录](hcu-sglang-development.md#6-2026-10-29-分阶段继续迁移)。未推送。
+本轮本地代码提交 `af5c635`、`42fe693`：迁移/审计/内嵌工具支持 `hcu_sglang`，保留旧包兼容；新增 HCU 标准分发的无效专家 ID 保留逻辑、当前目标合同及全差异执行台账。详细来源、命令与边界见 [开发迁移记录](hcu-sglang-development-202610.md#6-2026-10-29-分阶段继续迁移)。未推送。
 
 70 项离线测试、4 项真实公共 dispatcher CPU 张量回归、L0、3 个修改 Skill 元信息及导览检查通过。源码、隔离 wheel、禁用外部 entry point 的实际 embedded 均为 364/364 项 Hook 和 3 个具名 seam；wheel 527 项包文件与源码相同，embedded 532 项哈希通过。桌面和 390px 窄屏阅读器、导航开关已实际检查。
 
@@ -422,3 +422,18 @@ python3 tools/build_guide.py --check → Guide is up to date
 **重叠文件复核**（远端新 main 与本地改动都触碰的 4 个文件，均未丢本地改动）：`docs/ci.md` 的「L0 迁移文件头」行在；`hcu_sglang/environ.py` 的 `SGLANG_REQUIRE_KV_CACHE_SCALES` 在；`hcu_sglang/layers/attention/flashattention_interface.py` 的 `q_4d` 构造在 varlen 分支之后；`architecture.html` 由生成器重建。远端新增的 `.github/workflows/quality-gate.yml` 亦在。
 
 **推送状态**：未执行。推送前须重新 `git fetch` 确认 `behind` 仍为 0（远端可能再次被 force push），之后 `git push origin main` 并用 `git ls-remote` 与 `rev-list` 核对远端新提交。
+## 2026-11-04 HCU KV 与 GDN 单流策略
+
+范围为现有 `HCUMHATokenToKVPool` 的构造参数策略与 Qwen3.5 GDN 构造 AROUND Hook；不修改官方、adapter 或数学 kernel。基线、职责/回退、MTP 受控 A/B 与限制见 [开发记录](hcu-sglang-development.md#2026-11-04-kv-与-gdn-单流提交验证)，评审入口见 [任务记录](board.md#6-hcu-kv-与-gdn-单流策略2026-11-04)。
+
+| 检查 | 实际结果与范围 |
+|---|---|
+| CPU 离线 | Python 3.10 无第三方启动注入的隔离环境，`python -m unittest discover -s tests -v`：117 项，104 passed / 13 条件 skipped。 |
+| HCU KV GPU | `tests/runtime/hcu_mha_single_stream_gpu.py`：3 passed；真实父类构造、位置/关键字/重复参数、公共写入、不同 K/V 维度、空输入/页边界/padding、变输入 Graph replay。 |
+| GDN GPU | `tests/runtime/hcu_gdn_single_stream_gpu.py`：4 passed；真实 HookRegistry、HCU/非 HCU、有效 original 异常保留、真实 BF16 投影、同流 capture 与变输入 replay。 |
+| 完整入口与目标合同 | 严格入口检查 registered 598 / applied 584；新增 GDN 构造与既有三个 HCU pool builder Hook 均 applied，注册集合与更新后目标合同一致。14 项多模态 Hook 未应用，严格检查记 failed，不能记为全量接线通过。未修改基线为 registered 597 / applied 583；前后 14 项 unapplied 及错误列表完全一致，仅新增 GDN 目标并成功应用。 |
+| 真实 TP2 服务与性能 | 本次先前四次 MTP 独立启动均通过 ready、模型身份及三道完整问答；320 次无 profiler 测量、八份完整 trace。提交整理新增的构造参数绑定另由真实 GPU 构造测试复验；性能数据不是最终提交后的新一轮服务测量。 |
+
+导览重建与 `--check`、L0、`git diff --check` 及桌面/390px 窄屏导览渲染和搜索/跳转交互纳入本次提交验收，日志与截图保留于本批次产物。当前复验日志位于 `${PLUGIN_ROOT}/artifacts/single-stream-pr-20261104`，原始服务/性能证据为独立批次 `qwen38-tp2-mtp-gdn-ab-20261104`，ignored 产物不随 Git 推送；共享统计、固定版本与解释已写入开发记录。
+
+收益限 gfx936、BF16 Qwen3.8-27B、TP2、batch1、指定 NEXTN/Graph/后端配置。1024→32 的 E2E 中位数下降 1.06%，decode-after-first 下降 1.41%；4096→1 prefill 增加 0.29%，每模式仅两个独立启动，未作全场景或严格零影响承诺。量化、其他模型/架构、短 prefill Graph、PD、并发及 wheel/embedded 未验收。提交对齐上游重写后的 `9755678`；与测量基线 `0aa4114` 相比仅协作规范变化，运行时代码一致。本轮提交评审，不包含合入或发布。

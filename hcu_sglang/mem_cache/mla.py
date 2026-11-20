@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any, Callable
 
 import torch
@@ -72,6 +73,80 @@ def _write_lightop(
     )
 
 
+def around_create_mla_buffers(original, pool):
+    if not is_hcu() or not pool.dsa_kv_cache_store_fp8:
+        return original(pool)
+    from sglang.srt.runtime_context import (
+        get_exec,
+        get_parallel,
+        get_schedule,
+        get_spec,
+        max_speculative_num_draft_tokens,
+    )
+
+    if not get_parallel().dcp_enabled:
+        return original(pool)
+    graph = get_exec().graph.cuda_graph_config.decode
+    capacity = pool.page_size
+    if get_spec().speculative_algorithm == "EAGLE" and graph.backend == "full":
+        page_size = get_schedule().page_size
+        rows = (graph.max_bs or 0) * (max_speculative_num_draft_tokens() or 0)
+        capacity = max(capacity, (rows + page_size - 1) // page_size * page_size)
+    pool._hcu_dcp_padding_capacity = capacity
+    if capacity == pool.page_size:
+        return original(pool)
+    from sglang.srt.constants import GPU_MEMORY_TYPE_KV_CACHE
+
+    with pool.memory_saver_adapter.region(GPU_MEMORY_TYPE_KV_CACHE):
+        with (
+            torch.cuda.use_mem_pool(pool.custom_mem_pool)
+            if pool.custom_mem_pool
+            else nullcontext()
+        ):
+            pool.kv_buffer = [
+                torch.zeros(
+                    (pool.size + capacity, 1, pool.kv_cache_dim),
+                    dtype=pool.store_dtype,
+                    device=pool.device,
+                )
+                for _ in range(pool.layer_num)
+            ]
+
+
+def _localize_dcp_write(pool, loc, cache_k_nope, cache_k_rope):
+    from sglang.srt.model_executor.runner import get_is_capture_mode
+    from sglang.srt.runtime_context import get_parallel
+
+    parallel = get_parallel()
+    if not parallel.dcp_enabled or pool.write_loc_is_dcp_resolved:
+        return loc, cache_k_nope, cache_k_rope
+    valid_mask = (loc >= 0) & (loc % parallel.attn_dcp_size == parallel.attn_dcp_rank)
+    if get_is_capture_mode():
+        num_rows = loc.numel()
+        capacity = pool._hcu_dcp_padding_capacity
+        assert num_rows <= capacity, (
+            f"HCU DCP graph KV rows ({num_rows}) exceed padding capacity ({capacity})"
+        )
+        padding_loc = pool.size + torch.arange(
+            num_rows, dtype=loc.dtype, device=loc.device
+        )
+        loc = torch.where(valid_mask, loc // parallel.attn_dcp_size, padding_loc)
+    else:
+        loc = loc[valid_mask] // parallel.attn_dcp_size
+        cache_k_nope = cache_k_nope[valid_mask]
+        cache_k_rope = cache_k_rope[valid_mask]
+    return loc, cache_k_nope, cache_k_rope
+
+
+def around_should_elide_dsa_index_k(original, *, is_draft_worker):
+    if is_hcu():
+        from sglang.srt.runtime_context import get_parallel
+
+        if get_parallel().dcp_enabled:
+            return False
+    return original(is_draft_worker=is_draft_worker)
+
+
 def around_write_mla_kv_buffer(
     original: Callable[..., None],
     pool: Any,
@@ -83,6 +158,11 @@ def around_write_mla_kv_buffer(
     if not is_hcu():
         return original(pool, dst_buffer, loc, cache_k_nope, cache_k_rope)
     if pool.dsa_kv_cache_store_fp8:
+        loc, cache_k_nope, cache_k_rope = _localize_dcp_write(
+            pool, loc, cache_k_nope, cache_k_rope
+        )
+        if loc.numel() == 0:
+            return None
         _write_lightop(cache_k_nope, cache_k_rope, dst_buffer, loc)
         return None
 
@@ -92,6 +172,11 @@ def around_write_mla_kv_buffer(
     if pool.store_dtype != pool.dtype:
         cache_k_nope = cache_k_nope.view(pool.store_dtype)
         cache_k_rope = cache_k_rope.view(pool.store_dtype)
+    if hasattr(pool, "full_to_hisparse_device_index_mapping"):
+        from hcu_sglang.layers.attention.hisparse import enabled as hisparse_enabled
+
+        if hisparse_enabled():
+            loc = loc.clamp_min(0)
     _write_triton(dst_buffer, loc, cache_k_nope, cache_k_rope)
     return None
 
@@ -135,6 +220,16 @@ def register_hooks() -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     _install_missing_methods()
+    HookRegistry.register(
+        "sglang.srt.mem_cache.memory_pool.MLATokenToKVPool._create_buffers",
+        around_create_mla_buffers,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.mem_cache.kv_cache_configurator._should_elide_dsa_index_k",
+        around_should_elide_dsa_index_k,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.srt.mem_cache.memory_pool.MLATokenToKVPool._write_mla_kv_buffer",
         around_write_mla_kv_buffer,

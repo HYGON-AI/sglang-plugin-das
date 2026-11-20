@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "base_lightop": {
+    "commit": "c3881932743ed63e2fd6c30c8474d46ac8d5c15a",
+    "binary_sha256": "f4d69b478289cf93a2be4c0f8f92c7374877609276bd6ba40476ab5a10abee6c"
+  },
+  "activation": {
+    "module": "activation_inverse_diag",
+    "source": "activation_inverse.cu",
+    "source_sha256": "41d63cdbf951c1303192734a3538fe51c142121688091811109afc133b558ac1",
+    "reference_binary_sha256": "a13d3751d5cde8e9a4b66ea1cca769431dbb6051a1ef113bab6ef7b129d4bf9a",
+    "headers": {
+      "reduce.h": "071eb3de2cb5688c5b37c322ad45d09cd2ff374f12d435a326f031ff1187d7aa",
+      "reduce_hip.h": "db6e51131423c0f0f2e401b7ff2d991d70f788bbbe39e9ba8c1db07eaee1d5da"
+    }
+  },
+  "gather": {
+    "module": "epgather_k8_diag",
+    "source": "ep_gather_k8.cu",
+    "source_sha256": "603b6928c7b4671eeab890b3de8158bbb9e0c2be6b174584961b04c52dc114b7",
+    "reference_binary_sha256": "e225959f6b88a57af897471241ae994ed24d1e1de48b6a0ef07c0383df6f638d",
+    "headers": {}
+  },
+  "scope": "GLM-5.3 Channel FP8, ordinary prefix CP8/EP8 main-model eager prefill on gfx938",
+  "source_policy": "The exact historical diagnostic sources and headers are separately obtained build inputs and are not redistributed with the plugin. Their source provenance and redistribution terms must be verified before distributing derivative sources or binaries."
+}
