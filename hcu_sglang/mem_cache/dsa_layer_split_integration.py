@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -41,6 +42,88 @@ def around_init_configurator(original, self):
         _scratch_source.reset(token)
 
 
+def after_default_pool_init(result, configurator, kvc):
+    from hcu_sglang.layers.glm53_decode import model_matches
+    from sglang.srt.arg_groups.overrides import resolved_view
+    from sglang.srt.runtime_context import get_disagg, get_memory
+
+    model_config = kvc.model_config
+    hf_config = model_config.hf_config
+    parallel = get_parallel()
+    if (
+        kvc.is_draft_worker
+        or not model_matches(hf_config)
+        or get_disagg().disaggregation_mode != "prefill"
+        or parallel.pp_size != 1
+        or parallel.attn_dcp_size != 1
+        or not kvc.spec_algorithm.is_eagle()
+        or kvc.spec_algorithm.is_eagle3()
+        or resolved_view(kvc.server_args).enable_multi_layer_eagle
+        or kvc.spec_aux_config.eagle_draft_num_layers != 1
+        or model_config.num_nextn_predict_layers != 1
+        or get_memory().enable_hisparse
+    ):
+        return result
+
+    from sglang.srt.layers.cp.utils import (
+        get_glm_dsa_cp_layer_shard_info,
+        get_layer_shard_range,
+    )
+    from sglang.srt.utils.common import is_float4_e2m1fn_x2
+
+    rank, shard_size = get_glm_dsa_cp_layer_shard_info(kvc)
+    if (
+        rank is None
+        or shard_size <= 1
+        or is_float4_e2m1fn_x2(kvc.kv_cache_dtype)
+        or kvc.fused_entry_bytes("full") is not None
+    ):
+        return result
+
+    from sglang.srt.configs.model_config import (
+        dsa_layer_skips_topk,
+        get_dsa_index_head_dim,
+    )
+    from sglang.srt.mem_cache.kv_cache_configurator import (
+        _should_elide_dsa_index_k,
+        calculate_mla_kv_cache_dim,
+    )
+    from hcu_sglang.mem_cache.dsa_index_cache_mode import (
+        index_k_cache_bytes_per_token,
+        index_k_workspace_bytes_per_token,
+        resolve_index_k_cache_mode,
+    )
+
+    main_kv_bytes = calculate_mla_kv_cache_dim(
+        model_config=model_config, kv_cache_dtype=kvc.kv_cache_dtype,
+    ) * kvc.kv_cache_dtype.itemsize
+    cache_mode = resolve_index_k_cache_mode(
+        kvc.kv_cache_dtype, kvc.pool_page_size, get_dsa_index_head_dim(hf_config),
+    )
+    index_bytes = index_k_cache_bytes_per_token(cache_mode)
+    workspace_bytes = 2 * index_k_workspace_bytes_per_token(cache_mode)
+    num_layers = kvc.layer_info.num_effective_layers
+    first_layer = kvc.layer_info.start_layer
+    elide_index_k = _should_elide_dsa_index_k(is_draft_worker=False)
+    rank_costs = []
+    for cp_rank in range(shard_size):
+        start, end = get_layer_shard_range(cp_rank, shard_size, num_layers)
+        draft_owned = int(cp_rank == shard_size - 1)
+        owned = end - start + draft_owned
+        owned_indexers = draft_owned + sum(
+            not elide_index_k or not dsa_layer_skips_topk(hf_config, first_layer + i)
+            for i in range(start, end)
+        )
+        # Main-KV shares one target scratch; Index-K has two independent scratches.
+        rank_costs.append(
+            (owned + 1) * main_kv_bytes
+            + (owned_indexers + 2) * index_bytes
+            + workspace_bytes
+        )
+    configurator._cell_size = math.ceil(max(rank_costs))
+    return result
+
+
 @dataclass(slots=True, kw_only=True)
 class HCUKVCacheConfigurator(NativeKVCacheConfigurator):
     dsa_layer_split_scratch_source: Any = field(default_factory=_scratch_source.get)
@@ -65,8 +148,12 @@ class HCUKVCacheConfigurator(NativeKVCacheConfigurator):
         )
         from sglang.srt.runtime_context import get_exec, max_speculative_num_draft_tokens
         from hcu_sglang.mem_cache.dsa_cache_layer_split import LayerSplitDSATokenToKVPool
+        from hcu_sglang.layers.glm53_decode import model_matches
 
-        rank, size = get_glm_dsa_cp_layer_shard_info(self)
+        if model_matches(self.model_config.hf_config):
+            rank, size = source.layer_shard_rank, source.layer_shard_size
+        else:
+            rank, size = get_glm_dsa_cp_layer_shard_info(self)
         if not self.is_draft_worker or rank is None or size <= 1:
             raise ValueError("Shared DSA scratch requires a layer-split draft pool")
         pool_kwargs = {}
@@ -116,6 +203,10 @@ def register_hooks():
     HookRegistry.register(
         "sglang.srt.model_executor.model_runner.ModelRunner.init_kv_cache_configurator",
         around_init_configurator, HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.srt.model_executor.pool_configurator.DefaultPoolConfigurator.__init__",
+        after_default_pool_init, HookType.AFTER,
     )
     for target in (
         "sglang.srt.mem_cache.kv_cache_configurator.KVCacheConfigurator",

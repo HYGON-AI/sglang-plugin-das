@@ -3824,3 +3824,29 @@ PD decode 路径生效。非融合 DSA TopK 沿用 HCU 原生 TopK 的索引顺�
 实机冒烟使用个人 fork `85c1b05` 上的补丁 `11f11e1`。两节点共八张
 gfx938，attention DP8 / EP8，EAGLE 5/1/6，full decode Graph。
 三条真实对话均返回预期答案。本次上游移植执行 lint 和结构检查。
+
+## 2026-11-20 GLM-5.3 LayerSplit 的 Index-K 容量预算
+
+从 [sglang-das #67](https://github.com/maxiaobetter/sglang-das/pull/67) 迁入
+`PP1`、`DCP1`、Prefill CP LayerSplit 与单层 EAGLE 的预算修正。插件在
+宿主完成池配置器初始化后，按每个 CP rank 的实际 target/draft 层和
+Index-K 层计费，再取最大值。Main-KV scratch 共用一份，两个 Index-K
+scratch 以及各自的 INT8 workspace 按分配情况计入预算。
+
+官方 v0.5.22 的 LayerSplit 查询仅用于 target。使用共享池的 GLM-5.3 draft
+沿用 target 池的 CP rank 和规模，将单层 draft 的 owner 移到最后一个 CP rank。
+本轮验证范围为本地 lint、语法及结构检查。节点上的实际容量与显存占用待验证。
+
+## 2026-11-20 GLM-5.3 HiCache L2 的 Index-K 层号映射
+
+参考 [sglang-das #34](https://github.com/maxiaobetter/sglang-das/pull/34)，
+GLM-5.3 的 L2 Index-K host pool 沿用官方 v0.5.22 的调度和搬运。声明按
+PP stage 内的模型层号筛选传输层，读写时将层号映射到实际的紧凑设备
+buffer。host 仍只保存本 CP rank 持有的活动层，packed draft 使用宿主
+分配的尾部位置。没有 Index-K 的 shard 跳过内存注册和搬运。FP8/INT8
+沿用现有 packed 字节，BF16 使用同一存储的字节视图。
+
+PD Decode 已有普通 Radix 前缀匹配、加锁、页对齐和后缀传输。结合 HiCache
+命中时，命中部分的 Index-K 由缓存保留或从 host 恢复。框架 #39 的
+EAGLE/NextN 启动放行与首个 forward 后的 prompt 入树仍待迁移。
+本轮只执行本地 lint、语法和结构检查，L2 搬运与 Decode 命中待实机核对。

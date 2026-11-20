@@ -241,7 +241,10 @@ def _dsa_prefill_has_history(forward_batch: "ForwardBatch") -> bool:
 def maybe_configure_main_kv_page_plan(forward_batch: "ForwardBatch") -> None:
     """Install this batch's compact Main-KV mapping when LayerSplit is active."""
 
-    from hcu_sglang.mem_cache.dsa_cache_layer_split import build_main_kv_page_plan
+    from hcu_sglang.mem_cache.dsa_cache_layer_split import (
+        LayerSplitDSATokenToKVPool,
+        build_main_kv_page_plan,
+    )
     from sglang.srt.model_executor.forward_context import get_req_to_token_pool
 
     token_to_kv_pool = U.get_token_to_kv_pool()
@@ -275,7 +278,19 @@ def maybe_configure_main_kv_page_plan(forward_batch: "ForwardBatch") -> None:
             page_plan = forward_batch.dsa_layer_split_main_kv_page_plan
         # Explicitly clear a compact layout left by an earlier ForwardBatch
         # before entering the legacy full-pool path.
-        configure_page_plan(page_plan, forward_batch)
+        if isinstance(token_to_kv_pool, LayerSplitDSATokenToKVPool):
+            from hcu_sglang.layers.glm53_decode import model_matches
+
+            configure_page_plan(
+                page_plan,
+                forward_batch,
+                compact_index_k=(
+                    page_plan is not None
+                    and model_matches(U.process_model_config().hf_config)
+                ),
+            )
+        else:
+            configure_page_plan(page_plan, forward_batch)
 
 
 def maybe_prefetch_full_attention_kv(

@@ -558,6 +558,7 @@
     "sglang.srt.model_executor.model_runner_components.cuda_graph_setup.refresh_deep_gemm_layout_memory_budget",
     "sglang.srt.model_executor.model_runner_components.moe_ep_setup.init_lplb_solvers",
     "sglang.srt.model_executor.pool_configurator.DSV4PoolConfigurator",
+    "sglang.srt.model_executor.pool_configurator.DefaultPoolConfigurator.__init__",
     "sglang.srt.model_executor.pool_configurator.DefaultPoolConfigurator._compute_dsa_indexer_cell_size",
     "sglang.srt.model_executor.pool_configurator.HybridSWAPoolConfigurator.__init__",
     "sglang.srt.model_executor.runner.base_cuda_graph_runner.get_batch_sizes_to_capture",
