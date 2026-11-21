@@ -604,6 +604,7 @@ class DeepseekSparseAttnBackend(
         from hcu_sglang.layers.attention.hisparse import _matches_channel_fp8
         from hcu_sglang.layers.glm53_decode import model_matches
 
+        from sglang.srt.layers.dp_attention import is_dp_attention_enabled
         _validate_dsa_dcp_launch(
             dcp_enabled=self.dcp_enabled,
             dcp_size=self.dcp_size,
@@ -625,7 +626,7 @@ class DeepseekSparseAttnBackend(
             speculative_num_draft_tokens=model_runner.server_args.speculative_num_draft_tokens,
             pp_size=model_runner.server_args.pp_size,
             attn_cp_size=parallel.attn_cp_size,
-            enable_dp_attention=model_runner.server_args.enable_dp_attention,
+            enable_dp_attention=is_dp_attention_enabled(),
             attn_tp_size=parallel.attn_tp_size,
             dcp_group_ranks=tuple(parallel.dcp_group.ranks) if self.dcp_enabled else (),
             attn_tp_group_ranks=tuple(parallel.attn_tp_group.ranks),

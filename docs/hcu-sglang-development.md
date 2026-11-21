@@ -4291,10 +4291,173 @@ HCU 插件在 CLI 进程注册时为 `Qwen3.6-35B-A3B` 和 `Qwen3.6-35B-A3B-Chan
 nmz16 gfx938 两组 TP4 在移除配方环境变量后，均完成 eager Prefill / Full Decode 启动和确定性短答，结束原因为 `stop`。两组的六个进程均继承各自配方，只有 Channel FP8 注入 ModelScope 默认值。
 ## 2026-11-19 GLM-5.3 Channel FP8 基础运行时
 
+## 2026-11-19 GLM-5.3 Channel FP8 基础运行时
 以官方 SGLang v0.5.22 为宿主。移入 fork 的 Channel FP8 量化、MoE、MLA、
 KV/index cache 和模型 Hook，并加入显式的 prefill、decode 候选开关。部署所需
 算子入口、模型条件和供应商扩展来源见[配置管理](configuration.md)。
 上游的模型注册及 P/D 调度入口保留，沿用 Scheduler 注册时安装的兼容方法。
+
+已有隔离环境记录覆盖 CP8 的 12K/MTP 调用对照和普通 eager decode。
+本分支只做本地结构与 lint 检查。DCP4、HiSparse 和完整 Graph 组合需要按
+实际部署配方另行复验；历史候选结果按原环境记录。
+
+## 2026-11-18 GLM-5.3 FP8 absorb BMM 分发对齐
+
+复用原生镜像 `sglang 0.5.18+glm.cc4dceb` 中的 `glm_absorb_bmm.py`，
+源码 SHA-256 为 `c51c3854924bc5502c1ec33159a1ae6f2cac8c85e1189db0dcc81af3d53b17e0`。
+GLM-5.3 MLA 的 prepare 和 core 将当前批次传给 Q/V BMM 分发。
+分发用 `effective_forward_mode` 识别 MLP-sync 前的阶段，在原生阶段和
+布局条件满足时优先尝试 Triton，再使用既有的 skinny 和 `torch.bmm` 回退。
+确定性推理、batch-invariant 和编译门控沿用原生条件。
+
+在两节点 EP8 上用 Handoff R 的 A/B 张量对拍。Draft extend 和 target verify
+的 Q/V 各 16 份与原生 Triton 输出逐位一致。普通 decode 的 32 份 Q/V
+保留 skinny 路径并逐位一致。8 个 rank 的算子级 HIP Graph 同址换入另一组
+输入后，64 份 draft extend 和 target verify 的 Q/V 输出也与原生参考逐位一致。
+证据见 Handoff R 的 `device-replay/absorb-bmm-q-replay/bmm-summary.json`。
+
+## 2026-11-19 DeepEP 清理接口兼容
+
+插件在加载时检查安装包的清理函数签名。镜像 DeepEP `g4afb59` 的清理
+实现内部使用 K=8，插件沿用原生 SGLang 的三参调用。接受 `num_topk`
+关键字的接口接收实际 `state.num_topk`。Normal → low-latency 在清理
+成功后切换分发模式。
+
+两节点使用真实 GLM-5.3 Channel FP8 请求的实参完成 EP8 同输入复验。
+八 rank 的 384 条 low-latency 路由、FP8 payload、FP32 scale 和 BF16
+combine 输出逐位一致，前后通信和清理 kernel 的符号、次数与首发尺寸
+一致。真实 eager IFB 两侧均为 8/8，完整输出 token、结束原因和 MTP
+接受统计逐请求相同，两侧八个 rank 都命中 low-latency decode。
+证据见 `device-replay/short-ab-20261119/RUN.md`。
+
+归档的 fake 性能使用固定 low-latency 和 full Graph。启用 DeepEP auto 时，
+Graph replay 恢复捕获的分发模式，若此前是 normal，会先清理 buffer。
+该切换场景的同址换输入回放尚未验证。
+
+## 2026-11-19 GLM-5.3 FP8 稳态 prefill 优化
+
+`SGLANG_GLM_OPT_PREFILL=1` 在既有模型和输入门控下启用 GLM-5.3 Channel
+FP8 的 packed KV、physical KV compact、Add RMS align16、K1 indirect
+和 EP K8 gather。两项 prefill 开关默认关闭。packed KV 的 CP all-gather 使用每行 656 字节的
+uint8 布局，逻辑长度等于物理长度时直接使用有效行。K8 和 Add RMS
+优先使用已有的显式扩展路径，随后尝试镜像中带对应参数的 LightOp 接口。
+K1 从 plugin 自带的 WASP 头文件和绑定编译。设置
+`SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD=1` 后，符合条件的 GLM-5.3
+Channel FP8 prefill worker 在启动时编译或加载节点缓存。各 rank
+通过文件锁和原子发布共享产物。K1 仍按模型结构、量化方式和张量布局选择，
+加载扩展时检查 ABI 和导出入口。配置见 [K1 indirect-A](configuration.md#8-glm-53-fp8-prefill-的-k1-indirect-a-候选)。
+本地用替代编译进程核对八进程并发只生成一份产物、热启动复用、
+Python 或 DTK 变化后重新构建，以及编译失败后可重试。DCU 上的实际
+编译、服务启动和 K1 命中待验证。
+HCU dcp=1 在 FlashMLA KV 分发前使用匹配 page table 的有效 top-k 行，
+保留隔离试验带入的 padding 行裁剪逻辑。
+
+`SGLANG_GLM_PREFILL_SHARED_OVERLAP=1` 单独启用受支持的 eager、normal
+DeepEP 路径。共享专家旁流在 `dispatch_a` 提交 routed FP8 量化后记录
+并等待事件，与 `dispatch_b` 中的通信并行。routed 结果与共享结果相加前
+等待共享旁流完成。每次 forward 退出时清理 dispatcher hook。
+
+设备性能证据来自两节点 BW1300、TP8/CP8/EP8、并发 8 的隔离试验。
+匹配输入和缓存后，8 rank 的稳态 1/5/2 对齐，等待量化完成使 bs=5
+routed FP8 从 380.0 降到 76.6 微秒，数据 dispatch 与共享 GEMM 的
+重叠从 2.7 增到 66.5 毫秒。关闭 profiler 的 ABBA 中，稳态整波中位数
+从 4.643 降到 4.605 秒。此前的同输入原生对照为 4.306 秒，整体仍
+慢约 7.0%。证据见隔离试验 `quant-event-ab-20261119-1643/RUN.md`。
+本次正式实现的检查范围为 CI lint、源码语法与文档导览。设备结果属于
+隔离试验，正式提交的 GPU 复采、真实请求端到端精度和 graph replay
+仍待验证。
+
+## GLM-5.3 FP8 DCP Graph KV 占位写入
+
+HCU DSA FP8 KV 池把 Graph 的占位槽放在最后一个可分配页之后。
+普通 decode 每请求预留一行，EAGLE 根据 draft 分支数和 verify/extend
+所需的最大 draft token 数确定行数。启用 prefill Graph 时同时考虑其
+最大 token bucket。取各阶段最大值并向上按页对齐。DCP=1、仅 eager
+和已转换为本地槽号的池沿用原分配路径。
+
+在个人 fork 的 `6d8ad63` 基线上，本地复现了小 batch 写到最后一个
+可分配页以及普通 decode batch 128 触发容量断言。修复后用 CPU 桩
+执行池分配和槽号转换，覆盖普通 decode、EAGLE、prefill bucket、
+eager 和 DCP=1。DCU 上的服务、换输入 Graph replay、调用对齐、
+性能和端到端精度待验证。
+
+DCP4 验收配方使用 FP8 KV、64 token 页、`ag_rs` 和双阶段 `flashmla_kv`。
+EAGLE 需要 PP1、attnCP1、DP attention，attention TP 与 DCP 均为 4
+且组内 rank 一致。DCP 运行时关闭 prefill CP、fused DSA top-k、
+HiSparse、HiCache 和 symmetric memory。首次实机复验应核对同步上游后
+首次 draft 的 TopK 接线，再对照原生采集调用和换输入 Graph replay。
+
+DCP4 的 EAGLE 启动校验读取实际生效的 DP attention 状态。用
+`--attn-dp-size 2` 启动时，旧的 `enable_dp_attention` 参数仍可能为
+False，导致已启用 DP attention 的配方被拒绝。在 `85c1b05` 基线上
+应用此补丁后，两节点 DCP4 服务完成 target verify、draft decode 和
+draft extend 的 full Graph 捕获，三条真实对话均返回预期答案。
+该结果覆盖启动和小样本对话。
+
+## GLM-5.3 Channel FP8 HiSparse IFB
+
+GLM-5.3 Channel FP8 在 PP1、DCP1 的单服务模式下复用 prefill staging。
+Prefill 写入 packed FP8 KV，host pool 备份完成后进入 HiSparse decode。
+Prefill 和 decode 均使用 FlashMLA KV。Mooncake 或 fake 的传输校验在
+PD decode 路径生效。非融合 DSA TopK 沿用 HCU 原生 TopK 的索引顺序。
+
+实机冒烟使用个人 fork `85c1b05` 上的补丁 `11f11e1`。两节点共八张
+gfx938，attention DP8 / EP8，EAGLE 5/1/6，full decode Graph。
+三条真实对话均返回预期答案。本次上游移植执行 lint 和结构检查。
+
+## 2026-11-20 GLM-5.3 LayerSplit 的 Index-K 容量预算
+
+从 [sglang-das #67](https://github.com/maxiaobetter/sglang-das/pull/67) 迁入
+`PP1`、`DCP1`、Prefill CP LayerSplit 与单层 EAGLE 的预算修正。插件在
+宿主完成池配置器初始化后，按每个 CP rank 的实际 target/draft 层和
+Index-K 层计费，再取最大值。Main-KV scratch 共用一份，两个 Index-K
+scratch 以及各自的 INT8 workspace 按分配情况计入预算。
+
+官方 v0.5.22 的 LayerSplit 查询仅用于 target。使用共享池的 GLM-5.3 draft
+沿用 target 池的 CP rank 和规模，将单层 draft 的 owner 移到最后一个 CP rank。
+本轮验证范围为本地 lint、语法及结构检查。节点上的实际容量与显存占用待验证。
+
+## 2026-11-20 GLM-5.3 HiCache L2 的 Index-K 层号映射
+
+参考 [sglang-das #34](https://github.com/maxiaobetter/sglang-das/pull/34)，
+GLM-5.3 的 L2 Index-K host pool 沿用官方 v0.5.22 的调度和搬运。声明按
+PP stage 内的模型层号筛选传输层，读写时将层号映射到实际的紧凑设备
+buffer。host 仍只保存本 CP rank 持有的活动层，packed draft 使用宿主
+分配的尾部位置。没有 Index-K 的 shard 跳过内存注册和搬运。FP8/INT8
+沿用现有 packed 字节，BF16 使用同一存储的字节视图。
+
+PD Decode 已有普通 Radix 前缀匹配、加锁、页对齐和后缀传输。结合 HiCache
+命中时，命中部分的 Index-K 由缓存保留或从 host 恢复。
+本轮只执行本地 lint、语法和结构检查，L2 搬运与 Decode 命中待实机核对。
+
+## 2026-11-20 GLM-5.3 PD Decode Radix 与 MTP
+
+参考 [框架 #39](https://github.com/maxiaobetter/sglang-das/pull/39)，GLM-5.3
+在 `DCP1`、EAGLE/NextN `topk=1`、真实 PD 传输及关闭 HiSparse 时允许
+Decode Radix。启动时只替换 v0.5.22 的对应 speculative guard，其他校验由
+宿主管理。已命中的 Main KV 和 Index-K 继续按现有的前缀保留和后缀传输逻辑处理。
+
+预分配记录已提交的 prompt 长度。首个 Decode 结果同步后，由宿主按对齐的
+prompt key 入树，同时迁移前缀锁并回收重复页。请求结束仅释放自己仍持有的页。
+同前缀并发请求沿用在飞 prompt 的等待判定。设备调用对齐、Graph 换输入重放和
+端到端精度待验证。
+
+GLM-5.3 的 PD Decode 在 overlap 模式下可能先提交下一轮 forward，再处理上一轮结果。
+仅当待处理批次有待入树的 prompt 且下一轮已经提交时，等待 forward stream 完成，
+再迁移前缀锁、重绑页表和释放重复页。这样 Mooncake 可接收后续请求的 KV，
+且它获得的页不会再被前一轮 forward 读取。
+
+GLM-5.3 的 PP1 Prefill CP LayerSplit 单层 MTP 配方中，draft Main-KV 的 L2 备份和
+回载只在该层 owner 上执行。设备索引仍是 target 模型层数之后的 packed draft 索引，
+host 索引使用本 rank 的 target host 层数之后的槽位。Index-K 沿用已有的 owner 过滤。
+本轮只做本地 lint、语法和结构检查，DCU 上的搬运、重叠调度及端到端精度待验证。
+
+发布分支冒烟发现 v0.5.22 同时传入 AFTER hook 的位置返回值和宿主 `result=` 参数。
+Decode hook 将处理后的输出作为仅限位置参数接收，避免与宿主关键字冲突。
+
+本次发布镜像的 DeepGEMM pair32 要求 masked FP8 GEMM 的 A scale 连续，且每 token 一个 scale。
+回移主线 #46 的 DeepEP legacy FP8 low-latency per-token 参数和 gate/up、down 两处连续化。
+## 2026-11-20 gfx938 Qwen attention 门控与 FP8 量化融合
 
 已有隔离环境记录覆盖 CP8 的 12K/MTP 调用对照和普通 eager decode。
 本分支只做本地结构与 lint 检查。DCP4、HiSparse 和完整 Graph 组合需要按

@@ -115,6 +115,7 @@ from hcu_sglang.mem_cache.hcu_v4_pool import DeepSeekV4TokenToKVPool
 from sglang.srt.mem_cache.hicache_storage import PoolName, PoolTransfer
 from hcu_sglang.mem_cache.cache_builder import decode_retraction_max_tokens
 from sglang.srt.mem_cache.memory_pool import (
+    DSATokenToKVPool,
     HybridReqToTokenPool,
     KVCache,
     ReqToTokenPool,
@@ -615,19 +616,36 @@ class DecodePreallocQueue(DecodeHiCachePreallocMixin):
             and isinstance(self.token_to_kv_pool, DeepSeekV4TokenToKVPool)
         )
 
+    def _uses_glm53_decode_radix_mtp(self) -> bool:
+        if (
+            not get_disagg().disaggregation_decode_enable_radix_cache
+            or not isinstance(self.token_to_kv_pool, DSATokenToKVPool)
+        ):
+            return False
+        from hcu_sglang.disagg.glm53_decode_radix import supports_decode_radix_mtp
+        from hcu_sglang.layers.glm53_decode import model_matches
+        from sglang.srt.arg_groups.overrides import resolved_view
+
+        return (
+            supports_decode_radix_mtp(resolved_view(self.scheduler.server_args))
+            and model_matches(self.scheduler.model_config.hf_config)
+        )
+
     def _dsv4_safe_prefix_len(self, prefix_len: int) -> int:
-        """Avoid splitting reused prefixes through compressed DSV4 blocks."""
-        if not self._uses_dsv4_decode_radix_cache() or prefix_len <= 0:
+        """Align reused prefixes to pages and, for DSV4, compression blocks."""
+        if prefix_len <= 0 or not (
+            self._uses_dsv4_decode_radix_cache() or self._uses_glm53_decode_radix_mtp()
+        ):
             return prefix_len
 
-        compression_ratios = self.token_to_kv_pool.compression_ratios
+        compression_ratios = getattr(self.token_to_kv_pool, "compression_ratios", (1,))
         max_compression_ratio = max([r for r in compression_ratios if r > 0], default=1)
         page_size = self.token_to_kv_pool_allocator.page_size
         alignment = math.lcm(page_size, max_compression_ratio)
         return (prefix_len // alignment) * alignment
 
     def _dsv4_singleflight_min_prefix_len(self) -> int:
-        compression_ratios = self.token_to_kv_pool.compression_ratios
+        compression_ratios = getattr(self.token_to_kv_pool, "compression_ratios", (1,))
         max_compression_ratio = max([r for r in compression_ratios if r > 0], default=1)
         alignment = math.lcm(
             self.token_to_kv_pool_allocator.page_size, max_compression_ratio
@@ -644,23 +662,27 @@ class DecodePreallocQueue(DecodeHiCachePreallocMixin):
     def _dsv4_inflight_prompt_reqs(
         self, preallocated_reqs: List[DecodeRequest]
     ) -> List[Req]:
-        if not self._uses_dsv4_decode_radix_cache():
+        if self._uses_dsv4_decode_radix_cache():
+            prompt_field = "dsv4_decode_radix_cache_prompt_once"
+        elif self._uses_glm53_decode_radix_mtp():
+            prompt_field = "glm53_decode_radix_prompt_len"
+        else:
             return []
 
         inflight_reqs = [
             decode_req.req
             for decode_req in self.transfer_queue.queue
-            if getattr(decode_req.req, "dsv4_decode_radix_cache_prompt_once", False)
+            if getattr(decode_req.req, prompt_field, False)
         ]
         inflight_reqs.extend(
             req
             for req in self.scheduler.running_batch.reqs
-            if getattr(req, "dsv4_decode_radix_cache_prompt_once", False)
+            if getattr(req, prompt_field, False)
         )
         inflight_reqs.extend(
             decode_req.req
             for decode_req in preallocated_reqs
-            if getattr(decode_req.req, "dsv4_decode_radix_cache_prompt_once", False)
+            if getattr(decode_req.req, prompt_field, False)
         )
         return inflight_reqs
 
@@ -671,13 +693,9 @@ class DecodePreallocQueue(DecodeHiCachePreallocMixin):
         prefix_len: int,
         preallocated_reqs: List[DecodeRequest],
     ) -> bool:
-        # Guard before touching DSV4-only pool attributes. With a decode-side
-        # radix cache enabled on a non-DSV4 model (e.g. Qwen3.8 QSA pools),
-        # `self.token_to_kv_pool` has no `compression_ratios`, and this path is
-        # reached on every prealloc once the cache is on. `_dsv4_inflight_prompt_reqs`
-        # already returns early in that case; this function must too, or
-        # `_dsv4_singleflight_min_prefix_len` raises AttributeError.
-        if not self._uses_dsv4_decode_radix_cache():
+        if not (
+            self._uses_dsv4_decode_radix_cache() or self._uses_glm53_decode_radix_mtp()
+        ):
             return False
         min_prefix_len = self._dsv4_singleflight_min_prefix_len()
         for inflight_req in self._dsv4_inflight_prompt_reqs(preallocated_reqs):
@@ -2950,6 +2968,12 @@ class DecodePreallocQueue(DecodeHiCachePreallocMixin):
             req.dsv4_decode_radix_cache_prompt_len = req.kv.kv_committed_len
             req.dsv4_decode_radix_cache_prompt_once = True
             req.skip_radix_cache_insert = True
+        elif self._uses_glm53_decode_radix_mtp():
+            req.glm53_decode_radix_prompt_len = (
+                0 if _is_fake_transfer(req)
+                else min(req.kv.kv_committed_len, len(req.origin_input_ids))
+            )
+            req.skip_radix_cache_insert = True
         # Decode-disagg allocates before batch assembly, so it binds the prefix
         # here instead of in init_next_round_input.
         req.prefix_len = prefix_len
@@ -4078,11 +4102,19 @@ class SchedulerDisaggregationDecodeMixin:
 
     @torch.no_grad()
     def event_loop_overlap_disagg_decode(self: Scheduler):
+        from hcu_sglang.disagg.glm53_decode_radix import has_pending_glm53_radix_prompt
+
         self.result_queue = deque()
         self.last_batch: Optional[ScheduleBatch] = None
 
-        def pop_and_process():
+        def pop_and_process(*, next_forward_launched=False):
             tmp_batch, tmp_result = self.result_queue.popleft()
+            if (
+                next_forward_launched
+                and tmp_batch.forward_mode.is_decode()
+                and any(has_pending_glm53_radix_prompt(req) for req in tmp_batch.reqs)
+            ):
+                self.forward_stream.synchronize()
             self.process_batch_result(tmp_batch, tmp_result)
 
         while True:
@@ -4133,7 +4165,7 @@ class SchedulerDisaggregationDecodeMixin:
             # Process the last batch
             if self.last_batch:
                 if not disable_overlap_for_batch:
-                    pop_and_process()
+                    pop_and_process(next_forward_launched=batch is not None)
             elif batch is None:
                 self.on_idle()
 
@@ -4411,6 +4443,7 @@ _REPLACEMENTS["DecodeRequest"] = DecodeRequest
 _METHODS["DecodePreallocQueue.__init__"] = DecodePreallocQueue.__init__
 _METHODS["DecodePreallocQueue._release_matched_prefix_lock"] = DecodePreallocQueue._release_matched_prefix_lock
 _METHODS["DecodePreallocQueue._uses_dsv4_decode_radix_cache"] = DecodePreallocQueue._uses_dsv4_decode_radix_cache
+_METHODS["DecodePreallocQueue._uses_glm53_decode_radix_mtp"] = DecodePreallocQueue._uses_glm53_decode_radix_mtp
 _METHODS["DecodePreallocQueue._dsv4_safe_prefix_len"] = DecodePreallocQueue._dsv4_safe_prefix_len
 _METHODS["DecodePreallocQueue._dsv4_singleflight_min_prefix_len"] = DecodePreallocQueue._dsv4_singleflight_min_prefix_len
 _METHODS["DecodePreallocQueue._common_prefix_len"] = DecodePreallocQueue._common_prefix_len
@@ -4456,6 +4489,13 @@ def register_hooks():
         return
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     from hcu_sglang.disagg import decode_hicache, scheduler
+    from hcu_sglang.disagg.glm53_decode_radix import after_decode_outputs
+
+    HookRegistry.register(
+        "sglang.srt.managers.scheduler_components.batch_result_processor.SchedulerBatchResultProcessor._normalize_decode_outputs",
+        after_decode_outputs,
+        HookType.AFTER,
+    )
     decode_hicache.register_hooks()
     scheduler.register_hooks()
     HookRegistry.register("sglang.srt.disaggregation.decode.DecodeRequest", _REPLACEMENTS["DecodeRequest"], HookType.REPLACE)
@@ -4479,6 +4519,7 @@ def register_hooks():
     HookRegistry.register("sglang.srt.disaggregation.decode.SchedulerDisaggregationDecodeMixin.process_decode_queue", _METHODS["SchedulerDisaggregationDecodeMixin.process_decode_queue"], HookType.REPLACE)
     _NATIVE.DecodePreallocQueue._release_matched_prefix_lock = _METHODS["DecodePreallocQueue._release_matched_prefix_lock"]
     _NATIVE.DecodePreallocQueue._uses_dsv4_decode_radix_cache = _METHODS["DecodePreallocQueue._uses_dsv4_decode_radix_cache"]
+    _NATIVE.DecodePreallocQueue._uses_glm53_decode_radix_mtp = _METHODS["DecodePreallocQueue._uses_glm53_decode_radix_mtp"]
     _NATIVE.DecodePreallocQueue._dsv4_safe_prefix_len = _METHODS["DecodePreallocQueue._dsv4_safe_prefix_len"]
     _NATIVE.DecodePreallocQueue._dsv4_singleflight_min_prefix_len = _METHODS["DecodePreallocQueue._dsv4_singleflight_min_prefix_len"]
     _NATIVE.DecodePreallocQueue._common_prefix_len = _METHODS["DecodePreallocQueue._common_prefix_len"]

@@ -91,9 +91,7 @@ def __init__(
     self.index_page_size = (
         self.page_size // dcp_size
         if hcu_sharded_draft
-        else self.page_size // index_kpool
-        if force_fp8_index_cache or not _is_hcu
-        else self.page_size
+        else self.page_size if _is_hcu else self.page_size // index_kpool
     )
     layer_range = range(self.start_layer, self.start_layer + self.layer_num)
     if skip_topk_layers is not None and len(skip_topk_layers) != self.layer_num:
@@ -147,7 +145,7 @@ def __init__(
     # num head == 1 and head dim == 128 for index_k in DSA
     assert index_head_dim == 128
     self.index_k_cache_mode = K.resolve_index_k_cache_mode(
-        dtype, self.index_page_size, index_head_dim, force_fp8=force_fp8_index_cache
+        dtype, self.index_page_size, index_head_dim
     )
     self.use_fp8_index_k_cache = (
         self.index_k_cache_mode is K.IndexKCacheMode.FP8_SCALED
@@ -313,7 +311,21 @@ def host_pool_decls(self):
         and not (_is_hcu and getattr(self, "index_k_buffer", None))
     ) or all(self.skip_topk_layers):
         return kv_decls
-    return (*kv_decls, make_dsa_indexer_pool_decl(self))
+    index_k_decl = make_dsa_indexer_pool_decl(self)
+    if _is_hcu:
+        from hcu_sglang.layers.glm53_decode import model_matches
+        from sglang.srt.runtime_context import get_memory, process_model_config
+
+        memory = get_memory()
+        if (
+            memory.enable_hierarchical_cache
+            and memory.hicache_storage_backend is None
+            and model_matches(process_model_config().hf_config)
+        ):
+            from hcu_sglang.mem_cache.glm53_index_k_host import glm53_index_k_host_decl
+
+            index_k_decl = glm53_index_k_host_decl(index_k_decl)
+    return (*kv_decls, index_k_decl)
 
 @property
 def index_k_with_scale_buffer(self):

@@ -79,21 +79,33 @@ def around_create_mla_buffers(original, pool):
     from sglang.srt.runtime_context import (
         get_exec,
         get_parallel,
-        get_schedule,
         get_spec,
         max_speculative_num_draft_tokens,
     )
 
-    if not get_parallel().dcp_enabled:
+    if not get_parallel().dcp_enabled or pool.write_loc_is_dcp_resolved:
         return original(pool)
-    graph = get_exec().graph.cuda_graph_config.decode
-    capacity = pool.page_size
-    if get_spec().speculative_algorithm == "EAGLE" and graph.backend == "full":
-        page_size = get_schedule().page_size
-        rows = (graph.max_bs or 0) * (max_speculative_num_draft_tokens() or 0)
-        capacity = max(capacity, (rows + page_size - 1) // page_size * page_size)
+    graph = get_exec().graph.cuda_graph_config
+    decode_rows = 0
+    if graph.decode.backend != "disabled":
+        decode_bs = max(graph.decode.bs or (), default=graph.decode.max_bs or 0)
+        spec = get_spec()
+        tokens_per_req = 1
+        if spec.speculative_algorithm == "EAGLE":
+            tokens_per_req = max(
+                tokens_per_req,
+                spec.speculative_eagle_topk or 0,
+                max_speculative_num_draft_tokens() or 0,
+            )
+        decode_rows = decode_bs * tokens_per_req
+    prefill_rows = 0
+    if graph.prefill.backend != "disabled":
+        prefill_rows = max(graph.prefill.bs or (), default=0)
+    rows = max(decode_rows, prefill_rows)
+    page_size = pool.page_size
+    capacity = (rows + page_size - 1) // page_size * page_size
     pool._hcu_dcp_padding_capacity = capacity
-    if capacity == pool.page_size:
+    if capacity == 0:
         return original(pool)
     from sglang.srt.constants import GPU_MEMORY_TYPE_KV_CACHE
 
@@ -105,7 +117,7 @@ def around_create_mla_buffers(original, pool):
         ):
             pool.kv_buffer = [
                 torch.zeros(
-                    (pool.size + capacity, 1, pool.kv_cache_dim),
+                    (pool.size + page_size + capacity, 1, pool.kv_cache_dim),
                     dtype=pool.store_dtype,
                     device=pool.device,
                 )
@@ -127,7 +139,7 @@ def _localize_dcp_write(pool, loc, cache_k_nope, cache_k_rope):
         assert num_rows <= capacity, (
             f"HCU DCP graph KV rows ({num_rows}) exceed padding capacity ({capacity})"
         )
-        padding_loc = pool.size + torch.arange(
+        padding_loc = pool.size + pool.page_size + torch.arange(
             num_rows, dtype=loc.dtype, device=loc.device
         )
         loc = torch.where(valid_mask, loc // parallel.attn_dcp_size, padding_loc)
@@ -163,8 +175,6 @@ def around_write_mla_kv_buffer(
         )
         if loc.numel() == 0:
             return None
-        if cache_k_rope is None or cache_k_rope.shape[-1] != 64:
-            return original(pool, dst_buffer, loc, cache_k_nope, cache_k_rope)
         _write_lightop(cache_k_nope, cache_k_rope, dst_buffer, loc)
         return None
 
