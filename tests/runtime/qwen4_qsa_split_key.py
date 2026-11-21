@@ -60,6 +60,12 @@ class SplitKeyPartialBlockTests(unittest.TestCase):
     def test_aligned_rows_stay_unchanged(self):
         self._check(64, 16384, 4096)
 
+    def test_long_keys_query_tile_partial_rows(self):
+        self._check(145, 62500, 4096)
+
+    def test_long_keys_below_query_tile_threshold(self):
+        self._check(127, 32768, 4096)
+
 
 @unittest.skipUnless(GPU, "explicit GPU lane")
 class SplitKeyRowClampSourceTests(unittest.TestCase):
