@@ -11,8 +11,8 @@ LOG = logging.getLogger(__name__)
 
 
 @cache
-def _announce():
-    LOG.info("MiniMax CP Prefill shared expert overlap active (split/side-stream)")
+def _announce(method):
+    LOG.info("MiniMax CP Prefill shared expert overlap active (%s/side-stream)", method)
 
 
 @cache
@@ -82,11 +82,12 @@ def _shared_down(shared, gate_up, quantize):
     return output
 
 
-def _forward_deepep(original, moe, hidden_states, forward_batch, *, split, use_lightop):
+def _forward_deepep(original, moe, hidden_states, forward_batch, *, method, use_lightop):
     from sglang.srt.layers.moe.utils import is_sbo_enabled, is_tbo_enabled
     from sglang.srt.model_executor.forward_batch_info import ForwardMode
     from sglang.srt.runtime_context import get_forward, get_parallel, get_stream
 
+    overlap = method != "off"
     dispatcher = resolve_single_dispatcher(moe.experts.dispatcher)
     if (
         not torch.version.hip
@@ -100,14 +101,14 @@ def _forward_deepep(original, moe, hidden_states, forward_batch, *, split, use_l
         or is_tbo_enabled()
         or dispatcher is None
         or not dispatcher.deepep_mode.is_normal()
-        or (split and not dispatcher._normal_dispatcher.async_finish)
+        or (overlap and not dispatcher._normal_dispatcher.async_finish)
         or torch.cuda.is_current_stream_capturing()
     ):
         return original(moe, hidden_states, forward_batch)
 
     shared = moe.shared_experts
     quantize = _shared_int8_kernel(shared) if use_lightop and not get_forward().sp_active else None
-    if not split:
+    if not overlap:
         if quantize is None:
             return original(moe, hidden_states, forward_batch)
         logits = moe._compute_router_logits(hidden_states)
@@ -116,12 +117,32 @@ def _forward_deepep(original, moe, hidden_states, forward_batch, *, split, use_l
         routed = moe.experts(hidden_states, moe.topk(hidden_states, logits))
         return routed + shared_output
 
-    _announce()
+    early_down = False
+    if method == "early" and quantize is not None:
+        from sglang.srt.distributed.device_communicators.pynccl_allocator import (
+            is_symmetric_memory_enabled,
+        )
+
+        early_down = not is_symmetric_memory_enabled()
+
+    _announce("early" if early_down else "split")
     main_stream = torch.cuda.current_stream(hidden_states.device)
     shared_stream = get_stream("minimax_m31_prefill_shared")
     shared_stream.wait_stream(main_stream)
     with torch.cuda.stream(shared_stream):
         gate_up, _ = shared.gate_up_proj(hidden_states)
+        if early_down:
+            output = _shared_down(shared, gate_up, quantize)
+
+    if early_down:
+        try:
+            topk = moe.topk(hidden_states, moe._compute_router_logits(hidden_states))
+            routed = moe.experts(hidden_states, topk)
+        finally:
+            main_stream.wait_stream(shared_stream)
+        output.record_stream(main_stream)
+        return routed + output
+
     output = None
 
     def project_down(_dispatcher):
@@ -145,9 +166,9 @@ def _forward_deepep(original, moe, hidden_states, forward_batch, *, split, use_l
 
 def register_hooks():
     method = os.getenv("SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD", "off")
-    if method not in ("off", "split"):
+    if method not in ("off", "split", "early"):
         raise ValueError(
-            "SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD must be off or split"
+            "SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD must be off, split or early"
         )
     use_oai_int8 = os.getenv("SGLANG_MINIMAX_PREFILL_SHARED_OAI_INT8", "1") == "1"
     if method == "off" and not use_oai_int8:
@@ -157,6 +178,6 @@ def register_hooks():
 
     HookRegistry.register(
         "sglang.srt.models.minimax_m3.MiniMaxM3MoE.forward_deepep",
-        partial(_forward_deepep, split=method == "split", use_lightop=use_oai_int8),
+        partial(_forward_deepep, method=method, use_lightop=use_oai_int8),
         HookType.AROUND,
     )
