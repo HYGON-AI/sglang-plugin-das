@@ -51,6 +51,17 @@ class TestMiniMaxFlashMLAVerifySplits(unittest.TestCase):
         self.assertNotIn("num_splits", self.run_decode(9, 1, torch.float8_e4m3fn))
         self.assertNotIn("num_splits", self.run_decode(9, 8, torch.bfloat16))
 
+    def test_verify_split_override_is_host_resident_with_non_cpu_default(self):
+        with (
+            patch.dict(os.environ, {"SGLANG_MINIMAX_FLASH_MLA_FP8_VERIFY_SPLITS": "8"}),
+            torch.device("meta"),
+        ):
+            splits = self.flashmla._fp8_verify_split_override()
+            self.assertEqual(splits.device.type, "cpu")
+            self.assertEqual(splits.dtype, torch.int32)
+            self.assertEqual(splits.tolist(), [8])
+            self.assertIs(splits, self.flashmla._fp8_verify_split_override())
+
     def test_invalid_override_is_rejected(self):
         with patch.dict(os.environ, {"SGLANG_MINIMAX_FLASH_MLA_FP8_VERIFY_SPLITS": "3"}):
             with self.assertRaisesRegex(ValueError, "must be one of"):

@@ -2609,3 +2609,9 @@ HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度
 2026-11-20 在 gfx938、CP8+EP8、固定专家布局、FlashMLA `g5ef71a` 下，用四条各命中 128K、追加 16K、输出 1 token 的 RSC 请求验证了串行与 overlap 路径。无 overlap 时，rank 0 的 114 次共享专家激活与量化累计从 29.98 ms 降至 12.06 ms。两项都关闭、仅 LightOp、两项同时开启时，各 rank 首末 GPU kernel 时间跨度的中位数分别为 2312.6、2302.4、2251.1 ms。仅开 overlap 的两轮为 2285.7 和 2363.0 ms。
 
 在四个目标形状的单算子对照中，两条路径的 scale 一致，量化值最多相差一个 INT8 刻度。无 overlap 时，四条固定输入中有三条的首 token 随激活实现改变。开启 overlap 后，原激活和 LightOp 均观察到首 token 的跨轮波动。数据集精度仍待验证。
+
+## MiniMax DP16EP16 的 EPLB 与 Verify 兼容修复
+
+DeepEP auto 的 MiniMax 插件注册 EP 分布采样函数，供 EPLB recorder 记录本地 expert 计数。gfx938 的 HiSparse JIT 通过原生 HIP wave shuffle 处理页规划，其他平台沿用各自的 shuffle 实现。
+
+原生 FP8 Target Verify 的 split-KV override 是 CPU int32 标量。显式指定 CPU 设备，可在默认设备指向加速器时保持 FlashMLA ABI。启动端继续使用 fixed8，配置 0 时采用 wheel 的自动策略。回归覆盖非 CPU 默认设备；四节点参考环境使用 4×4 gfx938、Verify fixed8 和 EPLB。
