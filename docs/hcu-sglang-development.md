@@ -2615,3 +2615,9 @@ HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度
 DeepEP auto 的 MiniMax 插件注册 EP 分布采样函数，供 EPLB recorder 记录本地 expert 计数。gfx938 的 HiSparse JIT 通过原生 HIP wave shuffle 处理页规划，其他平台沿用各自的 shuffle 实现。
 
 原生 FP8 Target Verify 的 split-KV override 是 CPU int32 标量。显式指定 CPU 设备，可在默认设备指向加速器时保持 FlashMLA ABI。启动端继续使用 fixed8，配置 0 时采用 wheel 的自动策略。回归覆盖非 CPU 默认设备；四节点参考环境使用 4×4 gfx938、Verify fixed8 和 EPLB。
+
+## MiniMax gfx938 DP16EP16 Target Verify Router GEMV
+
+设置 SGLANG_MINIMAX_EXTEND_ROUTER_GEMV=1 后，在 DP16EP16 Target Verify 中允许使用 Router GEMV 处理 M65–128。仍要求满足 gfx938、BF16 连续输入、N128、K6144 和设备一致性。M64 保留 LightOp 优先级，超出范围时沿用现有回退。
+
+MoE forward hook 使用 ForwardBatch 区分 Target Verify，并用 ContextVar 传递作用域。正常返回和异常退出都恢复原作用域。CPU 回归覆盖开关、阶段、拓扑和异常恢复。四节点 Fake Prefill Decode 的性能记录来自含相同运行时改动的 daf6a74，真实 KV 结果仍需独立复测。

@@ -58,6 +58,8 @@ def _minimax_router_gemv_kernel(
 def can_use_minimax_router_gemv(
     hidden_states: torch.Tensor,
     router_weight: torch.Tensor,
+    *,
+    max_rows: int = 64,
 ) -> bool:
     """Return whether the specialized small-M kernel supports this problem."""
     return (
@@ -69,7 +71,7 @@ def can_use_minimax_router_gemv(
         # therefore presents M=32 at the strict c16 workload.  The specialized
         # kernel remains substantially faster than rocBLAS through M=64 on
         # gfx938; stopping at 16 made every sparse layer silently fall back.
-        and 0 < hidden_states.shape[0] <= 64
+        and 0 < hidden_states.shape[0] <= max_rows
         and hidden_states.shape[1] == router_weight.shape[1]
         and router_weight.shape[0] == 128
         and hidden_states.shape[1] == 6144
@@ -86,12 +88,13 @@ def minimax_router_gemv(
     *,
     block_k: int = 256,
     num_warps: int = 4,
+    max_rows: int = 64,
 ) -> torch.Tensor:
     """Compute small-M MiniMax router logits with FP32 accumulation/output."""
-    if not can_use_minimax_router_gemv(hidden_states, router_weight):
+    if not can_use_minimax_router_gemv(hidden_states, router_weight, max_rows=max_rows):
         raise ValueError(
             "MiniMax router GEMV requires CUDA/HIP contiguous BF16 tensors "
-            "with M=1..64, N=128 and K=6144"
+            f"with M=1..{max_rows}, N=128 and K=6144"
         )
     if block_k not in (128, 256, 512, 1024):
         raise ValueError(f"Unsupported MiniMax router GEMV block_k={block_k}")

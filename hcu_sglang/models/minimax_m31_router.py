@@ -1,4 +1,5 @@
 import os
+from contextvars import ContextVar
 from functools import cache
 
 import torch
@@ -7,6 +8,28 @@ from hcu_sglang.layers.moe.minimax_router_gemv import (
     can_use_minimax_router_gemv,
     minimax_router_gemv,
 )
+
+
+_target_verify_router = ContextVar("minimax_m31_target_verify_router", default=False)
+
+
+def _forward_moe(original, layer, hidden_states, forward_batch):
+    if (
+        os.getenv("SGLANG_MINIMAX_EXTEND_ROUTER_GEMV", "0") != "1"
+        or not forward_batch.forward_mode.is_target_verify()
+        or not torch.version.hip
+    ):
+        return original(layer, hidden_states, forward_batch)
+    from sglang.srt.runtime_context import get_parallel
+
+    parallel = get_parallel()
+    if (parallel.attn_dp_size, parallel.moe_ep_size) != (16, 16):
+        return original(layer, hidden_states, forward_batch)
+    token = _target_verify_router.set(True)
+    try:
+        return original(layer, hidden_states, forward_batch)
+    finally:
+        _target_verify_router.reset(token)
 
 
 @cache
@@ -42,10 +65,11 @@ def _compute_router_logits(original, layer, hidden_states):
             torch.mm(hidden_states[:128], weight_t, out_dtype=torch.float32),
             torch.mm(hidden_states[128:], weight_t, out_dtype=torch.float32),
         ))
+    max_rows = 128 if _target_verify_router.get() else 64
     if (
         not layer.bf16_router_gemm
         or not torch.version.hip
-        or not can_use_minimax_router_gemv(hidden_states, weight)
+        or not can_use_minimax_router_gemv(hidden_states, weight, max_rows=max_rows)
         or hidden_states.device != weight.device
         or not _is_gfx938(hidden_states.device)
     ):
@@ -58,12 +82,19 @@ def _compute_router_logits(original, layer, hidden_states):
         native = _lightop_router()
         if native is not None:
             return native.forward(hidden_states, weight)
-    return minimax_router_gemv(hidden_states, weight, block_k=1024, num_warps=1)
+    return minimax_router_gemv(
+        hidden_states, weight, block_k=1024, num_warps=1, max_rows=max_rows,
+    )
 
 
 def register_hooks():
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    HookRegistry.register(
+        "sglang.srt.models.minimax_m3.MiniMaxM3MoE.forward",
+        _forward_moe,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.srt.models.minimax_m3.MiniMaxM3MoE._compute_router_logits",
         _compute_router_logits,
