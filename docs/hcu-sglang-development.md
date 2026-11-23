@@ -5150,3 +5150,13 @@ adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
 - 本次整理对 Hook 入参、combined 元数据、空段、score 空间上限、side-stream 顺序及 symmetric-memory 回退做 CPU 契约检查。评审补测通过真实 Python 分发入口覆盖合批 segment 2、slot 复制及缓存复用、门控和分段回退。真实 HCU 数值与 RSC 的数据来自原实验版本。整理后的提交尚未复跑完整 HCU 服务。
 
 最终性能配方选固定 EPLB、split、packed FP8 CP KV 和 adapter 的请求广播压缩。两项插件试验都由独立开关控制。Adapter 压缩作用在 CPU 广播的私有载荷层。
+
+## 2026-11-21 GLM5.2 FP8 最新 22 分支组合验证
+
+以 1d51ae5 为固定 plugin 基点，保留用户 3872dc0/#89 的既有 RoPE 方案，启动配方补齐 LightOP RoPE 开关；不新增 RoPE 实现。仅新增 current_dsa 的 LightOP planner resolver，backend/indexer 共用，非 HCU 委托原 resolver。adapter 同卡数外来 PCI guard 修复单独归仓。修复前反例、旧基点组件通过及最新组合未验收项分别记录，见 [FP8 适配记录](glm52-fp8-adaptation.md)。
+
+本轮固定组合已完成 Graph 服务、两轮各81请求文本/EAGLE统计一致、三项正常stop检查、32份逐rank trace及稳定吞吐对照。具体短输入TTFT退化、0518 profiler后会话异常和未完成数据集精度范围见 FP8 适配记录；未声明全仓合同或CPU全套通过。
+
+## 2026-11-23 PR 拆分检查
+
+LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量、设备可见）和3项gfx938 GPU/变输入Graph回归。隐藏设备时接线测试收集遇到上游 cutlass_fp8_supported 的 NoneType 比较错误，原失败保留，不记作通过。完整CPU unittest复测195项，仍为3项导入错误、13项跳过。L0与导览快照检查通过；未执行浏览器视觉验收。adapter节点门禁与triage失败另列于两仓PR说明，未以模型精度结果覆盖这些失败。仅准备Draft评审，未重复提交已有RoPE/TopK实现。
