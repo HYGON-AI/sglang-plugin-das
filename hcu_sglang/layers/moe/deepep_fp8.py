@@ -631,10 +631,18 @@ def around_ep_init(original, layer, *args, **kwargs):
     result = original(layer, *args, **kwargs)
     if _is_hcu:
         import inspect
+        from hcu_sglang.layers.moe import mori_das
         from hcu_sglang.layers.moe.deepep_int8 import configure_layer
         bound = inspect.signature(original).bind(layer, *args, **kwargs)
         configure_layer(layer, bound.arguments.get("quant_config"))
-        if getattr(layer, "use_int8_w8a8_deepgemm", False):
+        if isinstance(
+            getattr(layer, "dispatcher", None), mori_das.MoriDasDispatcher
+        ):
+            return result
+        if (
+            getattr(layer, "use_int8_w8a8_deepgemm", False)
+            and hasattr(layer.dispatcher, "set_quant_config")
+        ):
             layer.dispatcher.set_quant_config({
                 **(getattr(layer.dispatcher, "quant_config", None) or {}),
                 "hcu_w8a8_int8_dispatch": True,
@@ -666,6 +674,11 @@ def around_process_weights(original, scheme, layer):
 
 
 def around_run_moe_core(original, layer, dispatch_output, *args, **kwargs):
+    from hcu_sglang.layers.moe import mori_das
+
+    # MoriDAS output uses its own masked INT8 ABI and matching GEMM/combine path.
+    if isinstance(getattr(layer, "dispatcher", None), mori_das.MoriDasDispatcher):
+        return mori_das.run_moe_core(layer, dispatch_output)
     if _is_hcu and getattr(getattr(layer, "quant_method", None), "hcu_w4a8_hipc", False):
         from hcu_sglang.layers.moe.ct_w4a8 import run_moe_core
         return run_moe_core(layer, dispatch_output)

@@ -12,6 +12,54 @@ register_envs()
 from hcu_sglang.layers.moe import deepep_current as D
 
 class DeepEPCurrentTests(unittest.TestCase):
+    def test_ep_init_keeps_w8a8_wire_format_in_both_auto_dispatchers(self):
+        from hcu_sglang.layers.moe import deepep_fp8, deepep_int8
+
+        dispatcher = object.__new__(D.DeepEPDispatcher)
+        dispatcher.deepep_mode = D.DeepEPMode.AUTO
+        dispatcher.quant_config = {"retained_option": 7}
+        dispatcher._normal_dispatcher = object.__new__(D._DeepEPDispatcherImplNormal)
+        dispatcher._low_latency_dispatcher = object.__new__(D._DeepEPDispatcherImplLowLatency)
+        dispatcher._low_latency_dispatcher.return_recv_hook = False
+        layer = SimpleNamespace(dispatcher=dispatcher)
+        marker = object()
+        def original(layer, quant_config=None):
+            return marker
+        def configure(layer, quant_config):
+            layer.use_int8_w8a8_deepgemm = True
+        with patch.object(deepep_fp8, "_is_hcu", True), patch.object(
+            D, "_is_hcu", True
+        ), patch(
+            "sglang.srt.layers.moe.utils.get_server_args", return_value=None
+        ), patch.object(deepep_int8, "configure_layer", side_effect=configure):
+            self.assertIs(deepep_fp8.around_ep_init(original, layer), marker)
+        for worker in (dispatcher._normal_dispatcher, dispatcher._low_latency_dispatcher):
+            with self.subTest(worker=type(worker).__name__):
+                self.assertEqual(worker.deepep_output_dtype, D.DispatcherOutputDtype.INT8)
+                self.assertTrue(worker.quant_config["hcu_w8a8_int8_dispatch"])
+                self.assertEqual(worker.quant_config["retained_option"], 7)
+                self.assertNotIn("hcu_w4a8_int8_dispatch", worker.quant_config)
+                self.assertNotIn("hcu_legacy_groupgemm", worker.quant_config)
+        self.assertFalse(dispatcher._low_latency_dispatcher.return_recv_hook)
+
+    def test_ep_init_keeps_moridas_dispatch_configuration_owned_by_moridas(self):
+        from hcu_sglang.layers.moe import deepep_fp8, deepep_int8, mori_das
+
+        dispatcher = object.__new__(mori_das.MoriDasDispatcher)
+        dispatcher.quant_config = {"retained_option": 7}
+        layer = SimpleNamespace(dispatcher=dispatcher)
+        marker = object()
+        def original(layer, quant_config=None):
+            return marker
+        def configure(layer, quant_config):
+            layer.use_int8_w8a8_deepgemm = True
+        with patch.object(deepep_fp8, "_is_hcu", True), patch.object(
+            deepep_int8, "configure_layer", side_effect=configure
+        ), patch.object(mori_das.MoriDasDispatcher, "set_quant_config") as setter:
+            self.assertIs(deepep_fp8.around_ep_init(original, layer), marker)
+        setter.assert_not_called()
+        self.assertEqual(dispatcher.quant_config, {"retained_option": 7})
+
     def test_release_buffer_cleanup_keeps_both_vendor_signatures(self):
         for accepts_topk in (False, True):
             calls = []
