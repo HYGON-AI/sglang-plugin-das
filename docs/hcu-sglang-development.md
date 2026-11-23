@@ -4213,3 +4213,43 @@ adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
 本文前面的 GPU/Graph/模型/性能数字均为旧证据，不外推至本次新 upstream 组合；
 本次没有重启服务、重跑 GPU kernel、完整模型、SLA 或浏览器渲染。导览模板与交互
 未修改，仅重建文档快照，快照检查不代替视觉验收。
+
+## HY3 release 分支补齐（2026-11-23）
+
+基线为 `release/sglang_v0.5.22` 的 `1d51ae5`。本次按 main PR #46
+（`484e674`）与 #88（`708328a`）逐项补齐：HY3 在官方类上接入方法、
+NEXTN 使用独立层边界并恢复临时配置、缓存命中后按实际计算 token 数裁剪输出；
+INT8 分发保留原生量化接口，gfx936/gfx938 使用公开 pair32 权重排列及普通、
+低延迟两次 GEMM；合法零行矩阵直接返回空结果；非融合 INT8 RoPE 使用独立
+转换缓存，保留其他消费者共享的原始表。
+
+release 已有 Channel FP8 连续 scale、每 token scale 和 GLM FP8 优化，
+均保留。DeepEP 清理缓冲区继续按当前包签名判断 `num_topk`，没有退回 main
+较旧的固定传参。保留 release 的环境变量、KV 布局和推理参数默认值。
+配套 Adapter release 补齐原生分发引用、空闲输入、HIP Graph 查询及厂商 FA
+启动检查。DeepGEMM 包仍须提供公开 pair32 pack/contiguous/masked 接口。
+
+本次验证：L0（714 Python、8 Skill）、导览生成快照和差异空白检查通过。
+S7 容器 Python 3.12 / PyTorch 2.11.0、官方 SGLang
+`baa9befa381511cd4d56f83980951e5a45fffc6d`，配套本次 Adapter 候选，
+设置 `HCU_ADAPTER_HOST=none`，没有隐藏 GPU。以下专项共 43 项通过、无跳过：
+
+- `tests/test_hunyuan_method_hooks.py`、
+  `tests/runtime/forward_batch_cached_prefill_cpu.py`、
+  `tests/runtime/deepep_current.py`、`tests/runtime/compressed_int8.py`、
+  `tests/runtime/quant_ops_dispatch.py`：40 项通过，另有 14 个 subtest。
+- `tests/runtime/fix_attention_models.py -k hy3`：2 项通过，另有 4 个 subtest。
+- `HCU_PLUGIN_RUN_LAYER_FIX_TESTS=1` 下执行
+  `tests/test_fix_layers_moe.py -k int8_deepgemm_postload`：1 项通过。
+
+原 release 对照复现了两处缺陷：热缓存裁剪两例失败，空输入四个子例仍调用
+计算内核；冷缓存用例通过。候选的对应检查全部通过。
+
+上述测试验证构造、参数、输出裁剪、缓存隔离及计算调用合同；部分昂贵计算使用
+测试替身，没有执行完整 HY3 服务、数据集精度或性能对照。历史模型输出、精度
+和 trace 不作为这份 release 组合的验收结果。没有修改用户脚本或启停模型服务。
+
+导览页已做桌面渲染检查；交互和窄屏检查未完成。Adapter 配置页新增 Graph 项
+可以显示，但原 release 的 `mamba_state_scatter` 缺少 UI 默认值，原版与候选均
+在后续渲染时报错；该已有缺陷未在本次扩大修改范围。
+`fix_attention_models.py` 仅运行 HY3 两项，其他模型没有在本轮验收。
