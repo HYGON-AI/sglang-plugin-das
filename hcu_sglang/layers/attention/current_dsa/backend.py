@@ -928,7 +928,8 @@ class DeepseekSparseAttnBackend(
         metadata: DSAMetadata,
         seqlens_32_2d: torch.Tensor,
     ) -> None:
-        if _is_hcu and envs.SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS.get():
+        if _is_hcu:
+            # HCU LightOp owns its scheduling and takes no DeepGEMM metadata.
             return
         new_schedule = resolve_paged_mqa_logits_metadata_fn()(
             seqlens_32_2d, 64, resolve_num_sms()
@@ -1370,9 +1371,7 @@ class DeepseekSparseAttnBackend(
 
         paged_mqa_schedule_metadata = None
         paged_mqa_ctx_lens_2d = None
-        if is_cuda() and not (
-            _is_hcu and envs.SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS.get()
-        ) and (
+        if is_cuda() and not _is_hcu and (
             forward_mode.is_decode_or_idle()
             or forward_mode.is_target_verify()
             or forward_mode.is_draft_extend_v2()
@@ -1786,9 +1785,7 @@ class DeepseekSparseAttnBackend(
 
         paged_mqa_schedule_metadata = None
         paged_mqa_ctx_lens_2d = None
-        if is_cuda() and not (
-            _is_hcu and envs.SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS.get()
-        ) and (
+        if is_cuda() and not _is_hcu and (
             forward_mode.is_decode_or_idle()
             or forward_mode.is_target_verify()
             or forward_mode.is_draft_extend_v2()

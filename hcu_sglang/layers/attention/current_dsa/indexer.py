@@ -1529,9 +1529,7 @@ class Indexer(DSANPUIndexerMixin, BaseFusedOp):
                 seqlens_32_2d = seqlens_32.reshape(-1).contiguous().view(-1, 1)
         else:
             seqlens_32_2d = seqlens_32.contiguous().view(-1, 1)
-        if _is_cuda and not (
-            _is_hcu and envs.SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS.get()
-        ):
+        if _is_cuda and not _is_hcu:
             if schedule_metadata is None:
                 schedule_metadata = resolve_paged_mqa_logits_metadata_fn()(
                     seqlens_32_2d, blocksize, self.sm_count
