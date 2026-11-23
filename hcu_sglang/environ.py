@@ -103,6 +103,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_HCU_GLM53_FP8_KV_ROPE_STORE": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_ADD_RMS_ALIGN16_SO": (EnvStr, None),
+    "SGLANG_HCU_W8A8_USE_LIGHTOP": (EnvBool, False),
     "SGLANG_HCU_GLM_CT_BF16_ROUTER": (EnvBool, False),
     "SGLANG_HCU_USE_LIGHTOP_ROPE": (EnvBool, False),
     "SGLANG_LIGHTOP_KVALLOC_KERNEL": (EnvBool, False),

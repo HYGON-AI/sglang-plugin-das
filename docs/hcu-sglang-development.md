@@ -4213,3 +4213,9 @@ adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
 本文前面的 GPU/Graph/模型/性能数字均为旧证据，不外推至本次新 upstream 组合；
 本次没有重启服务、重跑 GPU kernel、完整模型、SLA 或浏览器渲染。导览模板与交互
 未修改，仅重建文档快照，快照检查不代替视觉验收。
+
+## GLM-5.3 CT W4A8 四节点 P/D 配方回移（SGLang 0.5.22）
+
+同步主线 #23 的 `SGLANG_HCU_W8A8_USE_LIGHTOP` 注册项。GLM-5.3 的 CT checkpoint 同时包含 channel INT4 专家和 W8A8 Linear。P、D 配方显式设为 `1` 时，Linear 的 `quant_ops.triton_scaled_mm` 将输入、scale、bias 和调优参数交给 `lightop.gemm_ops.triton_scaled_mm`。默认值为 false，保留原有小 M 调优。专家继续由 `HCUW4A8Int8DeepEPMoEMethod` 处理，normal 与 low-latency 的 dispatcher 输出均为 INT8。
+
+本次验证范围为环境注册和分发选择。四节点真实请求、变输入 Graph replay、性能和数据集精度留待配套 adapter 部署后验证。
