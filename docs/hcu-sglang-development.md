@@ -2371,7 +2371,7 @@ Channel FP8 依赖配套 adapter 的 DeepEP 量化粒度透传。上述环境还
 
 同时把 `handle_bootstrap_failure` 中不再使用的 `cleanup_done` 局部变量删除，避免未使用变量告警。
 
-**实际验证（本机，Windows / Python 3.14，无 torch、无 sglang、无 DCU）**：
+**实际验证（本机，Windows / Python 3.14，无 torch、无 sglang、无 HCU）**：
 
 - `python -m py_compile hcu_sglang/disagg/prefill.py` 通过。
 - 新增 `tests/test_pd_prefill_inflight_consensus.py`，9 项 AST 结构契约全部通过：导入来源、TP/CP 两次汇总、汇总位置在 poll 循环之后、done 集合由汇总结果重建、已回包请求提前出队、两处入队不依赖 `cleanup_done`、假 sender abort 在入队之前、告警限频。
@@ -4685,7 +4685,7 @@ HCU DSA FP8 KV 池把 Graph 的占位槽放在最后一个可分配页之后。
 在个人 fork 的 `6d8ad63` 基线上，本地复现了小 batch 写到最后一个
 可分配页以及普通 decode batch 128 触发容量断言。修复后用 CPU 桩
 执行池分配和槽号转换，覆盖普通 decode、EAGLE、prefill bucket、
-eager 和 DCP=1。DCU 上的服务、换输入 Graph replay、调用对齐、
+eager 和 DCP=1。HCU 上的服务、换输入 Graph replay、调用对齐、
 性能和端到端精度待验证。
 
 DCP4 验收配方使用 FP8 KV、64 token 页、`ag_rs` 和双阶段 `flashmla_kv`。
@@ -4757,7 +4757,7 @@ GLM-5.3 的 PD Decode 在 overlap 模式下可能先提交下一轮 forward，�
 GLM-5.3 的 PP1 Prefill CP LayerSplit 单层 MTP 配方中，draft Main-KV 的 L2 备份和
 回载只在该层 owner 上执行。设备索引仍是 target 模型层数之后的 packed draft 索引，
 host 索引使用本 rank 的 target host 层数之后的槽位。Index-K 沿用已有的 owner 过滤。
-本轮只做本地 lint、语法和结构检查，DCU 上的搬运、重叠调度及端到端精度待验证。
+本轮只做本地 lint、语法和结构检查，HCU 上的搬运、重叠调度及端到端精度待验证。
 
 发布分支冒烟发现 v0.5.22 同时传入 AFTER hook 的位置返回值和宿主 `result=` 参数。
 Decode hook 将处理后的输出作为仅限位置参数接收，避免与宿主关键字冲突。
@@ -4816,7 +4816,7 @@ Channel FP8 prefill worker 在启动时编译或加载节点缓存。各 rank
 通过文件锁和原子发布共享产物。K1 仍按模型结构、量化方式和张量布局选择，
 加载扩展时检查 ABI 和导出入口。配置见 [K1 indirect-A](configuration.md#8-glm-53-fp8-prefill-的-k1-indirect-a-候选)。
 本地用替代编译进程核对八进程并发只生成一份产物、热启动复用、
-Python 或 DTK 变化后重新构建，以及编译失败后可重试。DCU 上的实际
+Python 或 DTK 变化后重新构建，以及编译失败后可重试。HCU 上的实际
 编译、服务启动和 K1 命中待验证。
 HCU dcp=1 在 FlashMLA KV 分发前使用匹配 page table 的有效 top-k 行，
 保留隔离试验带入的 padding 行裁剪逻辑。
