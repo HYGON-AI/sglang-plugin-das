@@ -4219,3 +4219,5 @@ adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
 同步主线 #23 的 `SGLANG_HCU_W8A8_USE_LIGHTOP` 注册项。GLM-5.3 的 CT checkpoint 同时包含 channel INT4 专家和 W8A8 Linear。P、D 配方显式设为 `1` 时，Linear 的 `quant_ops.triton_scaled_mm` 将输入、scale、bias 和调优参数交给 `lightop.gemm_ops.triton_scaled_mm`。默认值为 false，保留原有小 M 调优。专家继续由 `HCUW4A8Int8DeepEPMoEMethod` 处理，normal 与 low-latency 的 dispatcher 输出均为 INT8。
 
 本次验证范围为环境注册和分发选择。四节点真实请求、变输入 Graph replay、性能和数据集精度留待配套 adapter 部署后验证。
+
+发布分支的 GLM-5.3 Channel FP8 配方允许省略量化 CLI 参数。官方 0.5.22 按 checkpoint 解析量化后，GLM DSA 的 top-1 EAGLE 非 greedy verify 复用已有的目标 token 采样和树匹配。CUDA 平台兼容模式下，按宿主的 attention TP 或 TP 组同步三个 verify 输出；宿主走 HIP 分支时由宿主同步。自动识别同时检查 Channel FP8 配置和已解析的 compressed-tensors 方式。显式 CT、greedy、rejection sampling 和 watermark 沿用既有分发。检测可见 HIP 设备的架构失败时，启动报告原始异常，便于定位缺少的设备元数据。隔离验证覆盖分发条件和失败后重试；gfx938 真实请求及跨 rank 重放待验证。
