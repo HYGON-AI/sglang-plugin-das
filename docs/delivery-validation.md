@@ -425,4 +425,4 @@ python3 tools/build_guide.py --check → Guide is up to date
 
 ## 2026-11-21 MiniMax CP8EP8 Prefill 试验分支
 
-交付范围为 zigzag FlashMLA 合批和共享专家 early。新增 CPU 契约测试覆盖其参数传递、回退及流等待顺序。真实 DCU 算子、两节点 RSC 和 CPU/GPU trace 为分支整理前的原实验结果。合批关闭时使用原分段，完整推荐服务配方使用 split。硬件复验边界、开关与历史结果见[开发记录](hcu-sglang-development.md#2026-11-21-minimax-w4a8-两节点-cp8ep8-prefill-试验)。
+交付范围为 zigzag FlashMLA 合批和共享专家 early。新增 CPU 契约测试覆盖其参数传递、回退及流等待顺序。真实 HCU 算子、两节点 RSC 和 CPU/GPU trace 为分支整理前的原实验结果。合批关闭时使用原分段，完整推荐服务配方使用 split。硬件复验边界、开关与历史结果见[开发记录](hcu-sglang-development.md#2026-11-21-minimax-w4a8-两节点-cp8ep8-prefill-试验)。

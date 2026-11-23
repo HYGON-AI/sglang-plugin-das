@@ -2616,7 +2616,7 @@ HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度
 
 - `SGLANG_MINIMAX_CP_PACK_PREFILL_SEGMENTS=1` 把左右两段作为同一次 FlashMLA 的独立虚拟序列。复用 zigzag combined 元数据并按段保留因果范围。仅在已有 native CP KV 路径可用、形状为 64 个 Q head 和 4 个 Index head、head dim 128、Top16 且捕获关闭时考虑合批。空分段或估算 score scratch 超过 256 MiB 时沿用原两段。默认关闭。
 - `SGLANG_MINIMAX_PREFILL_SHARED_OVERLAP_METHOD=early` 把共享专家 Down 移到已有的 gate/up 侧流窗口。只在异步 normal DeepEP、W4A8 HIPC、本地复制 INT8 路径和非对称分配下选择 early，否则使用有效的 split 或原调用。原有 `off` 默认不变。两项开关在 Hook 安装时读取。
-- 双节点原实验中，两段合批在 TP0 和 TP4 各将索引、Top16、expand 和主 attention 的调用从 480 减至 240。两个真实 DCU 单 rank 形状的 Top16 和 BF16 输出逐位相同。合批的端到端收益未稳定复现，early 收益随 BS 变化。
-- 本次整理对 Hook 入参、combined 元数据、空段、score 空间上限、side-stream 顺序及 symmetric-memory 回退做 CPU 契约检查。真实 DCU 数值与 RSC 的数据来自原实验版本。整理后的提交尚未复跑完整 HCU 服务。
+- 双节点原实验中，两段合批在 TP0 和 TP4 各将索引、Top16、expand 和主 attention 的调用从 480 减至 240。两个真实 HCU 单 rank 形状的 Top16 和 BF16 输出逐位相同。合批的端到端收益未稳定复现，early 收益随 BS 变化。
+- 本次整理对 Hook 入参、combined 元数据、空段、score 空间上限、side-stream 顺序及 symmetric-memory 回退做 CPU 契约检查。评审补测通过真实 Python 分发入口覆盖合批 segment 2、slot 复制及缓存复用、门控和分段回退。真实 HCU 数值与 RSC 的数据来自原实验版本。整理后的提交尚未复跑完整 HCU 服务。
 
 最终性能配方选固定 EPLB、split、packed FP8 CP KV 和 adapter 的请求广播压缩。两项插件试验都由独立开关控制。Adapter 压缩作用在 CPU 广播的私有载荷层。
