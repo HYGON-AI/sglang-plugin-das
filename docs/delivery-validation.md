@@ -422,3 +422,7 @@ python3 tools/build_guide.py --check → Guide is up to date
 **重叠文件复核**（远端新 main 与本地改动都触碰的 4 个文件，均未丢本地改动）：`docs/ci.md` 的「L0 迁移文件头」行在；`hcu_sglang/environ.py` 的 `SGLANG_REQUIRE_KV_CACHE_SCALES` 在；`hcu_sglang/layers/attention/flashattention_interface.py` 的 `q_4d` 构造在 varlen 分支之后；`architecture.html` 由生成器重建。远端新增的 `.github/workflows/quality-gate.yml` 亦在。
 
 **推送状态**：未执行。推送前须重新 `git fetch` 确认 `behind` 仍为 0（远端可能再次被 force push），之后 `git push origin main` 并用 `git ls-remote` 与 `rev-list` 核对远端新提交。
+
+## 2026-11-21 MiniMax CP8EP8 Prefill 试验分支
+
+交付范围为 zigzag FlashMLA 合批和共享专家 early。新增 CPU 契约测试覆盖其参数传递、回退及流等待顺序。真实 HCU 算子、两节点 RSC 和 CPU/GPU trace 为分支整理前的原实验结果。合批关闭时使用原分段，完整推荐服务配方使用 split。硬件复验边界、开关与历史结果见[开发记录](hcu-sglang-development.md#2026-11-21-minimax-w4a8-两节点-cp8ep8-prefill-试验)。
