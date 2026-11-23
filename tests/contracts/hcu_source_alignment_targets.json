@@ -92,6 +92,8 @@
     "sglang.multimodal_gen.runtime.layers.attention.backends.aiter.AITerImpl.forward_varlen",
     "sglang.multimodal_gen.runtime.layers.attention.backends.sparse_linear_attn.SparseLinearAttentionImpl.forward",
     "sglang.multimodal_gen.runtime.layers.attention.backends.sparse_linear_attn._initialize_linear_attention",
+    "sglang.multimodal_gen.runtime.layers.attention.backends.subblock_sparse_attn.SubBlockSparseAttentionImpl._build_dense_impl",
+    "sglang.multimodal_gen.runtime.layers.attention.backends.subblock_sparse_attn._get_subblock_sparse_attention_runner",
     "sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.__init__",
     "sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward",
     "sglang.multimodal_gen.runtime.loader.component_loaders.transformer_loader.TransformerLoader.load_state_dict_model",

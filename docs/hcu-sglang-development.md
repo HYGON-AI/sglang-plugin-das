@@ -4509,3 +4509,22 @@ LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量�
 在 gfx938 注入请求异常后，原始异常和已返回视图均保留。一个 256 MiB
 的实际 staging 分配在原镜像继续驻留，插件在最后一个视图释放时回收全部
 256 MiB。该检查覆盖缓存生命周期，未复现旧版 50 请求压力场景。
+
+## MiniMax-H3 HCU SubBlock 稀疏注意力
+
+从 DAS 的 `52f1e99` 迁移到 diffusion 插件。使用 `SGLANG_PLUGINS=hcu` 入口，
+设置 `--attention-backend subblock_sparse_attn` 和
+`--component-attention-backends text_encoder=torch_sdpa,transformer=subblock_sparse_attn`。
+需安装与目标 Torch、DTK 和 Python 匹配的 `dcu_bsa` wheel。本轮构建使用
+DTK 26.10、Torch 2.13、Python 3.12，并包含 gfx936 和 gfx938。
+稀疏内核使用 BF16、head_dim 128，前 10 步按原生 schedule 执行稠密注意力。
+
+插件在 HCU 上连接原生 SubBlock router 与 DCU 内核。逐行有效块数与局部尾块
+传给内核，仅排序有效前缀。内部稠密实现单独记录后端选择，外层 transformer
+仍校验显式配置是否生效。在 release 使用的 FA2 只继承基础 packed-varlen 方法时，
+HCU 通过原有 flash-attn 的变长入口执行 sBSA 的内部稠密回退。
+
+1507 镜像的初次移植在两个架构各通过 26 项原生数值测试，均通过 SGLang 后端解析和第 9/10 步
+派发检查。gfx938 的 37,736 token、14 heads 测试中，FA2 中位耗时
+45.43 ms，sBSA 含路由、排序和执行为 22.48 ms。固定稀疏计划的四个边界
+Q 行通过 FP32 参考比对。
