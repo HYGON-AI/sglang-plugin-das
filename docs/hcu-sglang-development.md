@@ -4424,3 +4424,13 @@ RDMA 与注册通信缓冲区仍待服务验证。
 对齐框架 [#70](https://github.com/maxiaobetter/sglang-das/pull/70) 的 Channel W4A8、FP8 KV、DCP=1 配置。目标 Index-K 与逻辑分配器按完整页取整，MTP draft 从分配器读取相同的地址空间。PD Decode worker 用逻辑池容量计算请求上限，设备热池仍按物理容量分配。发布基线的 Mooncake MLA host 注册已使用 CPU 张量地址。
 
 本次验证限于本地容量计算、配置分发与静态检查。真实双节点 Mooncake、EAGLE 换输入回放、1M 请求输出及性能仍待验证。
+
+## 2026-11-23 DeepSeek V4 0731 HCU MegaMoE Prefill
+
+在 SGLang 0.5.22 的 CUDA 平台语义下，Plugin 用参数校验 Hook 接入真实 HCU 的 `slimquant_marlin` MegaMoE Prefill 路径。Hook 根据 HCU、MoE 后端、MegaMoE runtime 和 overlap 配置选择兼容分支。量化格式由后续的权重准备和执行路径处理。其他配置交回原校验函数。
+
+测试部署使用 CP8/EP8、每 rank 4096 token cap，从 0.5.18 的 `91cdff` 包提取的源码重编译 `megamoe` Python 3.12 扩展。目标为 DTK 26.10、`gfx936` 和 code object v5。DSPARK draft 与 Decode 继续使用 DeepEP 和 DeepGEMM。
+
+完整参数解析、W4A8 GPU 原语和 1P1D 冒烟通过。请求日志记录 `runtime=megamoe quant=w4a8 cap=4096 factory=megamoe`，Prefill worker 加载了新扩展。相同输入 ID 的单请求 4K/128K 场景各生成 1024 token，缓存命中为 0，端到端分别耗时 6.99 秒和 11.12 秒。当前验证覆盖 CP8/EP8 的 W4A8 Prefill。
+
+移除部署角色和量化判断后，复验了 Hook 的放行与回退分支。上述 GPU 和性能结果来自此前的 W4A8 Prefill 部署。

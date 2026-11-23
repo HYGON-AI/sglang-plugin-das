@@ -156,6 +156,21 @@ def _resolving_view(server_args):
     return resolving_view(server_args)
 
 
+def around_check_mega_moe_compat(original: Callable[..., Any], server_args: Any) -> Any:
+    cfg = _resolving_view(server_args)
+    if (
+        is_hcu()
+        and cfg.moe_a2a_backend == "megamoe"
+        and not (cfg.enable_two_batch_overlap or cfg.enable_single_batch_overlap)
+    ):
+        from sglang.srt.environ import envs
+
+        if envs.SGLANG_HCU_MEGA_MOE_RUNTIME.get().strip().lower() == "megamoe":
+            logger.info("HCU MegaMoE platform validation accepted.")
+            return None
+    return original(server_args)
+
+
 def handle_a2a_moe(result: Any, server_args: Any) -> Any:
     if not is_hcu():
         return result
@@ -344,6 +359,9 @@ def register() -> None:
     HookRegistry.register(
         "sglang.srt.arg_groups.overrides._attention_backend_fa3_fp8_fallback",
         around_qwen4_fa3_fp8_fallback, HookType.AROUND)
+    HookRegistry.register(
+        "sglang.srt.arg_groups.mega_moe_hook.check_mega_moe_compat",
+        around_check_mega_moe_compat, HookType.AROUND)
     if not _RESOLUTION_REGISTERED:
         from hcu_sglang.disagg.glm53_decode_radix import resolve_pd_disaggregation
 
