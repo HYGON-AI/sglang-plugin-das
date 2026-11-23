@@ -69,6 +69,20 @@ def register_hooks(registry=None) -> None:
     if registry is not None:
         HookRegistry = registry
 
+    from hcu_sglang.multimodal_gen import minimax_h3_vae
+
+    HookRegistry.register(
+        "sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.processor."
+        "VAEProcessor.convert_numpy_to_tensor",
+        minimax_h3_vae.around_convert_numpy_to_tensor,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.klvae."
+        "AutoencoderKL.setup_forward",
+        minimax_h3_vae.around_setup_forward,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk",
         around_apply_rope_qk,

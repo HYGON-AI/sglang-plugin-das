@@ -4489,3 +4489,14 @@ Plugin 定向 66 项、HY3 RoPE 2 项、INT8 postload 1 项通过，无跳过；
 ## 2026-11-23 PR 拆分检查
 
 LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量、设备可见）和3项gfx938 GPU/变输入Graph回归。隐藏设备时接线测试收集遇到上游 cutlass_fp8_supported 的 NoneType 比较错误，原失败保留，不记作通过。完整CPU unittest复测195项，仍为3项导入错误、13项跳过。L0与导览快照检查通过；未执行浏览器视觉验收。adapter节点门禁与triage失败另列于两仓PR说明，未以模型精度结果覆盖这些失败。仅准备Draft评审，未重复提交已有RoPE/TopK实现。
+
+## MiniMax-H3 参考视频预处理
+
+将 DAS 提交 `62713c5` 的输入处理移至 diffusion 插件。HCU 先传输 uint8 帧，
+直接生成连续的 FP32 视频。VAE 仅对运行时持有的输入复用默认归一化的存储，
+重新配置自定义 transform 后回到调用方提供的实现。
+
+初次移植在 1507 镜像原插件基线、gfx938 上验证。124×768×1344 RGB 帧
+经过真实 processor 的峰值分配从 4394.25 降至 1830.94 MiB。两组各运行
+五次，归一化输出及真实 Ref2VA 权重对 17 帧小片段编码所得 FP16 latent
+均逐字节相同。该数据覆盖参考输入和编码阶段。
