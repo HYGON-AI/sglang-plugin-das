@@ -4221,3 +4221,16 @@ adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
 本次验证范围为环境注册和分发选择。四节点真实请求、变输入 Graph replay、性能和数据集精度留待配套 adapter 部署后验证。
 
 发布分支的 GLM-5.3 Channel FP8 配方允许省略量化 CLI 参数。官方 0.5.22 按 checkpoint 解析量化后，GLM DSA 的 top-1 EAGLE 非 greedy verify 复用已有的目标 token 采样和树匹配。CUDA 平台兼容模式下，按宿主的 attention TP 或 TP 组同步三个 verify 输出；宿主走 HIP 分支时由宿主同步。自动识别同时检查 Channel FP8 配置和已解析的 compressed-tensors 方式。显式 CT、greedy、rejection sampling 和 watermark 沿用既有分发。检测可见 HIP 设备的架构失败时，启动报告原始异常，便于定位缺少的设备元数据。隔离验证覆盖分发条件和失败后重试；gfx938 真实请求及跨 rank 重放待验证。
+
+### GLM-5.3 compressed-tensors TP8/EP1 W4A8
+
+合设 IFB 使用与 P/D 相同的 mixed INT4/INT8 compressed-tensors checkpoint。
+在 HCU 上选择标准 TP8/EP1 分发、默认 MoE runner 和
+`SGLANG_W4A8_TPMOE_BACKEND=lightop`，配套 adapter 设置 `HCU_W4A8_MOE=native`。
+主模型与 NextN 按 checkpoint 的专家 scheme 分发。W8A8 共享专家独立加载；
+路由专家先按 TP 分片，再转换 CT 的 nibble 顺序和逐通道 scale，重排为 TP Marlin，
+由 LightOp 以动态 INT8 激活执行。双流模式保留共享专家输入，路由系数只应用一次。
+DeepEP P/D 继续使用已有的 contiguous/masked 路径。
+
+离线使用官方 v0.5.22 的分片函数核对了八个 TP rank 的合成 gate/up/down 权重和 scale。
+镜像内 LightOp ABI、实际 kernel、换输入 Graph 重放、性能与真实请求精度待上卡验证。
