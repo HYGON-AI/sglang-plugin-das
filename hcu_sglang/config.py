@@ -16,6 +16,13 @@ def configure_minimax_opt(value):
         os.environ[MINIMAX_OPT_ENV] = "1" if value else "0"
 
 
+MINIMAX_CP_PACK_PREFILL_SEGMENTS_ENV = "SGLANG_MINIMAX_CP_PACK_PREFILL_SEGMENTS"
+
+
+def minimax_cp_pack_prefill_segments_enabled():
+    return os.environ.get(MINIMAX_CP_PACK_PREFILL_SEGMENTS_ENV, "0") == "1"
+
+
 CP_CACHE_LAYER_SPLIT_ENV = "HCU_PLUGIN_CP_CACHE_LAYER_SPLIT"
 
 

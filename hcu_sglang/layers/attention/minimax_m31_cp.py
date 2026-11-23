@@ -1,9 +1,12 @@
 import logging
-from functools import cache
+from functools import cache, partial
 
 import torch
 
+from hcu_sglang.config import minimax_cp_pack_prefill_segments_enabled
+
 from .minimax_m31_cp_kv import try_store_cp_kv
+from .minimax_m31_flashmla import flash_mla_gfx938_available
 from .minimax_m31_sparse import cp_prefill_metadata
 
 LOG = logging.getLogger(__name__)
@@ -29,8 +32,40 @@ def _gather_kv(forward_batch, strategy, k, v, idx_k, idx_v):
     return restored
 
 
+
+@cache
+def _announce_packed_prefill():
+    LOG.info("MiniMax CP FlashMLA uses packed Zigzag prefill segments")
+
+
+def _packed_slots(meta, slot_ids):
+    cache_by_stream = getattr(meta, "_minimax_packed_prefill_slots", None)
+    if cache_by_stream is None:
+        cache_by_stream = meta._minimax_packed_prefill_slots = {}
+    stream = torch.cuda.current_stream(slot_ids.device).cuda_stream if slot_ids.is_cuda else None
+    key = (slot_ids.device, stream, slot_ids.data_ptr())
+    if key not in cache_by_stream:
+        cache_by_stream[key] = slot_ids.repeat(2)
+    return cache_by_stream[key]
+
+
+def _pack_prefill_pieces(meta, pieces):
+    q_lens = pieces[0][-2] + pieces[1][-2]
+    kv_lens = pieces[0][-1] + pieces[1][-1]
+    if not q_lens or min(q_lens) <= 0:
+        return None
+    q_rows = pieces[1][1]
+    score_bytes = 4 * 4 * q_rows * ((max(kv_lens) + 127) // 128)
+    if score_bytes > 256 * 1024 * 1024:
+        return None
+    return (
+        (0, q_rows, meta.cu_seqlens_q_combined_tensor, meta.kv_len_combined_tensor,
+         meta.actual_seq_q_combined_tensor, q_lens, kv_lens),
+    )
+
+
 def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=True,
-                *, idx_q, idx_k, idx_v):
+                *, idx_q, idx_k, idx_v, pack_prefill_segments=False):
     from sglang.srt.layers.cp.utils import get_cp_strategy, is_cp_active
 
     if not is_cp_active(forward_batch):
@@ -76,9 +111,26 @@ def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=Tru
          meta.cu_seqlens_q_next_tensor, meta.kv_len_next_tensor,
          meta.actual_seq_q_next_tensor, meta.actual_seq_q_next_list, meta.kv_len_next_list),
     )
+    slot_ids = forward_batch.req_pool_indices
+    if (
+        caches is not None
+        and pack_prefill_segments
+        and self.score_type == "max"
+        and self.block_size_k == self.page_size == 128
+        and self.topk_blocks == 16
+        and q.shape[1:] == (64, 128)
+        and idx_q.shape[1:] == (4, 128)
+        and not torch.cuda.is_current_stream_capturing()
+        and flash_mla_gfx938_available()
+    ):
+        packed = _pack_prefill_pieces(meta, pieces)
+        if packed is not None:
+            pieces = packed
+            slot_ids = _packed_slots(meta, slot_ids)
+            _announce_packed_prefill()
     outputs = []
     index_outputs = []
-    for segment, piece in enumerate(pieces):
+    for segment, piece in enumerate(pieces, start=2 if len(pieces) == 1 else 0):
         start, end, cu, lengths, q_lengths, q_lengths_cpu, kv_lengths_cpu = piece
         if start == end:
             continue
@@ -93,7 +145,7 @@ def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=Tru
                 idx_v_cache=index_v,
                 idx_sink=None,
                 req_to_token=self.req_to_token,
-                slot_ids=forward_batch.req_pool_indices,
+                slot_ids=slot_ids,
                 cu_seqlens=cu,
                 seq_lens=lengths,
                 prefix_lens=prefix,
@@ -123,6 +175,8 @@ def _prefill_cp(original, self, q, k, v, layer, forward_batch, save_kv_cache=Tru
         outputs.append(q.new_zeros((padding, q.shape[1] * v_cache.shape[-1])))
         if not disable_value:
             index_outputs.append(idx_q.new_zeros((padding, idx_q.shape[1] * index_v.shape[-1])))
+    if len(pieces) == len(outputs) == 1:
+        return None, outputs[0]
     return (
         None if disable_value else torch.cat(index_outputs, dim=0),
         torch.cat(outputs, dim=0) if outputs else q.flatten(1),
@@ -134,6 +188,6 @@ def register_hooks():
 
     HookRegistry.register(
         "sglang.srt.layers.attention.minimax_sparse_backend.MiniMaxSparseAttnBackend.forward_extend",
-        _prefill_cp,
+        partial(_prefill_cp, pack_prefill_segments=minimax_cp_pack_prefill_segments_enabled()),
         HookType.AROUND,
     )
