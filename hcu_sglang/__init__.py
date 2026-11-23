@@ -214,6 +214,9 @@ def register() -> None:
     qwen3_moe.register()
     qwen3_5.register()
     silu_int8.register()
+    from hcu_sglang.models.qwen import silu_fp8
+
+    silu_fp8.register()
     from hcu_sglang.models.qwen import qwen4_exp
     qwen4_exp.register_hooks()
     from hcu_sglang import speculative_dspark

@@ -23,6 +23,8 @@
 - [2026-11-18：GLM-5.3 FP8 absorb BMM 分发对齐](#2026-11-18-glm-53-fp8-absorb-bmm-分发对齐)
 - [2026-11-19：DeepEP 清理接口兼容](#2026-11-19-deepep-清理接口兼容)
 - [2026-11-19：GLM-5.3 FP8 稳态 prefill 优化](#2026-11-19-glm-53-fp8-稳态-prefill-优化)
+- [2026-11-24：gfx938 Qwen Add、Gemma RMSNorm 与 FP8 量化融合](#2026-11-24-gfx938-qwen-addgemma-rmsnorm-与-fp8-量化融合)
+- [2026-11-24：gfx938 Qwen SiLU mul 与 FP8 量化融合](#2026-11-24-gfx938-qwen-silu-mul-与-fp8-量化融合)
 - [2026-11-20：gfx938 Qwen attention 门控与 FP8 量化融合](#2026-11-20-gfx938-qwen-attention-门控与-fp8-量化融合)
 - [2026-11-20：gfx938 Qwen GDN 门控归一化与 FP8 量化融合](#2026-11-20-gfx938-qwen-gdn-门控归一化与-fp8-量化融合)
 - [2026-11-19：DeepSeek-V4 TopK v2 JIT](#2026-11-19-deepseek-v4-topk-v2-jit)
@@ -1466,6 +1468,43 @@ bw46 HCU 4/5 在同一容器、同一 DTK 和同一 TP2 配置串行运行基线
 单请求合成输入，固定输出 128 token，丢弃首轮后各取七次中位数。输入 128 token 时，TTFT 244.95→226.99 ms，decode 131.20→132.27 tok/s。输入 2048 token 时，TTFT 251.74→242.41 ms，decode 131.01→132.09 tok/s。两组负载的每轮请求均执行 32 轮 verify。这组单卡对串行对照用于烟测，TTFT 观测区间重叠。其他模型、批量和完整精度评测未执行。
 
 L0、三个定向测试、导览生成和 `git diff --check` 通过。完整 unittest 在当前 venv 留有两项启动测试失败，干净 HEAD 复现同样失败。原始算子与服务证据保存在本轮服务器实验目录。
+
+## 2026-11-24 gfx938 Qwen Add、Gemma RMSNorm 与 FP8 量化融合
+
+`SGLANG_HCU_QWEN_RMS_FP8_FUSION=1` 将 Qwen TP1 decoder 的 residual add、
+Gemma RMSNorm 和逐 token E4M3FN 量化交给 LightOp
+`gemma_rms_norm_per_token_fp8_quant`。插件要求 gfx938、行连续且对齐的
+BF16 `[M, 5120]` 输入与 residual，以及配对的动态 activation、
+channel weight FP8 投影。开关默认关闭。
+
+融合写回 residual 和 BF16 归一化结果，GDN 的 `in_proj_ba` 继续使用
+BF16。插件在同一 decoder 调用内把量化结果传给配对的
+`qkv_proj`、`in_proj_qkvz` 或 `gate_up_proj`，跳过对应 GEMM 前的独立量化。
+无 residual、合并 in-proj、序列并行、未支持的布局或 LightOp 导出缺失时
+保持既有路径。
+
+LightOp 的这一 FP8 内核用 BF16 舍入后的 residual sum 计算 RMS。
+分步 Gemma RMSNorm 用 FP32 residual sum 做归一化。残差写回语义一致，
+归一化结果、FP8 与 scale 可能有数值差异。定向数据流覆盖见
+`tests/runtime/qwen_rms_fp8.py`。
+
+Qwen3.8-27B Channel FP8 的 gfx938 TP1 部署使用当前接入的运行时副本，
+在 DTK 26.10、SGLang 0.5.22 和 MTP 3/1/4 下验证真实生成。9 次 BS1 VERIFY
+Graph replay 中每次都执行 127 个 Add RMSNorm FP8 kernel。组件对拍覆盖
+eager 与换输入 Graph replay，residual 写回逐位一致，反量化输出的最大
+相对 L2 差异为 1.83%。部署检查的范围是算子对拍和服务冒烟。
+
+## 2026-11-24 gfx938 Qwen SiLU mul 与 FP8 量化融合
+
+`SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT=1` 使 Qwen MLP 把连续 BF16 GateUp
+送入现有 RowParallelLinear 的 LightOp SiLU mul + 逐 token E4M3FN 融合。
+动态通道 FP8 的 down_proj 接收量化结果和 FP32 scale，复用既有 GEMM。
+没有匹配的硬件、布局或 FP8 消费者时，继续执行原有激活和量化。
+
+LightOp 的通用路径使用最小 scale。Qwen TP1 的 17408 宽用通用内核，
+在上述部署的每次 BS1 VERIFY Graph replay 中执行 64 个 SiLU mul FP8
+kernel。组件对拍中反量化输出的最大相对 L2 差异为 0.16%。调用和回退
+测试见 `tests/runtime/qwen_silu_fp8.py`。
 
 ## 2026-11-20 gfx938 Qwen GDN 门控归一化与 FP8 量化融合
 
