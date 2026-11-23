@@ -4418,3 +4418,9 @@ GEMM 由 DeepGEMM 执行。算子声明 `output` 可写，真实实现和 fake �
 的组件探针在 `aot_eager` 和 Inductor 下均与 eager 逐元素一致，且 Combine 入口收到
 调用方提供的原始 GEMM2 输出地址。普通 CUDA Graph 更换输入重放两次也通过。真实双节点
 RDMA 与注册通信缓冲区仍待服务验证。
+
+## GLM-5.3 W4A8 HiSparse PD Decode 容量
+
+对齐框架 [#70](https://github.com/maxiaobetter/sglang-das/pull/70) 的 Channel W4A8、FP8 KV、DCP=1 配置。目标 Index-K 与逻辑分配器按完整页取整，MTP draft 从分配器读取相同的地址空间。PD Decode worker 用逻辑池容量计算请求上限，设备热池仍按物理容量分配。发布基线的 Mooncake MLA host 注册已使用 CPU 张量地址。
+
+本次验证限于本地容量计算、配置分发与静态检查。真实双节点 Mooncake、EAGLE 换输入回放、1M 请求输出及性能仍待验证。
