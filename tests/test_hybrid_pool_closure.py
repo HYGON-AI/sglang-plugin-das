@@ -17,6 +17,15 @@ INPUT = ROOT.parent / "input-code"
 
 
 class HybridPoolClosureTests(unittest.TestCase):
+    def setUp(self):
+        # The closure compares the two input trees next to the checkout, the
+        # same dependency test_l2norm_migration and test_hook_target_resolvability
+        # skip on when the layout is not there.
+        for tree, label in (("sglang", "official sglang tree"),
+                            ("sglang-das", "sglang-das source tree")):
+            if not (INPUT / tree / CHECK.REL).is_file():
+                self.skipTest(f"{label} is not next to the plugin checkout")
+
     def sources(self):
         official = (INPUT / "sglang" / CHECK.REL).read_text()
         das = (INPUT / "sglang-das" / CHECK.REL).read_text()
