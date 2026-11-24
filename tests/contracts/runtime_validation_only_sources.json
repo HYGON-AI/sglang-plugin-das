@@ -292,12 +292,12 @@
       "source": "python/sglang/srt/layers/quantization/slimquant_w4a8_marlin.py",
       "owned": "hcu_sglang/layers/quantization/slimquant_w4a8_marlin.py",
       "source_ast_sha256": "701c5f07613aa0a64030b73ea40e45b092aec8ad9ab8ce2d7465e957e6c892ce",
-      "owned_ast_sha256": "4e5778879f87d95e21570f643d31da6ac6e862a52f35e77015028159da2c13c3",
+      "owned_ast_sha256": "26f01c2ebc49d317bc94056be58bf4c89c1b1977239d7ad0ab9e7d74a8e683ca",
       "callers": [
         "hcu_sglang/layers/quantization/slimquant_w4a8.py",
         "hcu_sglang/layers/quantization/registry.py"
       ],
-      "adaptation": "Owned AST moved on from source_head through GLM-5.3 CT W4A8 integration (PR #23, 82b8609); Kimi W4A8 triton MoE SituGLU (ba71325); HY4 compressed-tensors W4A8 checkpoints (PR #39, 9543829); Qwen3.8-Flash-Next W4A8 and INT8 PLE (PR #14, d78af8c); SlimQuant DeepEP HIPC and DSpark runtime paths (PR #44, 6769d89); release-to-main picks #68/#37/#69/#65 (PR #79, 1857497); HYV4 packed W4A8 experts through HCU DeepEP (f821d11); MiniMax-M3.1 wiring (346ea3e); W4A8 prefill activation fusion (8384ef7)."
+      "adaptation": "Owned AST moved on from source_head through GLM-5.3 CT W4A8 integration (PR #23, 82b8609); Kimi W4A8 triton MoE SituGLU (ba71325); HY4 compressed-tensors W4A8 checkpoints (PR #39, 9543829); Qwen3.8-Flash-Next W4A8 and INT8 PLE (PR #14, d78af8c); SlimQuant DeepEP HIPC and DSpark runtime paths (PR #44, 6769d89); release-to-main picks #68/#37/#69/#65 (PR #79, 1857497); HYV4 packed W4A8 experts through HCU DeepEP (f821d11); MiniMax-M3.1 wiring (346ea3e); W4A8 prefill activation fusion (8384ef7); us-sync #121 then brought the release-line #112 version of the owned file, row re-pinned at the #125 merge follow-up."
     }
   ]
 }
