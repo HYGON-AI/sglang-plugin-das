@@ -101,19 +101,24 @@ class W4A8KimiSituTests(unittest.TestCase):
         def fake_impl(*a,**k):
             captured.update(k);return a[0]
         # full kimi runner config (situ + both betas), then a silu-shaped
-        # config carrying no gemm1_* at all: betas must default, not crash
-        for rc,want_beta,want_lb,want_rsf in (
-            (dict(routed_scaling_factor=1.5,apply_router_weight_on_input=False,num_experts=8,activation='situ',gemm1_alpha=1.25,gemm1_clamp_limit=8.0),1.25,8.0,1.5),
-            (dict(routed_scaling_factor=None,apply_router_weight_on_input=False,num_experts=8,activation='situ'),1.0,None,1.0),
+        # config carrying no gemm1_* at all: betas must default, not crash;
+        # then a silu config carrying a SwiGLU limit: the limit must reach
+        # the Triton route. The stubs mirror the MoeRunnerConfig fields
+        # _apply_triton reads, swiglu_limit included.
+        for rc,want_beta,want_lb,want_rsf,want_limit in (
+            (dict(routed_scaling_factor=1.5,apply_router_weight_on_input=False,num_experts=8,activation='situ',gemm1_alpha=1.25,gemm1_clamp_limit=8.0,swiglu_limit=None),1.25,8.0,1.5,None),
+            (dict(routed_scaling_factor=None,apply_router_weight_on_input=False,num_experts=8,activation='situ',swiglu_limit=None),1.0,None,1.0,None),
+            (dict(routed_scaling_factor=1.0,apply_router_weight_on_input=False,num_experts=8,activation='silu',swiglu_limit=7.0),1.0,None,1.0,7.0),
         ):
             method.moe_runner_config=SimpleNamespace(**rc)
             with patch.object(Q,'get_moe_cache',lambda *a,**k:None),patch.object(Q,'fused_experts_impl_w4a8_triton',fake_impl):
                 out=method._apply_triton(layer,x,w,ids,rc['activation'])
             self.assertIs(out,x)
-            self.assertEqual(captured['activation'],'situ')
+            self.assertEqual(captured['activation'],rc['activation'])
             self.assertEqual(captured['situ_beta'],want_beta)
             self.assertEqual(captured['situ_linear_beta'],want_lb)
             self.assertEqual(captured['routed_scaling_factor'],want_rsf)
+            self.assertEqual(captured['swiglu_limit'],want_limit)
 
     @unittest.skipUnless(torch.cuda.is_available(),'GPU unavailable')
     def test_real_triton_moe_situ_matches_kimi_reference(self):

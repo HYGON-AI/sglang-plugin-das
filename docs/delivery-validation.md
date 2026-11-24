@@ -437,3 +437,7 @@ python3 tools/build_guide.py --check → Guide is up to date
 导览重建与 `--check`、L0、`git diff --check` 及桌面/390px 窄屏导览渲染和搜索/跳转交互纳入本次提交验收，日志与截图保留于本批次产物。当前复验日志位于 `${PLUGIN_ROOT}/artifacts/single-stream-pr-20261104`，原始服务/性能证据为独立批次 `qwen38-tp2-mtp-gdn-ab-20261104`，ignored 产物不随 Git 推送；共享统计、固定版本与解释已写入开发记录。
 
 收益限 gfx936、BF16 Qwen3.8-27B、TP2、batch1、指定 NEXTN/Graph/后端配置。1024→32 的 E2E 中位数下降 1.06%，decode-after-first 下降 1.41%；4096→1 prefill 增加 0.29%，每模式仅两个独立启动，未作全场景或严格零影响承诺。量化、其他模型/架构、短 prefill Graph、PD、并发及 wheel/embedded 未验收。提交对齐上游重写后的 `9755678`；与测量基线 `0aa4114` 相比仅协作规范变化，运行时代码一致。本轮提交评审，不包含合入或发布。
+
+## 2026-11-21 MiniMax CP8EP8 Prefill 试验分支
+
+交付范围为 zigzag FlashMLA 合批和共享专家 early。新增 CPU 契约测试覆盖其参数传递、回退及流等待顺序。真实 HCU 算子、两节点 RSC 和 CPU/GPU trace 为分支整理前的原实验结果。合批关闭时使用原分段，完整推荐服务配方使用 split。硬件复验边界、开关与历史结果见[开发记录](hcu-sglang-development.md#2026-11-21-minimax-w4a8-两节点-cp8ep8-prefill-试验)。
