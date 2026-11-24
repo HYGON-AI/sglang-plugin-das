@@ -4645,3 +4645,14 @@ SHA-256 结果保持历史证据口径。未修改导览模板或交互，未执
 推送前 release 又合入 `18c716b`（#124，GLM-5.3 Channel FP8 HiSparse 池容量修复），
 已完整保留该提交的运行时代码和记录，并重新生成导览。上述全量单测对照以
 `ba442a0` 为准；最终同步另执行 L0、导览检查及导览单测。
+
+## 2026-11-23 DeepSeek V4 0731 HCU MegaMoE Prefill
+
+在 SGLang 0.5.22 的 CUDA 平台语义下，Plugin 用参数校验 Hook 接入真实 HCU 的 `slimquant_marlin` MegaMoE Prefill 路径。Hook 根据 HCU、MoE 后端、MegaMoE runtime 和 overlap 配置选择兼容分支。量化格式由后续的权重准备和执行路径处理。其他配置交回原校验函数。
+
+测试部署使用 CP8/EP8、每 rank 4096 token cap，从 0.5.18 的 `91cdff` 包提取的源码重编译 `megamoe` Python 3.12 扩展。目标为 DTK 26.10、`gfx936` 和 code object v5。DSPARK draft 与 Decode 继续使用 DeepEP 和 DeepGEMM。
+
+完整参数解析、W4A8 GPU 原语和 1P1D 冒烟通过。请求日志记录 `runtime=megamoe quant=w4a8 cap=4096 factory=megamoe`，Prefill worker 加载了新扩展。相同输入 ID 的单请求 4K/128K 场景各生成 1024 token，缓存命中为 0，端到端分别耗时 6.99 秒和 11.12 秒。当前验证覆盖 CP8/EP8 的 W4A8 Prefill。
+
+移除部署角色和量化判断后，复验了 Hook 的放行与回退分支。上述 GPU 和性能结果来自此前的 W4A8 Prefill 部署。
+

@@ -119,6 +119,7 @@
     "sglang.srt.arg_groups.deepseek_v4_hook.validate_deepseek_v4_cp",
     "sglang.srt.arg_groups.hisparse_hook.validate_hisparse_dsa_backend",
     "sglang.srt.arg_groups.hisparse_hook.validate_hisparse_feature_combos",
+    "sglang.srt.arg_groups.mega_moe_hook.check_mega_moe_compat",
     "sglang.srt.arg_groups.model_hook._dsa_split_backend_resolution",
     "sglang.srt.arg_groups.overrides._attention_backend_fa3_fp8_fallback",
     "sglang.srt.arg_groups.parallel_hook.handle_eplb_and_dispatch",
