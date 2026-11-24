@@ -1011,8 +1011,24 @@
       "target": "hcu_sglang/layers/quantization/quant_ops.py",
       "source": "python/sglang/srt/layers/quantization/compressed_tensors/quant_ops.py",
       "source_sha256": "3bca0050f22b43b6cc084f6f2f6ff1a9e73fc094e2247307463d0b5d796e23da",
-      "target_sha256": "60a56546d0e844d4b24599dd4f902a900b7a2a85f258acb926c9c0736bdcb80f",
+      "target_sha256": "201d294acf5273537d12e21633de8dbd398886b8053bd1ab92a9da27b5100da7",
       "reverse_replacements": [
+        [
+          "import torch\nfrom sglang.srt.environ import envs\n",
+          "import torch\n"
+        ],
+        [
+          "    if a.dim() == 2 and b.dim() == 2 and a.shape[0] == 0 and a.shape[1] == b.shape[0]:\n        return torch.empty((0, b.shape[1]), device=a.device, dtype=out_dtype)\n\n",
+          ""
+        ],
+        [
+          "    native_gemm = getattr(envs, \"SGLANG_HCU_W8A8_USE_LIGHTOP\", None)\n",
+          ""
+        ],
+        [
+          "        _is_hcu\n        and (native_gemm is None or not native_gemm.get())\n",
+          "        _is_hcu\n"
+        ],
         [
           "from hcu_sglang.utils.detection import is_hcu as is_hcu\n",
           "from sglang.srt.utils import is_hcu\n"
@@ -1310,7 +1326,7 @@
     },
     {
       "target": "hcu_sglang/mem_cache/dsa_cache_layer_split.py",
-      "target_sha256": "c099b5b776689c05210f79900a7093141307e39a7053e32e7287c76006e850dd",
+      "target_sha256": "eb8782f3f2c890a8dbe5760aa2fc0bb13f2a928b579833e4334d36cb82d60421",
       "definition_contract": "tests/contracts/runtime_reviewed_definitions.json",
       "sources": [
         {

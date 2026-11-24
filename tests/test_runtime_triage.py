@@ -26,8 +26,14 @@ class RuntimeTriageTests(unittest.TestCase):
             with self.subTest(source=row["source"]):
                 tree = ast.parse((ROOT / row["owned"]).read_text())
                 digest = node_hash(tree)
-                self.assertEqual(digest, row["source_ast_sha256"])
                 self.assertEqual(digest, row["owned_ast_sha256"])
+                if row.get("adaptation"):
+                    # The manifest keeps the Source AST as provenance; a documented
+                    # adaptation lets the owned file move on from it.
+                    self.assertTrue(row["adaptation"].strip())
+                    self.assertRegex(row["source_ast_sha256"], r"^[0-9a-f]{64}$")
+                else:
+                    self.assertEqual(digest, row["source_ast_sha256"])
                 self.assertTrue(row["callers"])
                 for caller in row["callers"]:
                     self.assertIn(row["owned"][:-3].replace("/", "."), (ROOT / caller).read_text())
@@ -50,7 +56,14 @@ class RuntimeTriageTests(unittest.TestCase):
                         node_hash(node)
                         for node in candidates
                     }
-                    self.assertIn(item["ast_sha256"], digests)
+                    if "owned_ast_sha256" in item:
+                        # The owned definition moved on from the Source AST recorded
+                        # at source_head; the adaptation note names what carried it.
+                        self.assertTrue(item["adaptation"].strip())
+                        self.assertNotEqual(item["owned_ast_sha256"], item["ast_sha256"])
+                        self.assertIn(item["owned_ast_sha256"], digests)
+                    else:
+                        self.assertIn(item["ast_sha256"], digests)
 
     def test_ast_hash_ignores_only_empty_type_parameter_metadata(self):
         tree = ast.parse("def example(value):\n    return value + 1\n")

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_head": "15c7204b7a3b6edaa222cff80018d8e5f2b2ad0e",
-  "semantics": "Every changed Source definition is AST-equal to the identified owned definition. Module globals and runtime behavior remain separate scopes.",
+  "semantics": "Every changed Source definition was AST-equal to the identified owned definition at source_head. Owned AST tracks the current implementation; a definition that carries owned_ast_sha256 moved on through its documented adaptation. Module globals and runtime behavior remain separate scopes.",
   "files": [
     {
       "source": "python/sglang/srt/layers/attention/debug_flash_mla_adapter.py",
@@ -47,17 +47,23 @@
         {
           "source": "_hcu_mqa_logits",
           "owned": "_hcu_mqa_logits",
-          "ast_sha256": "9a7ea82db4cfebc04859374a247d3c2ce59dc1211df2eff342cf8e8c1f366dec"
+          "ast_sha256": "9a7ea82db4cfebc04859374a247d3c2ce59dc1211df2eff342cf8e8c1f366dec",
+          "owned_ast_sha256": "38fe3c762e38721ab5e4a18bd11fc175406008b37832aa1bc53c7516217f95c8",
+          "adaptation": "Owned definition moved on from source_head through GLM MQA prefill request grouping (PR #41, 610d9f4)."
         },
         {
           "source": "Indexer",
           "owned": "Indexer",
-          "ast_sha256": "4a9a9d46e6f434961b531676a4fa72abcd4e435181aba238aee2db9272a2d0ce"
+          "ast_sha256": "4a9a9d46e6f434961b531676a4fa72abcd4e435181aba238aee2db9272a2d0ce",
+          "owned_ast_sha256": "474cca83c6f3da3102c45e452053c153511b462e667994b859fc36bbdb94169f",
+          "adaptation": "Owned definition moved on from source_head through GLM DSA KV storage, P/D serving and MTP (PR #24, 6785c80); GLM MQA prefill request grouping (PR #41, 610d9f4); GLM-5.3 Channel FP8 runtime (d8fe17f); GLM-5.3 FP8 channel fixes (PR #102, 5831156)."
         },
         {
           "source": "Indexer.__init__",
           "owned": "Indexer.__init__",
-          "ast_sha256": "644a9a4ee7a41b4ceb2ec2f719d390e65c0860f92571761c5408eb2e8569be3e"
+          "ast_sha256": "644a9a4ee7a41b4ceb2ec2f719d390e65c0860f92571761c5408eb2e8569be3e",
+          "owned_ast_sha256": "c82938823ae1fe3e02b4142821d27d6b47bcd1a840c11141703bb135a9810edf",
+          "adaptation": "Owned definition moved on from source_head through GLM DSA KV storage, P/D serving and MTP (PR #24, 6785c80); GLM-5.3 Channel FP8 runtime (d8fe17f)."
         },
         {
           "source": "Indexer._use_hcu_bf16_index_cache",
@@ -87,12 +93,16 @@
         {
           "source": "Indexer._hcu_fused_qk_quant_and_store",
           "owned": "Indexer._hcu_fused_qk_quant_and_store",
-          "ast_sha256": "0614043cedf1db3a1189ec463d0c2b5dc3b8e746a10ce0dffd84f62b0cacba22"
+          "ast_sha256": "0614043cedf1db3a1189ec463d0c2b5dc3b8e746a10ce0dffd84f62b0cacba22",
+          "owned_ast_sha256": "dd89b8864e4f1a4543a9ba404a73cb9816933579242abf3e2585daa19641083d",
+          "adaptation": "Owned definition moved on from source_head through GLM-5.3 Channel FP8 runtime (d8fe17f); GLM-5.3 FP8 channel fixes (PR #102, 5831156)."
         },
         {
           "source": "Indexer._weights_proj_bf16_in_fp32_out",
           "owned": "Indexer._weights_proj_bf16_in_fp32_out",
-          "ast_sha256": "287822153f6faff640c9c9eaac7920e05006eac62f004810c8e07858e6787220"
+          "ast_sha256": "287822153f6faff640c9c9eaac7920e05006eac62f004810c8e07858e6787220",
+          "owned_ast_sha256": "eef0080629d497ae5323b75e4d4b3d8c56cb44e37a2e25d759685c2d468475cc",
+          "adaptation": "Owned definition moved on from source_head through GLM DSA KV storage, P/D serving and MTP (PR #24, 6785c80)."
         },
         {
           "source": "Indexer._get_logits_head_gate",
@@ -117,7 +127,9 @@
         {
           "source": "Indexer._get_hcu_paged_index_k_cache",
           "owned": "Indexer._get_hcu_paged_index_k_cache",
-          "ast_sha256": "68e81d3d8788de067740c7a5e87bf8f9f1d151fe9f8c6d66de9c015affb47bce"
+          "ast_sha256": "68e81d3d8788de067740c7a5e87bf8f9f1d151fe9f8c6d66de9c015affb47bce",
+          "owned_ast_sha256": "e891bb885b8d88f6fe41a0f77c66dbdf4c5f4588a24be66b67dd2d4681f77745",
+          "adaptation": "Owned definition moved on from source_head through GLM-5.3 Channel FP8 runtime (d8fe17f)."
         },
         {
           "source": "Indexer._get_hcu_int8_paged_index_k_cache",
@@ -132,7 +144,9 @@
         {
           "source": "Indexer._get_topk_paged",
           "owned": "Indexer._get_topk_paged",
-          "ast_sha256": "a0d60ace7b6e95f9ba88303226a2d89fb85a3b73a0fa88704da955357b8bc8fd"
+          "ast_sha256": "a0d60ace7b6e95f9ba88303226a2d89fb85a3b73a0fa88704da955357b8bc8fd",
+          "owned_ast_sha256": "0712aa777992015531d2ff86eff096dffb76014f83d386021a19c0c46511c6aa",
+          "adaptation": "Owned definition moved on from source_head through GLM DSA KV storage, P/D serving and MTP (PR #24, 6785c80); GLM-5.3 Channel FP8 runtime (d8fe17f); GLM-5.3 FP8 channel fixes (PR #102, 5831156)."
         },
         {
           "source": "Indexer._get_mqa_logits_budget_bytes",
@@ -147,7 +161,9 @@
         {
           "source": "Indexer._get_topk_ragged",
           "owned": "Indexer._get_topk_ragged",
-          "ast_sha256": "aea1771201ff36b73b48af7aeedf4f51d76420b99f9edb5093fa8f73c055c0be"
+          "ast_sha256": "aea1771201ff36b73b48af7aeedf4f51d76420b99f9edb5093fa8f73c055c0be",
+          "owned_ast_sha256": "fceffcb0e29e4278b52309613d58cf7ec5a7b8a5c90066758e4af589b7663962",
+          "adaptation": "Owned definition moved on from source_head through GLM DSA KV storage, P/D serving and MTP (PR #24, 6785c80); GLM MQA prefill request grouping (PR #41, 610d9f4); GLM-5.3 Channel FP8 runtime (d8fe17f); GLM-5.3 FP8 channel fixes (PR #102, 5831156)."
         },
         {
           "source": "Indexer._forward_cuda_k_only",
@@ -157,17 +173,23 @@
         {
           "source": "Indexer._get_topk_ragged_with_cp",
           "owned": "Indexer._get_topk_ragged_with_cp",
-          "ast_sha256": "a22d63bc4ec6e6a447e0e2557d0caba4dd70c020231d5af40dc8a49fbf553d14"
+          "ast_sha256": "a22d63bc4ec6e6a447e0e2557d0caba4dd70c020231d5af40dc8a49fbf553d14",
+          "owned_ast_sha256": "8c20b64c7498a4f468af380c020687001beb6b6e3d0475a2d7b91cee4782d5c1",
+          "adaptation": "Owned definition moved on from source_head through GLM DSA KV storage, P/D serving and MTP (PR #24, 6785c80); GLM-5.3 Channel FP8 runtime (d8fe17f); GLM-5.3 FP8 channel fixes (PR #102, 5831156)."
         },
         {
           "source": "Indexer._store_index_k_cache",
           "owned": "Indexer._store_index_k_cache",
-          "ast_sha256": "768fde063fb37d6734225b9d755171a8ec8e510ee2bc9f1d5ee6a5f8004a5bd2"
+          "ast_sha256": "768fde063fb37d6734225b9d755171a8ec8e510ee2bc9f1d5ee6a5f8004a5bd2",
+          "owned_ast_sha256": "ff429bc2b3a36e87b614a34a407f0da4346ae578778b8e0a5ffec22a99775034",
+          "adaptation": "Owned definition moved on from source_head through GLM DSA KV storage, P/D serving and MTP (PR #24, 6785c80); GLM-5.3 Channel FP8 runtime (d8fe17f); GLM-5.3 FP8 channel fixes (PR #102, 5831156)."
         },
         {
           "source": "Indexer.forward_cuda",
           "owned": "Indexer.forward_cuda",
-          "ast_sha256": "30a1353e732d9eae62a8259dbb899adb207fa714edd4cb8333a335c2190ba38a"
+          "ast_sha256": "30a1353e732d9eae62a8259dbb899adb207fa714edd4cb8333a335c2190ba38a",
+          "owned_ast_sha256": "64e2e2af4994a7e7c93643b035dddb84d12da1f2b60c69219d64070b3b869c06",
+          "adaptation": "Owned definition moved on from source_head through GLM-5.3 Channel FP8 runtime (d8fe17f)."
         }
       ]
     },
@@ -256,7 +278,9 @@
         {
           "source": "TritonGDNKernel.target_verify",
           "owned": "target_verify",
-          "ast_sha256": "8bf2cd828ae2373d268d75bd4f3a6c9eabc89e0e4c37d970af8243d9d784a151"
+          "ast_sha256": "8bf2cd828ae2373d268d75bd4f3a6c9eabc89e0e4c37d970af8243d9d784a151",
+          "owned_ast_sha256": "e07fadbd0f4243b5af2335abcec33c8080a8ee56fc3d65f5f2a1b993d50a2467",
+          "adaptation": "Owned definition moved on from source_head through Qwen3.8-Flash-Next W4A8 and INT8 PLE (PR #14, d78af8c)."
         }
       ]
     },

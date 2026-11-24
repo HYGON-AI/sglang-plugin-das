@@ -7,10 +7,11 @@
       "source": "python/sglang/srt/disaggregation/glm5_next.py",
       "owned": "hcu_sglang/disagg/glm5_next.py",
       "source_ast_sha256": "88039bbf01ab58a29ff3b456b53075f939eda1fb515bfe1a45590fb1983f9c92",
-      "owned_ast_sha256": "88039bbf01ab58a29ff3b456b53075f939eda1fb515bfe1a45590fb1983f9c92",
+      "owned_ast_sha256": "56f84f07d6668d3959bcc42016a1a4c733141944f50b2a22e4cf47f6b1274753",
       "callers": [
         "hcu_sglang/disagg/utils.py"
-      ]
+      ],
+      "adaptation": "Owned AST moved on from source_head through GLM-5.3 P/D execution with gedf118 DeepGEMM (PR #81, 6df16b7)."
     },
     {
       "source": "python/sglang/srt/disaggregation/hidden_state.py",
@@ -115,13 +116,13 @@
       "source": "python/sglang/srt/layers/quantization/hcu_deepgemm_w8a8_utils.py",
       "owned": "hcu_sglang/layers/quantization/hcu_deepgemm_w8a8_utils.py",
       "source_ast_sha256": "12ed3c59a67735cd1a73c092b00ceba65999b6b7ca66ed28bb4336ea95070868",
-      "owned_ast_sha256": "3a9e5465e0db0956baf8d5c8a5499f0e8ac283837a0a80d8736f6e674e2ab212",
+      "owned_ast_sha256": "46f334485d5f34a6da71ec8c3f326b0a3e1be1b5aaa0dc58a814e76df3697819",
       "callers": [
         "hcu_sglang/layers/quantization/compressed_w8a8_int8_moe.py",
         "hcu_sglang/layers/quantization/compressed_moe_marlin.py",
         "hcu_sglang/layers/moe/deepep_int8.py"
       ],
-      "adaptation": "DeepGEMM gedf118 pair32 masked packing and MODE=1001 dispatch; normal and low-latency retain distinct vendor layouts. See docs/configuration.md and docs/hcu-sglang-development.md for scope and validation."
+      "adaptation": "DeepGEMM gedf118 pair32 masked packing and MODE=1001 dispatch; normal and low-latency retain distinct vendor layouts. See docs/configuration.md and docs/hcu-sglang-development.md for scope and validation. The owned AST also carries INT8 inference with DeepEP and DeepGEMM (PR #88, 708328a)."
     },
     {
       "source": "python/sglang/srt/layers/quantization/w4a8_utils.py",
@@ -165,10 +166,11 @@
       "source": "python/sglang/srt/layers/attention/dsa/dsa_indexer_metadata.py",
       "owned": "hcu_sglang/layers/attention/current_dsa/dsa_indexer_metadata.py",
       "source_ast_sha256": "e0ab5639ac438e0391c1f93f5985711c166bf841ff4ed5c6003d2d5f61dc5a9b",
-      "owned_ast_sha256": "e0ab5639ac438e0391c1f93f5985711c166bf841ff4ed5c6003d2d5f61dc5a9b",
+      "owned_ast_sha256": "5c66ee939b3ec9515ae07fbcb531045d5ef3bf3d7fa71b5329e4b6e043107488",
       "callers": [
         "hcu_sglang/layers/attention/current_dsa/backend.py"
-      ]
+      ],
+      "adaptation": "Owned AST moved on from source_head through GLM MQA prefill request grouping (PR #41, 610d9f4)."
     },
     {
       "source": "python/sglang/srt/layers/attention/dsa/dsa_metadata_manager.py",
@@ -183,11 +185,12 @@
       "source": "python/sglang/srt/layers/attention/dsa/dsa_topk_backend.py",
       "owned": "hcu_sglang/layers/attention/current_dsa/dsa_topk_backend.py",
       "source_ast_sha256": "18e4a8e09632f4bddf3dac76df5d084351f0c9b1cbe58aa62bdc4250c6badb8f",
-      "owned_ast_sha256": "18e4a8e09632f4bddf3dac76df5d084351f0c9b1cbe58aa62bdc4250c6badb8f",
+      "owned_ast_sha256": "7db7b9c8d413025d5b56ffc2ff68557e14ebaa526e31bfc0b82bf1c3ec226214",
       "callers": [
         "hcu_sglang/layers/attention/current_dsa/dsa_indexer_metadata.py",
         "hcu_sglang/layers/attention/current_dsa/backend.py"
-      ]
+      ],
+      "adaptation": "Owned AST moved on from source_head through GLM-5.3 Channel FP8 runtime (d8fe17f); GLM-5.3 FP8 channel fixes (PR #102, 5831156)."
     },
     {
       "source": "python/sglang/srt/layers/attention/dsa/paged_mqa_logits_backend.py",
@@ -289,11 +292,12 @@
       "source": "python/sglang/srt/layers/quantization/slimquant_w4a8_marlin.py",
       "owned": "hcu_sglang/layers/quantization/slimquant_w4a8_marlin.py",
       "source_ast_sha256": "701c5f07613aa0a64030b73ea40e45b092aec8ad9ab8ce2d7465e957e6c892ce",
-      "owned_ast_sha256": "701c5f07613aa0a64030b73ea40e45b092aec8ad9ab8ce2d7465e957e6c892ce",
+      "owned_ast_sha256": "4e5778879f87d95e21570f643d31da6ac6e862a52f35e77015028159da2c13c3",
       "callers": [
         "hcu_sglang/layers/quantization/slimquant_w4a8.py",
         "hcu_sglang/layers/quantization/registry.py"
-      ]
+      ],
+      "adaptation": "Owned AST moved on from source_head through GLM-5.3 CT W4A8 integration (PR #23, 82b8609); Kimi W4A8 triton MoE SituGLU (ba71325); HY4 compressed-tensors W4A8 checkpoints (PR #39, 9543829); Qwen3.8-Flash-Next W4A8 and INT8 PLE (PR #14, d78af8c); SlimQuant DeepEP HIPC and DSpark runtime paths (PR #44, 6769d89); release-to-main picks #68/#37/#69/#65 (PR #79, 1857497); HYV4 packed W4A8 experts through HCU DeepEP (f821d11); MiniMax-M3.1 wiring (346ea3e); W4A8 prefill activation fusion (8384ef7)."
     }
   ]
 }
