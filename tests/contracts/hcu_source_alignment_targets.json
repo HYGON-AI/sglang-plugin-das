@@ -800,7 +800,6 @@
     "sglang.srt.speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2._forward_decode",
     "sglang.srt.speculative.dspark_components.dspark_worker_v2.DSparkWorkerV2.init_cuda_graphs",
     "sglang.srt.speculative.eagle_utils._can_use_sparse_uno_tree_target_sampling",
-    "sglang.srt.speculative.eagle_utils._sync_eagle_verify_outputs",
     "sglang.srt.speculative.eagle_utils._verify_uses_greedy",
     "sglang.srt.speculative.eagle_utils.eagle_sample",
     "sglang.srt.speculative.eagle_utils.verify_tree_greedy_func",
