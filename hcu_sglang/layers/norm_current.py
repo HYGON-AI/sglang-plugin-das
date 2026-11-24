@@ -24,7 +24,7 @@ import torch
 from torch import nn
 from lightop import op
 from sglang.srt.layers import layernorm as N
-from hcu_sglang.layers import qwen_rms_int8
+from hcu_sglang.layers import qwen_rms_fp8, qwen_rms_int8
 from hcu_sglang.utils.detection import is_hcu
 
 _is_hcu = is_hcu()
@@ -246,21 +246,24 @@ def around_gemma_forward_hip(original, self, x, residual=None, post_residual_add
     if not is_hcu():
         return original(self, x, residual, post_residual_addition)
     if (
-        qwen_rms_int8.enabled
-        and post_residual_addition is None
+        post_residual_addition is None
         and not (N._use_aiter and N._has_rocm_triton_gemma_rms_norm)
     ):
-        fused = qwen_rms_int8.try_fused_norm(self, x, residual)
-        if fused is not None:
-            return fused
+        for fusion in (qwen_rms_int8, qwen_rms_fp8):
+            if fusion.enabled:
+                fused = fusion.try_fused_norm(self, x, residual)
+                if fused is not None:
+                    return fused
     return gemma_forward_hip(self, x, residual, post_residual_addition)
 
 
 def around_gemma_forward_cuda(original, self, x, residual=None, post_residual_addition=None):
     if post_residual_addition is None:
-        fused = qwen_rms_int8.try_fused_norm(self, x, residual)
-        if fused is not None:
-            return fused
+        for fusion in (qwen_rms_int8, qwen_rms_fp8):
+            if fusion.enabled:
+                fused = fusion.try_fused_norm(self, x, residual)
+                if fused is not None:
+                    return fused
     return original(self, x, residual, post_residual_addition)
 
 
@@ -272,7 +275,7 @@ def register_hooks():
         around_gemma_forward_hip,
         HookType.AROUND,
     )
-    if qwen_rms_int8.enabled:
+    if qwen_rms_int8.enabled or qwen_rms_fp8.enabled:
         HookRegistry.register(
             "sglang.srt.layers.layernorm.GemmaRMSNorm.forward_cuda",
             around_gemma_forward_cuda,
