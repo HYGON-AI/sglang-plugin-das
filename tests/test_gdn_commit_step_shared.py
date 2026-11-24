@@ -50,6 +50,19 @@ def _reference_rows(prev_buf, rows, cache_steps, draft):
     return s64, prev, store, store_row.to(torch.int32), h0.to(torch.int32)
 
 
+def _handoff_on(test):
+    """Operator switch on and the operator library importable.
+
+    seed, commit and compensate gate on both (``gdn_recurrent.overlay_enabled``)
+    before any of the arithmetic under test runs, so the library is stood in
+    the way the sibling commit tests do.
+    """
+    for patcher in (patch.dict(os.environ, {"SGLANG_GDN_HIP": "1"}),
+                    patch.object(gdn_recurrent, "_gdn", object())):
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 class SharedStepTest(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(0)
@@ -268,9 +281,7 @@ class SeedPrevTest(unittest.TestCase):
         self.backend = types.SimpleNamespace(
             req_to_token_pool=types.SimpleNamespace(
                 size=POOL_ROWS, _alloc_size=POOL_ROWS + 1))
-        env = patch.dict(os.environ, {"SGLANG_GDN_HIP": "1"})
-        env.start()
-        self.addCleanup(env.stop)
+        _handoff_on(self)
         self.params = _params()
         st = gdn_commit.state(self.backend)
         st.prev = None
@@ -315,9 +326,7 @@ class SeedPrevTest(unittest.TestCase):
 class CommitPrevTest(unittest.TestCase):
     def setUp(self):
         self.backend = types.SimpleNamespace()
-        env = patch.dict(os.environ, {"SGLANG_GDN_HIP": "1"})
-        env.start()
-        self.addCleanup(env.stop)
+        _handoff_on(self)
         st = gdn_commit.state(self.backend)
         st.prev = torch.full((SCRATCH_ROWS,), -1, dtype=torch.int32)
         st.commit_failed = False
@@ -392,9 +401,7 @@ class CompensateMaskTest(unittest.TestCase):
     the whole recurrence for a snapshot write it never makes."""
 
     def setUp(self):
-        env = patch.dict(os.environ, {"SGLANG_GDN_HIP": "1"})
-        env.start()
-        self.addCleanup(env.stop)
+        _handoff_on(self)
         self.rows = torch.tensor([0, 1, 2, 3], dtype=torch.int32)
         self.prev = torch.tensor([-1, 0, 2, 0, 3][:SCRATCH_ROWS]
                                  + [-1] * (SCRATCH_ROWS - 5),

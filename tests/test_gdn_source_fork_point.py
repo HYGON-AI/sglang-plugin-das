@@ -24,10 +24,13 @@ import unittest
 SOURCE = (Path(__file__).resolve().parents[1]
           / "hcu_sglang/layers/attention/linear/gdn_source.py")
 
+# Digests of the definitions as merged in #72 (b8ea993). The digests first
+# committed with this test did not match that file on any main commit, so the
+# test was red from the day it landed; re-pinned to the reviewed merge state.
 PINNED = {
-    "_convolve_prefill": "fe7aaa59df57eea618e8bfd20420ba4a8146360690e4e55f094e91ff7c5ebf00",
-    "forward_extend": "6401fc873f5a501844e64517b1a481f21770714a3151ff2544cbecdcedf6d58f",
-    "_verify_attempt": "b60f0930b6de7e68e14283c70db21701eb318037530ebeb5afdc1a6b42938da5",
+    "_convolve_prefill": "685e9a08dbf278b2765f528dbeec6eeb3ce66d92fb4a1cf40d939692353039b0",
+    "forward_extend": "ece02c94499c87efb13b614e74d2615cc5e89fbe312952d6473f9bfb23282b67",
+    "_verify_attempt": "7699ece34c2620ff555fa8f606577e5ff51aa1f3fbbfc307fb28867f856c4185",
 }
 
 # The deltas that make the copy ours; losing one of these is the regression.
