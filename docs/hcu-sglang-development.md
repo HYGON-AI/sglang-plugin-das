@@ -4479,3 +4479,13 @@ Plugin 定向 66 项、HY3 RoPE 2 项、INT8 postload 1 项通过，无跳过；
 对齐框架 [#70](https://github.com/maxiaobetter/sglang-das/pull/70) 的 Channel W4A8、FP8 KV、DCP=1 配置。目标 Index-K 与逻辑分配器按完整页取整，MTP draft 从分配器读取相同的地址空间。PD Decode worker 用逻辑池容量计算请求上限，设备热池仍按物理容量分配。发布基线的 Mooncake MLA host 注册已使用 CPU 张量地址。
 
 本次验证限于本地容量计算、配置分发与静态检查。真实双节点 Mooncake、EAGLE 换输入回放、1M 请求输出及性能仍待验证。
+
+## 2026-11-21 GLM5.2 FP8 最新 22 分支组合验证
+
+以 1d51ae5 为固定 plugin 基点，保留用户 3872dc0/#89 的既有 RoPE 方案，启动配方补齐 LightOP RoPE 开关；不新增 RoPE 实现。仅新增 current_dsa 的 LightOP planner resolver，backend/indexer 共用，非 HCU 委托原 resolver。adapter 同卡数外来 PCI guard 修复单独归仓。修复前反例、旧基点组件通过及最新组合未验收项分别记录，见 [FP8 适配记录](glm52-fp8-adaptation.md)。
+
+本轮固定组合已完成 Graph 服务、两轮各81请求文本/EAGLE统计一致、三项正常stop检查、32份逐rank trace及稳定吞吐对照。具体短输入TTFT退化、0518 profiler后会话异常和未完成数据集精度范围见 FP8 适配记录；未声明全仓合同或CPU全套通过。
+
+## 2026-11-23 PR 拆分检查
+
+LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量、设备可见）和3项gfx938 GPU/变输入Graph回归。隐藏设备时接线测试收集遇到上游 cutlass_fp8_supported 的 NoneType 比较错误，原失败保留，不记作通过。完整CPU unittest复测195项，仍为3项导入错误、13项跳过。L0与导览快照检查通过；未执行浏览器视觉验收。adapter节点门禁与triage失败另列于两仓PR说明，未以模型精度结果覆盖这些失败。仅准备Draft评审，未重复提交已有RoPE/TopK实现。
