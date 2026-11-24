@@ -5209,3 +5209,42 @@ LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量�
 完整参数解析、W4A8 GPU 原语和 1P1D 冒烟通过。请求日志记录 `runtime=megamoe quant=w4a8 cap=4096 factory=megamoe`，Prefill worker 加载了新扩展。相同输入 ID 的单请求 4K/128K 场景各生成 1024 token，缓存命中为 0，端到端分别耗时 6.99 秒和 11.12 秒。当前验证覆盖 CP8/EP8 的 W4A8 Prefill。
 
 移除部署角色和量化判断后，复验了 Hook 的放行与回退分支。上述 GPU 和性能结果来自此前的 W4A8 Prefill 部署。
+
+## MiniMax-H3 参考视频预处理
+
+将 DAS 提交 `62713c5` 的输入处理移至 diffusion 插件。HCU 先传输 uint8 帧，
+直接生成连续的 FP32 视频。VAE 仅对运行时持有的输入复用默认归一化的存储，
+重新配置自定义 transform 后回到调用方提供的实现。
+
+初次移植在 1507 镜像原插件基线、gfx938 上验证。124×768×1344 RGB 帧
+经过真实 processor 的峰值分配从 4394.25 降至 1830.94 MiB。两组各运行
+五次，归一化输出及真实 Ref2VA 权重对 17 帧小片段编码所得 FP16 latent
+均逐字节相同。该数据覆盖参考输入和编码阶段。
+
+## MiniMax-H3 去噪结束时释放 USP 显存
+
+0.5.22 已按角色、dtype 和设备复用 Ulysses all-to-all 的容量。DAS 提交
+`62713c5` 还在去噪退出时交还当前设备的缓存。插件将这一部分接到 H3
+完整去噪循环的退出路径，使后续 VAE 和请求可用这部分内存。
+在 gfx938 注入请求异常后，原始异常和已返回视图均保留。一个 256 MiB
+的实际 staging 分配在原镜像继续驻留，插件在最后一个视图释放时回收全部
+256 MiB。该检查覆盖缓存生命周期，未复现旧版 50 请求压力场景。
+
+## MiniMax-H3 HCU SubBlock 稀疏注意力
+
+从 DAS 的 `52f1e99` 迁移到 diffusion 插件。使用 `SGLANG_PLUGINS=hcu` 入口，
+设置 `--attention-backend subblock_sparse_attn` 和
+`--component-attention-backends text_encoder=torch_sdpa,transformer=subblock_sparse_attn`。
+需安装与目标 Torch、DTK 和 Python 匹配的 `dcu_bsa` wheel。本轮构建使用
+DTK 26.10、Torch 2.13、Python 3.12，并包含 gfx936 和 gfx938。
+稀疏内核使用 BF16、head_dim 128，前 10 步按原生 schedule 执行稠密注意力。
+
+插件在 HCU 上连接原生 SubBlock router 与 DCU 内核。逐行有效块数与局部尾块
+传给内核，仅排序有效前缀。内部稠密实现单独记录后端选择，外层 transformer
+仍校验显式配置是否生效。在 release 使用的 FA2 只继承基础 packed-varlen 方法时，
+HCU 通过原有 flash-attn 的变长入口执行 sBSA 的内部稠密回退。
+
+1507 镜像的初次移植在两个架构各通过 26 项原生数值测试，均通过 SGLang 后端解析和第 9/10 步
+派发检查。gfx938 的 37,736 token、14 heads 测试中，FA2 中位耗时
+45.43 ms，sBSA 含路由、排序和执行为 22.48 ms。固定稀疏计划的四个边界
+Q 行通过 FP32 参考比对。
