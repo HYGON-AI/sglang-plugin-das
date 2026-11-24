@@ -60,6 +60,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_ENABLE_HCU_CONCAT_MLA_ABSORB_Q": (EnvBool, False),
     "SGLANG_DSA_LIGHTOP_PREFILL_DEQUANT_KV": (EnvBool, False),
     "SGLANG_MOE_C_NATIVE_SORT": (EnvBool, False),
+    "SGLANG_HCU_QWEN_SILU_INT8_FUSION": (EnvBool, False),
     "SGLANG_QWEN4_COMPACT_PREFILL": (EnvBool, False),
     "SGLANG_QWEN4_LOCAL_ROUTING": (EnvBool, False),
     "SGLANG_QWEN4_ROUTED_INT8": (EnvBool, False),
