@@ -91,12 +91,18 @@ class Qwen35HookRemovedTests(unittest.TestCase):
         # hook is identified by its target, not by the prefix.
         self.assertNotIn(TARGET, text)
 
-    def test_no_module_registers_the_passthrough_self_attention_target(self):
-        offenders = []
-        for path in (ROOT / "hcu_sglang").rglob("*.py"):
-            if TARGET in _registered_targets(path.read_text()):
-                offenders.append(str(path.relative_to(ROOT)))
-        self.assertEqual(offenders, [])
+    def test_only_the_fused_rms_rope_module_registers_the_target(self):
+        # The passthrough registration stayed retired, but the target itself is
+        # hooked again: #94/#98/#104/#106 route the fused RMSNorm + RoPE
+        # KV-store wrappers through it from models/qwen/qwen3_5.py (restored
+        # together with the contract entry in b8d8db0). No other module may
+        # register it, or two AROUND wrappers stack on the same method.
+        registrants = [
+            str(path.relative_to(ROOT))
+            for path in sorted((ROOT / "hcu_sglang").rglob("*.py"))
+            if TARGET in _registered_targets(path.read_text())
+        ]
+        self.assertEqual(registrants, [str(Path("hcu_sglang/models/qwen/qwen3_5.py"))])
 
     def test_detector_flags_module_level_alias_registration(self):
         # Regression for the old qwen3_5 module: the target lived in a
@@ -117,13 +123,13 @@ def register() -> None:
             "sglang.srt.models.qwen3_5.Qwen3_5GatedDeltaNet.__init__", registered
         )
 
-    def test_declared_target_contract_no_longer_lists_it(self):
+    def test_declared_target_contract_lists_the_registered_target(self):
         import json
 
         declared = json.loads((ROOT / "tests/contracts/hcu_source_alignment_targets.json").read_text())[
             "expected_hook_targets"
         ]
-        self.assertNotIn(TARGET, declared)
+        self.assertIn(TARGET, declared)
 
 
 if __name__ == "__main__":
