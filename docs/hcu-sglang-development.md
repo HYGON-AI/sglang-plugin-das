@@ -40,6 +40,9 @@
 - [2026-11-19：DeepSeek-V4 TopK v2 JIT](#2026-11-19-deepseek-v4-topk-v2-jit)
 - [2026-11-19：DeepSeek-V4 compression JIT](#2026-11-19-deepseek-v4-compression-jit)
 - [2026-11-20：DeepSeek-V4 PD transfer import](#2026-11-20-deepseek-v4-pd-transfer-import)
+- [2026-11-20：Qwen-Image 2.1 四卡 Ulysses 直收](#2026-11-20-qwen-image-21-四卡-ulysses-直收)
+- [2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步](#2026-11-23-qwen-image-21-ulysses-直收-pr-同步)
+- [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5248,3 +5251,68 @@ HCU 通过原有 flash-attn 的变长入口执行 sBSA 的内部稠密回退。
 派发检查。gfx938 的 37,736 token、14 heads 测试中，FA2 中位耗时
 45.43 ms，sBSA 含路由、排序和执行为 22.48 ms。固定稀疏计划的四个边界
 Q 行通过 FP32 参考比对。
+
+## 2026-11-20 Qwen-Image 2.1 四卡 Ulysses 直收
+
+在 `release/sglang_v0.5.22`（基线 `8b730e0`）将实验插件的 Ulysses 直收迁入
+`hcu` 的 diffusion 注册入口。标记限定在 Qwen-Image 2.1 的目标 attention。
+单样本、Ring 1、Ulysses 多卡、HIP eager 和 Torch SDPA 满足输入条件时，
+all-to-all 将 K/V 直接写入包含 prefix 的最终缓冲区，省去接收后的拼接。
+新形状由所有 rank 共同完成逐位校验。准入失败时所有 rank 回到当前有效的框架路径。
+实现、接线和注册目标分别位于
+[直收实现](../hcu_sglang/multimodal_gen/qwen_image21_direct_recv.py)、
+[attention 注册](../hcu_sglang/multimodal_gen/attention.py)和
+[目标合同](../tests/contracts/hcu_source_alignment_targets.json)。
+
+在社区源码 `baa9befa38`、`sglang0522` 容器和四张 BW1000 上，以正式 `hcu`
+入口验证 SP4、Ulysses 4、Ring 1、TP1。BF16、1024×1024、40 步、CFG 1、
+每请求 1 张，预热后串行测量 10 条 HTTP 请求。正式插件平均 5.015 秒，
+同卡原路径平均 5.316 秒，延迟降低 5.65%。四种 prefix 长度均通过所有 rank
+校验，10 张 PNG 的 SHA256 与原路径及独立实验插件一致。其它并行配置及
+Graph 和 compile 下的端到端行为未单独测量。
+
+离线结构检查通过。全量 unittest 的 1 项失败和 2 项错误在未修改的
+`8b730e0` 基线上同样复现。
+
+## 2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步
+
+用途：将 PR #115 的 `e4c6e52` 与发布分支
+`release/sglang_v0.5.22@adcd2a5` 合并，保留目标分支的新功能及修复。
+冲突仅涉及本文的时间索引、追加记录和生成页 `architecture.html`；
+保留两边的记录，并通过 `tools/build_guide.py` 重新生成导览。
+直收实现、attention Hook 和两个注册目标相对 PR 原提交保持不变。
+
+本次在宿主 Python 3.12.6 执行 `ci/l0_gate.py`（716 Python、8 Skill）和
+导览生成/快照检查，均通过。`python3.12 -m unittest discover -s tests -v`
+对候选与未修改的 `adcd2a5` 各运行 200 项，均为 12 errors、21 skipped；
+错误测试和终端异常逐项相同，其中 10 项缺少 Torch，另 2 项为既有硬件检测
+测试替身缺少 `is_available`。全量测试未标记为通过；未新增测试错误。
+相对目标分支的 `git diff --check` 通过。
+
+本次只执行离线结构与 CPU 检查，不重新声明历史 GPU、图片精度或性能结果。
+导览模板及交互未修改，生成快照检查不代替浏览器渲染、交互和窄屏验收。
+
+## 2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新
+
+将 PR #115 的 `c6cf298` 同步到 release 基线 `18c716b`（先合并 `ba442a0`），
+包含 `c73e515` 的 LightOP MQA planner / GLM5.2 FP8 文档与示例，以及后续
+HY3、单测和 MiniMax-H3 更新。冲突位于开发记录、生成导览和注册目标合同；
+保留双方记录与目标，并重新生成导览。未删除 release 中的文档、示例或运行时脚本。
+
+相对新基线，运行时代码仍只有 `attention.py` 和
+`qwen_image21_direct_recv.py`。直收模块字节与 PR 原 head 相同，两个 Qwen
+包装函数的 AST 保持不变；新基线的 attention Hook 全部保留，仅增加原有
+Qwen 目标标记和 replicated-KV-prefix 两个 Hook。文档、生成页及这两个 Hook
+的目标合同作为配套变更保留。
+
+宿主 Python 3.12 的 L0（731 Python、8 Skill）与导览快照检查通过。
+候选和未修改的 `ba442a0` 各执行 212 项 unittest，均为 13 errors、21 skipped；
+13 项错误的测试名与终端异常逐项一致，全部是宿主缺少 Torch。未将全量单测
+记为通过。新基线相对差异的空白检查通过，没有新增删除项。
+
+本次为分支同步，未重跑四卡模型、PNG 逐位或延迟测试；此前 5.65% 和 PNG
+SHA-256 结果保持历史证据口径。未修改导览模板或交互，未执行浏览器视觉验收。
+
+推送前 release 又合入 `18c716b`（#124，GLM-5.3 Channel FP8 HiSparse 池容量修复），
+已完整保留该提交的运行时代码和记录，并重新生成导览。上述全量单测对照以
+`ba442a0` 为准；最终同步另执行 L0、导览检查及导览单测。
