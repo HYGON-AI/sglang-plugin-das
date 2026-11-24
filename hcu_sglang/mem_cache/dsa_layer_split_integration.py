@@ -151,7 +151,7 @@ class HCUKVCacheConfigurator(NativeKVCacheConfigurator):
         if isinstance(config.max_total_num_tokens, float):
             from hcu_sglang.layers.attention.hisparse import enabled
 
-            if enabled(pd_decode_only=True):
+            if enabled():
                 config = replace(config, max_total_num_tokens=int(config.max_total_num_tokens))
         return super(HCUKVCacheConfigurator, self)._derive_pool_sizes(config=config)
 
