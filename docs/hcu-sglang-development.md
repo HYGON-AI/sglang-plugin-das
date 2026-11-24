@@ -39,6 +39,8 @@
 - [2026-11-19：DeepSeek-V4 compression JIT](#2026-11-19-deepseek-v4-compression-jit)
 - [2026-11-20：DeepSeek-V4 PD transfer import](#2026-11-20-deepseek-v4-pd-transfer-import)
 
+- [2026-11-24：MiniMax H3 FA 后端透传](#2026-11-24-minimax-h3-fa-后端透传)
+
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录（卷内同链）。历史结果不代表当前代码已重新验证。
@@ -5150,3 +5152,22 @@ adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
 - 本次整理对 Hook 入参、combined 元数据、空段、score 空间上限、side-stream 顺序及 symmetric-memory 回退做 CPU 契约检查。评审补测通过真实 Python 分发入口覆盖合批 segment 2、slot 复制及缓存复用、门控和分段回退。真实 HCU 数值与 RSC 的数据来自原实验版本。整理后的提交尚未复跑完整 HCU 服务。
 
 最终性能配方选固定 EPLB、split、packed FP8 CP KV 和 adapter 的请求广播压缩。两项插件试验都由独立开关控制。Adapter 压缩作用在 CPU 广播的私有载荷层。
+
+## 2026-11-24 MiniMax H3 FA 后端透传
+
+基线为 plugin main `1ab503b`、adapter main `8e6aea3` 和镜像内的
+官方 SGLang `0.5.22`。`ServerArgs._adjust_attention_backend` 使用 AFTER
+Hook，仅补齐未指定的组件默认值。H3 的 Transformer 默认继承全局
+`fa` 或 `fa2`，文本编码器默认使用 `torch_sdpa`。显式全局、组件和
+组件角色配置由 SGLang 处理。gfx936 上的后端类由 adapter 的
+`HcuDiffusionPlatform` 解析。
+
+回归测试覆盖 Hook 注册、默认值、显式配置与组件角色透传，在修改前
+发现旧 AROUND 注册，修改后通过。在容器用两仓源码、真实
+diffusion Hook 和官方 `ServerArgs.from_cli_args` 校验单卡 MiniMax H3 INT8
+mini T2VA。原始显式组件参数和省略组件参数均得到
+`attention_backend=fa`、`transformer=fa` 和 `text_encoder=torch_sdpa`，
+实际选中 adapter 的 `HcuFlashAttention2Backend`。12 项定向单测和 L0 检查通过。
+
+本轮组合验证覆盖启动参数校验和后端选路。权重加载、完整服务、请求生成
+和 Graph 仍待验证。
