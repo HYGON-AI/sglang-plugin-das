@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from hcu_sglang.utils.detection import is_hcu
+import torch
+
+from hcu_sglang.utils.detection import get_gcn_arch, is_hcu
 
 logger = logging.getLogger(__name__)
 _ROTARY_UNSET = object()
@@ -43,6 +45,16 @@ def around_apply_qk_norm(
 ):
     if not is_hcu():
         return original(q, k, q_norm, k_norm, head_dim)
+    if (
+        q.is_cuda
+        and q.dtype == k.dtype == torch.bfloat16
+        and not torch.compiler.is_compiling()
+        and get_gcn_arch(q.device.index).partition(":")[0] == "gfx936"
+    ):
+        from sglang.kernels.ops.layernorm.norm import can_use_fused_inplace_qknorm
+
+        if can_use_fused_inplace_qknorm(head_dim, q.dtype):
+            return original(q, k, q_norm, k_norm, head_dim)
     return q_norm(q), k_norm(k)
 
 
@@ -60,7 +72,6 @@ def around_apply_rope_qk(
         return original(q, k, cos_sin_cache, positions, rotary_emb=rotary_emb)
     if not is_hcu() or not q.is_cuda:
         return original(q, k, cos_sin_cache, positions)
-    import torch
     rotary = getattr(torch.ops.sgl_kernel, "minimax_h3_rotary_embedding", None)
     if rotary is None:
         from sgl_kernel import minimax_h3_rotary_embedding as rotary

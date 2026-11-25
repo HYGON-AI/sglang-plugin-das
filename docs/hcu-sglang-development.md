@@ -46,6 +46,7 @@
 
 - [2026-11-24：MiniMax H3 FA 后端透传](#2026-11-24-minimax-h3-fa-后端透传)
 - [2026-11-25：MiniMax H3 DiT 上游 QK Norm + RoPE](#2026-11-25-minimax-h3-dit-上游-qk-norm--rope)
+- [2026-11-25：MiniMax H3 DiT 独立 Q/K RMSNorm](#2026-11-25-minimax-h3-dit-独立-qk-rmsnorm)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5381,3 +5382,20 @@ GPU 6 使用相同源码组合、单卡 FA 和 normal INT8 权重通过 T2VA 5 �
 生成。服务健康，5 步去噪完成，1344×768 H.264 和 AAC 音视频通过 FFmpeg
 完整解码。证据目录的 `smoke.sh` 记录启动参数和客户端调用。50 步及
 Ulysses 多卡整模型回归待验证。
+
+## 2026-11-25 MiniMax H3 DiT 独立 Q/K RMSNorm
+
+官方 v0.5.22 `baa9befa`、plugin `95f7b9d`、adapter `c9a69da` 的组合
+在 DTK 26.10、Torch 2.13.0 上，`elementwise/qknorm.cuh` 的 BF16
+head128 原位内核可直接编译运行。H3 的 `_apply_qk_norm` Hook 在 gfx936
+的 BF16 eager 路径检查上游 JIT 能力，支持时委托上游判断张量条件并运行
+`fused_inplace_qknorm`。能力检查失败，以及其他 HCU 设备、编译路径和
+不符合此设备适配条件的输入，使用分开的 Q/K RMSNorm。
+
+GPU 7 的 17/1017/4096/38848 tokens、7/14/56 heads packed QKV
+算子用例中，Q/K 与分离参考逐位一致，V 未改变。真实 H3 Attention
+前向在无 RoPE 和拆分 RoPE 两条路径都命中上游融合，与强制 JIT
+能力检查失败时的 FA 输出逐位一致。复现用证据目录
+`dit_h3_upstream_norm_20261125.*` 的 `probe.py` 和 `integration.py`，
+配合 `GPU_ARCHS=gfx936`、`HIP_VISIBLE_DEVICES=7`、
+`CUDA_VISIBLE_DEVICES=7` 并通过 `PYTHONPATH` 加载三仓源码。
