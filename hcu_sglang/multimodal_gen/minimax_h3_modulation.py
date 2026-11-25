@@ -50,9 +50,8 @@ def around_gate(original, x, gate, other, indices, *, dtype, allow_inplace=True)
 
 
 def around_norm_scale_shift(original, x, norm, shift, scale, indices, *, dtype, fused=False):
-    if _LEGACY_NORM.get():
-        from sglang.multimodal_gen.runtime.models.dits.minimax_h3 import _modulate_scale_shift
-        return _modulate_scale_shift(norm(x), shift, scale, indices, dtype=dtype)
+    if fused and _LEGACY_NORM.get():
+        fused = shift.dtype == scale.dtype == dtype
     return original(x, norm, shift, scale, indices, dtype=dtype, fused=fused)
 
 

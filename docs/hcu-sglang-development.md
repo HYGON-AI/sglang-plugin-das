@@ -47,6 +47,7 @@
 - [2026-11-24：MiniMax H3 FA 后端透传](#2026-11-24-minimax-h3-fa-后端透传)
 - [2026-11-25：MiniMax H3 DiT 上游 QK Norm + RoPE](#2026-11-25-minimax-h3-dit-上游-qk-norm--rope)
 - [2026-11-25：MiniMax H3 DiT 独立 Q/K RMSNorm](#2026-11-25-minimax-h3-dit-独立-qk-rmsnorm)
+- [2026-11-25：MiniMax H3 DiT BF16 AdaLN 融合](#2026-11-25-minimax-h3-dit-bf16-adaln-融合)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5399,3 +5400,33 @@ GPU 7 的 17/1017/4096/38848 tokens、7/14/56 heads packed QKV
 `dit_h3_upstream_norm_20261125.*` 的 `probe.py` 和 `integration.py`，
 配合 `GPU_ARCHS=gfx936`、`HIP_VISIBLE_DEVICES=7`、
 `CUDA_VISIBLE_DEVICES=7` 并通过 `PYTHONPATH` 加载三仓源码。
+
+## 2026-11-25 MiniMax H3 DiT BF16 AdaLN 融合
+
+沿用官方 v0.5.22 `baa9befa` 和 adapter `c9a69da`。Plugin 原本对
+channel INT8/FP8 的 AdaLN 绕过上游 RMSNorm + indexed scale/shift
+融合。现在当 scale、shift 和目标 dtype 一致且请求启用融合时，
+将控制权交给上游 `_modulate_rmsnorm_scale_shift`。上游在
+`lossless/high` 模式按张量条件分发。`exact` 继续分步舍入，自定义
+compressed checkpoint 的 FP32 AdaLN 保留原有分离路径及 FP32
+affine/gate 分发。
+
+DTK 26.10、Torch 2.13.0、gfx936 GPU 7 上，四组宽度 5376 的
+BF16 indexed AdaLN 对拍覆盖 17/1017/4096/37760 tokens。
+与 FP32 一次舍入参考最大差值为 0.015625，与原分离 BF16 路径最大
+差值为 0.0625，属于两条路径舍入次序的差异。真实 H3 DiT Block、
+FA 和 channel INT8 前向的质量状态切换 `exact → lossless → exact`
+通过。Normal 在 lossless 的 norm1/norm2 各命中一次上游融合，
+两次 exact 输出逐位一致。Compressed 三次都调用 FP32 affine/gate，
+三次输出逐位一致。复现见 `dit_h3_upstream_norm_20261125.*` 的
+`probe.py` 和 `integration.py`。注册与分发定向单测共 15 项通过。
+
+GPU 7 的 `graph.py` 分别对独立 Q/K RMSNorm 与 indexed BF16 AdaLN
+捕获 Graph。各两次改输入重放与 eager 逐位一致，AdaLN 同时改动索引。
+
+真实权重的单卡 FA T2VA 用 `quality=lossless` 完成两步请求。
+GPU 6 使用 normal INT8，GPU 5 使用 compressed INT8，两组均得到
+1344×768 H.264 和 AAC，且通过 FFmpeg 完整解码。Normal 客户端已
+成功下载后因临时脚本缺少同目录的报告解析器而退出，补上解析器并
+对已保存的 perf JSON 和视频补验通过。复现见证据目录的 `smoke.sh`
+和 `test_lossless.sh`。50 步及多卡整模型回归待验证。
