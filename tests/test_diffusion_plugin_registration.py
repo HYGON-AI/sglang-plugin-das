@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from hcu_sglang import multimodal_gen
-from hcu_sglang.multimodal_gen import minimax_h3, minimax_h3_modulation, qknorm_rope
+from hcu_sglang.multimodal_gen import minimax_h3, qknorm_rope
 
 
 class DiffusionPluginRegistrationTests(unittest.TestCase):
@@ -83,7 +83,6 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_gate',
-            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_rmsnorm_scale_shift',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_scale_shift',
             'sglang.multimodal_gen.runtime.models.dits.qwen_image21.QwenImage21Attention.__init__',
             'sglang.multimodal_gen.runtime.models.dits.wanvideo.WanTransformer3DModel.__init__',
@@ -180,25 +179,6 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             attention = SimpleNamespace()
             attention_init(construct, attention)
             self.assertTrue(attention._use_fused_qknorm_rope)
-
-    def test_h3_channel_quant_uses_upstream_bf16_adaln_only_when_enabled(self):
-        def original(x, norm, shift, scale, indices, *, dtype, fused):
-            return fused
-
-        def dispatch(*, table_dtype, fused):
-            table = SimpleNamespace(dtype=table_dtype)
-            return minimax_h3_modulation.around_norm_scale_shift(
-                original, None, None, table, table, None, dtype="bf16", fused=fused
-            )
-
-        token = minimax_h3_modulation._LEGACY_NORM.set(True)
-        try:
-            self.assertTrue(dispatch(table_dtype="bf16", fused=True))
-            self.assertFalse(dispatch(table_dtype="bf16", fused=False))
-            self.assertFalse(dispatch(table_dtype="fp32", fused=True))
-        finally:
-            minimax_h3_modulation._LEGACY_NORM.reset(token)
-        self.assertTrue(dispatch(table_dtype="fp32", fused=True))
 
     def test_existing_srt_registration_stays_in_the_srt_registry(self):
         minimax_h3.register_hooks()

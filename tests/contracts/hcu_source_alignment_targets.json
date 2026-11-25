@@ -114,7 +114,6 @@
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_gate",
-    "sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_rmsnorm_scale_shift",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_scale_shift",
     "sglang.multimodal_gen.runtime.models.dits.qwen_image21.QwenImage21Attention.__init__",
     "sglang.multimodal_gen.runtime.models.dits.wanvideo.WanTransformer3DModel.__init__",

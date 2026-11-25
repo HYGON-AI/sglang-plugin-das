@@ -48,6 +48,7 @@
 - [2026-11-25：MiniMax H3 DiT 上游 QK Norm + RoPE](#2026-11-25-minimax-h3-dit-上游-qk-norm--rope)
 - [2026-11-25：MiniMax H3 DiT 独立 Q/K RMSNorm](#2026-11-25-minimax-h3-dit-独立-qk-rmsnorm)
 - [2026-11-25：MiniMax H3 DiT BF16 AdaLN 融合](#2026-11-25-minimax-h3-dit-bf16-adaln-融合)
+- [2026-11-25：MiniMax H3 compressed FP32 AdaLN 融合](#2026-11-25-minimax-h3-compressed-fp32-adaln-融合)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5405,7 +5406,7 @@ GPU 7 的 17/1017/4096/38848 tokens、7/14/56 heads packed QKV
 
 沿用官方 v0.5.22 `baa9befa` 和 adapter `c9a69da`。Plugin 原本对
 channel INT8/FP8 的 AdaLN 绕过上游 RMSNorm + indexed scale/shift
-融合。现在当 scale、shift 和目标 dtype 一致且请求启用融合时，
+融合。该提交在 scale、shift 和目标 dtype 一致且请求启用融合时，
 将控制权交给上游 `_modulate_rmsnorm_scale_shift`。上游在
 `lossless/high` 模式按张量条件分发。`exact` 继续分步舍入，自定义
 compressed checkpoint 的 FP32 AdaLN 保留原有分离路径及 FP32
@@ -5430,3 +5431,44 @@ GPU 6 使用 normal INT8，GPU 5 使用 compressed INT8，两组均得到
 成功下载后因临时脚本缺少同目录的报告解析器而退出，补上解析器并
 对已保存的 perf JSON 和视频补验通过。复现见证据目录的 `smoke.sh`
 和 `test_lossless.sh`。50 步及多卡整模型回归待验证。
+
+## 2026-11-25 MiniMax H3 compressed FP32 AdaLN 融合
+
+基线为官方 v0.5.22 `baa9befa`、adapter `c9a69da`、plugin `d117bc2`。
+移除 plugin 对 `_modulate_rmsnorm_scale_shift` 的拦截，H3 自定义
+channel INT8/FP8 的 BF16 与 FP32 调制表都由上游质量开关和张量条件
+决定是否融合。`lossless/high` 满足上游条件时执行
+`rmsnorm_indexed_scale_shift`，RMSNorm 与 affine 在 FP32 中完成后
+一次转回 BF16。分离路径在两者之间先将 RMSNorm 输出转回 BF16，
+因此融合会改变舍入结果。
+
+`exact` 或上游拒绝的输入继续走独立 RMSNorm、FP32 affine。
+Compressed 的 FP32 gate 仍由原有 Hook 分发。复现使用 DTK 26.10、
+Torch 2.13.0、gfx936 和三仓源码的 `PYTHONPATH`，脚本与日志见证据
+目录 `dit_h3_fp32_adaln_20261125.*`。
+
+GPU 6 的真实 H3 DiT Block 与 FA、channel INT8 的分发回归中，
+compressed 的 `exact → lossless → exact` 分别记录到 0/2/0 次上游
+RMSNorm + AdaLN 融合，FP32 gate 三次均调用两次。两次 exact 输出
+逐位一致。故意令一对 FP32 scale/shift 的行步长不同后，仅该对回退到
+FP32 affine，另一对保持融合。Normal BF16 的质量开关回归继续通过。
+
+GPU 7 使用实际 H3 宽度 5376、BF16 激活、FP32 调制表和交替 GPU event
+计时，对比 `RMSNorm + plugin FP32 affine` 与上游融合。24 轮去掉
+前 5 轮取中位数，时间单位为毫秒。
+
+| Tokens | 分离 | 融合 |
+| ---: | ---: | ---: |
+| 17 | 0.185 | 0.176 |
+| 1017 | 0.187 | 0.176 |
+| 4096 | 0.281 | 0.244 |
+| 37760 | 2.081 | 1.083 |
+
+四组融合输出通过 FP32 一次舍入参考的容差检查，最大绝对差值
+0.03125。相比分离路径，最大绝对差值 0.0625。改变输入、调制表和
+索引的两次 Graph replay 与融合 eager 路径逐位一致。
+
+GPU 5 使用真实 compressed INT8 权重，单卡 FA 的 `lossless`
+T2VA 请求完成 2 步去噪。1344×768 H.264 和 AAC 输出通过 FFmpeg
+完整解码。14 项定向单测、L0 及导览快照检查通过。算子微基准
+计时与生成的短测分别留证。50 步生成质量对比和多卡整模型回归待验证。
