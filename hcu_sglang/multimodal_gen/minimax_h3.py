@@ -2,42 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Callable
 
 import torch
 
 from hcu_sglang.utils.detection import get_gcn_arch, is_hcu
-
-logger = logging.getLogger(__name__)
-
-
-def after_adjust_attention_backend(result: Any, server_args: Any) -> Any:
-    if not is_hcu() or server_args.attention_backend not in ("fa", "fa2"):
-        return result
-
-    from sglang.multimodal_gen.runtime.server_args.server_args import Backend
-
-    if (
-        server_args.backend == Backend.DIFFUSERS
-        or type(server_args.pipeline_config).__name__ != "MiniMaxH3PipelineConfig"
-    ):
-        return result
-
-    defaults = {
-        "text_encoder": "torch_sdpa",
-        "transformer": server_args.attention_backend,
-    }
-    for component, backend in defaults.items():
-        if component not in server_args.component_attention_backends:
-            server_args.component_attention_backends[component] = backend
-            logger.info(
-                "Automatically set MiniMax-H3 HCU %s attention backend to %s",
-                component,
-                backend,
-            )
-    return result
-
 
 def around_apply_qk_norm(
     original: Callable[..., Any], q, k, q_norm, k_norm, head_dim: int
@@ -116,12 +85,6 @@ def register_hooks(registry=None) -> None:
         HookType.AROUND,
     )
 
-    HookRegistry.register(
-        "sglang.multimodal_gen.runtime.server_args.server_args."
-        "ServerArgs._adjust_attention_backend",
-        after_adjust_attention_backend,
-        HookType.AFTER,
-    )
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm",
         around_apply_qk_norm,

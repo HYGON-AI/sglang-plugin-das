@@ -124,7 +124,6 @@
     "sglang.multimodal_gen.runtime.platforms.cuda.CudaPlatformBase.get_attn_backend_cls_str",
     "sglang.multimodal_gen.runtime.platforms.rocm.RocmPlatform.get_attn_backend_cls_str",
     "sglang.multimodal_gen.runtime.platforms.rocm_platform_plugin",
-    "sglang.multimodal_gen.runtime.server_args.server_args.ServerArgs._adjust_attention_backend",
     "sglang.srt.arg_groups.cp_tp_group_sharing_hook.resolve_cp_tp_group_sharing",
     "sglang.srt.arg_groups.deepseek_v4_hook.apply_deepseek_v4_defaults",
     "sglang.srt.arg_groups.deepseek_v4_hook.validate_deepseek_v41_features",

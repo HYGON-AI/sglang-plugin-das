@@ -50,7 +50,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_diffusion_callback_uses_only_its_owned_registry(self):
         multimodal_gen.register()
         self.assertEqual(self.srt_calls, [])
-        self.assertEqual(len(self.diffusion_calls), 41)
+        self.assertEqual(len(self.diffusion_calls), 40)
         targets = {call[0] for call in self.diffusion_calls}
         self.assertEqual(targets, {
             'sglang.kernels.ops.diffusion.rope.qknorm_rope_jit.can_use_fused_inplace_qknorm_rope',
@@ -92,47 +92,8 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.platforms.cuda.CudaPlatformBase.get_attn_backend_cls_str',
             'sglang.multimodal_gen.runtime.platforms.rocm.RocmPlatform.get_attn_backend_cls_str',
             'sglang.multimodal_gen.runtime.platforms.rocm_platform_plugin',
-            'sglang.multimodal_gen.runtime.server_args.server_args.ServerArgs._adjust_attention_backend',
         })
         self.assertTrue(all(callable(call[1]) for call in self.diffusion_calls))
-
-    def test_minimax_h3_attention_hook_preserves_requested_backends(self):
-        minimax_h3.register_hooks(self.diffusion.HookRegistry)
-        target = 'sglang.multimodal_gen.runtime.server_args.server_args.ServerArgs._adjust_attention_backend'
-        [(hook_type, hook, _)] = self.diffusion.HookRegistry._hooks[target]
-        self.assertIs(hook_type, self.srt.HookType.AFTER)
-
-        server_args_module = ModuleType('sglang.multimodal_gen.runtime.server_args.server_args')
-        server_args_module.Backend = SimpleNamespace(DIFFUSERS=object())
-        pipeline = type('MiniMaxH3PipelineConfig', (), {})()
-        cases = (
-            ('fa', {}, {'text_encoder': 'torch_sdpa', 'transformer': 'fa'}),
-            ('fa', {'transformer': 'fa', 'text_encoder': 'fa'},
-                   {'transformer': 'fa', 'text_encoder': 'fa'}),
-            ('fa', {'transformer': 'fa2'}, {'transformer': 'fa2', 'text_encoder': 'torch_sdpa'}),
-            ('fa2', {}, {'text_encoder': 'torch_sdpa', 'transformer': 'fa2'}),
-        )
-        with patch.dict('sys.modules', {server_args_module.__name__: server_args_module}):
-            with patch.object(minimax_h3, 'is_hcu', return_value=True):
-                for backend, components, expected in cases:
-                    with self.subTest(backend=backend, components=components):
-                        args = SimpleNamespace(
-                            attention_backend=backend,
-                            backend=object(),
-                            pipeline_config=pipeline,
-                            component_attention_backends=dict(components),
-                            component_attention_backend_roles={
-                                'transformer': {'self': 'fa', 'cross': 'torch_sdpa'}
-                            },
-                        )
-                        result = object()
-                        self.assertIs(hook(result, args), result)
-                        self.assertEqual(args.attention_backend, backend)
-                        self.assertEqual(args.component_attention_backends, expected)
-                        self.assertEqual(
-                            args.component_attention_backend_roles,
-                            {'transformer': {'self': 'fa', 'cross': 'torch_sdpa'}},
-                        )
 
     def test_h3_qknorm_probe_is_scoped_to_gfx936_constructor(self):
         qknorm_rope.register_hooks(self.diffusion.HookRegistry)
@@ -181,7 +142,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_existing_srt_registration_stays_in_the_srt_registry(self):
         minimax_h3.register_hooks()
         qknorm_rope.register_hooks()
-        self.assertEqual(len(self.srt_calls), 17)
+        self.assertEqual(len(self.srt_calls), 16)
         self.assertLessEqual(
             {
                 'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.klvae.AutoencoderKL.setup_forward',
@@ -223,7 +184,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
             targets,
         )
-        self.assertEqual(len(targets), 39)
+        self.assertEqual(len(targets), 38)
         self.assertEqual(self.srt_calls, [])
 
     def test_registry_reset_allows_registration_again(self):
@@ -231,7 +192,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
         self.diffusion.HookRegistry._hooks.clear()
         self.diffusion_calls.clear()
         multimodal_gen.register()
-        self.assertEqual(len(self.diffusion_calls), 41)
+        self.assertEqual(len(self.diffusion_calls), 40)
 
     def test_foreign_hooks_on_the_same_target_are_preserved(self):
         target = 'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm'

@@ -50,6 +50,7 @@
 - [2026-11-25：MiniMax H3 DiT BF16 AdaLN 融合](#2026-11-25-minimax-h3-dit-bf16-adaln-融合)
 - [2026-11-25：MiniMax H3 compressed FP32 AdaLN 融合](#2026-11-25-minimax-h3-compressed-fp32-adaln-融合)
 - [2026-11-25：MiniMax H3 通用 partial RoPE](#2026-11-25-minimax-h3-通用-partial-rope)
+- [2026-11-25：MiniMax H3 上游 Attention 后端选择](#2026-11-25-minimax-h3-上游-attention-后端选择)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5512,3 +5513,36 @@ GPU 5 使用真实 compressed INT8 权重及单卡 FA 完成 `lossless`
 T2VA 两步去噪。1344×768 H.264 和 AAC 通过 FFmpeg 完整解码。
 10 项定向单测、L0、导览快照与桌面及窄屏导航检查通过。
 50 步生成质量和多卡整模型性能待验证。
+
+## 2026-11-25 MiniMax H3 上游 Attention 后端选择
+
+基线为官方 v0.5.22 `baa9befa`、plugin `1865ed4` 和 adapter
+`977c0d0`。删除 H3 的 `ServerArgs._adjust_attention_backend` Hook。
+上游负责解释全局、组件及角色的后端配置。只传 `--attention-backend fa`
+或 `fa2` 时，组件由上游选择后端，plugin 无需补写
+`text_encoder=torch_sdpa` 和 `transformer=<全局后端>`。
+
+HCU 上 adapter 的 `HcuDiffusionPlatform` 负责解析全局或组件请求。
+`fa` 和 `fa2` 各自保留请求的后端标识，满足条件的 DiT packed-varlen
+调用由两种 adapter 后端分别接入 DTK FA2
+`flash_attn_varlen_func`。现有 INT8 性能脚本显式配置
+`text_encoder=torch_sdpa,transformer=fa`，继续按该配置选路。
+
+此前临时停用 Hook 的 BF16 文本 Attention 对照使用 gfx936、64 个 Q
+heads、8 个 KV heads、head128 和 1024 tokens。`torch_sdpa`、
+全局 `fa`、全局 `fa2` 的单层耗时分别约为 0.24–0.25、1.33、0.27 ms，
+结果见 `h3_text_attn_policy_20261125.7Qki7u/compare.log`。
+
+本次在 gfx936 GPU 6 使用实际 diffusion Hook 注册器和上游选择器。
+全局 `fa`、`fa2` 都保持空的组件默认映射，分别选中
+`HcuFlashAttentionBackend` 和 `HcuFlashAttention2Backend`。29 tokens、
+4 heads、head128 的 BF16 packed 用例均命中一次 DTK FA2，输出逐位
+一致。显式组件参数和 `transformer.self` 的解析结果与请求一致。
+复现见节点证据目录 `h3_plugin_upstream_attn_20261125.VsCB8l` 的
+`route_probe.py` 和 `smoke.sh`。
+
+GPU 5 使用真实 compressed INT8 权重，只传全局 `fa` 完成单卡
+`lossless` T2VA 两步生成。文本编码器加载日志列出 `fa` 和
+`torch_sdpa`，DiT 列出 `fa`。1344×768 H.264 和 AAC 通过 FFmpeg
+完整解码。9 项定向单测、L0、导览快照和桌面及窄屏导航检查通过。
+全局 `fa2` 整模型、多卡以及长步数质量验证待覆盖。
