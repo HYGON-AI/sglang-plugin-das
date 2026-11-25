@@ -99,6 +99,44 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
         })
         self.assertTrue(all(callable(call[1]) for call in self.diffusion_calls))
 
+    def test_minimax_h3_attention_hook_preserves_requested_backends(self):
+        minimax_h3.register_hooks(self.diffusion.HookRegistry)
+        target = 'sglang.multimodal_gen.runtime.server_args.server_args.ServerArgs._adjust_attention_backend'
+        [(hook_type, hook, _)] = self.diffusion.HookRegistry._hooks[target]
+        self.assertIs(hook_type, self.srt.HookType.AFTER)
+
+        server_args_module = ModuleType('sglang.multimodal_gen.runtime.server_args.server_args')
+        server_args_module.Backend = SimpleNamespace(DIFFUSERS=object())
+        pipeline = type('MiniMaxH3PipelineConfig', (), {})()
+        cases = (
+            ('fa', {}, {'text_encoder': 'torch_sdpa', 'transformer': 'fa'}),
+            ('fa', {'transformer': 'fa', 'text_encoder': 'fa'},
+                   {'transformer': 'fa', 'text_encoder': 'fa'}),
+            ('fa', {'transformer': 'fa2'}, {'transformer': 'fa2', 'text_encoder': 'torch_sdpa'}),
+            ('fa2', {}, {'text_encoder': 'torch_sdpa', 'transformer': 'fa2'}),
+        )
+        with patch.dict('sys.modules', {server_args_module.__name__: server_args_module}):
+            with patch.object(minimax_h3, 'is_hcu', return_value=True):
+                for backend, components, expected in cases:
+                    with self.subTest(backend=backend, components=components):
+                        args = SimpleNamespace(
+                            attention_backend=backend,
+                            backend=object(),
+                            pipeline_config=pipeline,
+                            component_attention_backends=dict(components),
+                            component_attention_backend_roles={
+                                'transformer': {'self': 'fa', 'cross': 'torch_sdpa'}
+                            },
+                        )
+                        result = object()
+                        self.assertIs(hook(result, args), result)
+                        self.assertEqual(args.attention_backend, backend)
+                        self.assertEqual(args.component_attention_backends, expected)
+                        self.assertEqual(
+                            args.component_attention_backend_roles,
+                            {'transformer': {'self': 'fa', 'cross': 'torch_sdpa'}},
+                        )
+
     def test_existing_srt_registration_stays_in_the_srt_registry(self):
         minimax_h3.register_hooks()
         qknorm_rope.register_hooks()

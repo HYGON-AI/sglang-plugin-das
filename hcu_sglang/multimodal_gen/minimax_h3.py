@@ -23,7 +23,10 @@ def after_adjust_attention_backend(result: Any, server_args: Any) -> Any:
     ):
         return result
 
-    defaults = {"text_encoder": "torch_sdpa", "transformer": "fa2"}
+    defaults = {
+        "text_encoder": "torch_sdpa",
+        "transformer": server_args.attention_backend,
+    }
     for component, backend in defaults.items():
         if component not in server_args.component_attention_backends:
             server_args.component_attention_backends[component] = backend
@@ -33,28 +36,6 @@ def after_adjust_attention_backend(result: Any, server_args: Any) -> Any:
                 backend,
             )
     return result
-
-
-def around_adjust_attention_backend(original, server_args):
-    if is_hcu() and server_args.attention_backend in ("fa", "fa2"):
-        from sglang.multimodal_gen.runtime.server_args.server_args import Backend
-        if server_args.backend != Backend.DIFFUSERS and type(server_args.pipeline_config).__name__ == "MiniMaxH3PipelineConfig":
-            components, roles = server_args._split_component_attention_backends(
-                server_args.component_attention_backends,
-                server_args.component_attention_backend_roles,
-            )
-            server_args.attention_backend = "fa2"
-            if components.get("transformer") == "fa":
-                components["transformer"] = "fa2"
-            if "transformer" in roles:
-                roles["transformer"] = {
-                    role: "fa2" if backend == "fa" else backend
-                    for role, backend in roles["transformer"].items()
-                }
-            server_args.component_attention_backends = components
-            server_args.component_attention_backend_roles = roles
-    result = original(server_args)
-    return after_adjust_attention_backend(result, server_args)
 
 
 def around_apply_qk_norm(
@@ -170,8 +151,8 @@ def register_hooks(registry=None) -> None:
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.server_args.server_args."
         "ServerArgs._adjust_attention_backend",
-        around_adjust_attention_backend,
-        HookType.AROUND,
+        after_adjust_attention_backend,
+        HookType.AFTER,
     )
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm",
