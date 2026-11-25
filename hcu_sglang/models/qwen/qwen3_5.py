@@ -11,7 +11,7 @@ from hcu_sglang.models.fused_rotary import (
     fused_rms_rotary_kv_store,
     use_fused_rms_rotary,
 )
-from hcu_sglang.layers import qwen_rms_int8
+from hcu_sglang.layers import qwen_rms_fp8, qwen_rms_int8
 from hcu_sglang.models.qwen import gdn_int8
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.utils.module_patch import get_original_attr
@@ -51,16 +51,13 @@ def register() -> None:
             gdn_int8.around_forward,
             HookType.AROUND,
         )
-    if qwen_rms_int8.enabled:
-        for target in (
-            "sglang.srt.models.qwen3_5.Qwen3_5AttentionDecoderLayer.forward",
-            "sglang.srt.models.qwen3_5.Qwen3_5LinearDecoderLayer.forward",
-        ):
-            HookRegistry.register(
-                target,
-                qwen_rms_int8.around_decoder_forward,
-                HookType.AROUND,
-            )
+    for fusion in (qwen_rms_int8, qwen_rms_fp8):
+        if fusion.enabled:
+            for target in (
+                _MODULE + ".Qwen3_5AttentionDecoderLayer.forward",
+                _MODULE + ".Qwen3_5LinearDecoderLayer.forward",
+            ):
+                HookRegistry.register(target, fusion.around_decoder_forward, HookType.AROUND)
 
 
 def replacement_self_attention(original, self, positions, hidden_states, forward_batch):
