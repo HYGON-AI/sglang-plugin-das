@@ -30,6 +30,11 @@ def around_rocm_backend_selection(
     original: Callable[..., str], cls, selected_backend, head_size: int, dtype
 ) -> str:
     backend_name = getattr(selected_backend, "name", None)
+    if is_hcu() and backend_name == "SUBBLOCK_SPARSE_ATTN":
+        return (
+            "sglang.multimodal_gen.runtime.layers.attention.backends."
+            "subblock_sparse_attn.SubBlockSparseAttentionBackend"
+        )
     if is_hcu() and backend_name == "SLA_ATTN":
         if dtype not in (torch.float16, torch.bfloat16):
             raise ValueError("ROCm SLA attention requires fp16 or bf16 inputs.")
@@ -131,6 +136,26 @@ def around_minimal_a2a_forward(
     return original(attention_op, query, key, value, *args, **kwargs)
 
 
+def mark_qwen_image21_target(_result, attention, *args, **kwargs) -> None:
+    attention.target_attn._hcu_qwen_image21_direct_recv = True
+
+
+def around_replicated_kv_prefix_split(
+    original, attention, q, k_rep, v_rep, k_shard, v_shard, ctx_attn_metadata
+):
+    if torch.version.hip is not None and getattr(
+        attention, "_hcu_qwen_image21_direct_recv", False
+    ):
+        from hcu_sglang.multimodal_gen.qwen_image21_direct_recv import try_direct_recv
+
+        out = try_direct_recv(
+            original, attention, q, k_rep, v_rep, k_shard, v_shard, ctx_attn_metadata
+        )
+        if out is not None:
+            return out
+    return original(attention, q, k_rep, v_rep, k_shard, v_shard, ctx_attn_metadata)
+
+
 def register_hooks(registry=None) -> None:
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     if registry is not None:
@@ -139,6 +164,23 @@ def register_hooks(registry=None) -> None:
     if registry is not None:
         HookRegistry = registry
 
+    from hcu_sglang.multimodal_gen.subblock_sparse import (
+        around_build_dense_impl,
+        around_get_runner,
+    )
+
+    HookRegistry.register(
+        "sglang.multimodal_gen.runtime.layers.attention.backends."
+        "subblock_sparse_attn.SubBlockSparseAttentionImpl._build_dense_impl",
+        around_build_dense_impl,
+        HookType.AROUND,
+    )
+    HookRegistry.register(
+        "sglang.multimodal_gen.runtime.layers.attention.backends."
+        "subblock_sparse_attn._get_subblock_sparse_attention_runner",
+        around_get_runner,
+        HookType.AROUND,
+    )
     HookRegistry.register(
         "sglang.multimodal_gen.runtime.platforms.cuda."
         "CudaPlatformBase.get_attn_backend_cls_str",
@@ -163,3 +205,16 @@ def register_hooks(registry=None) -> None:
         around_minimal_a2a_forward,
         HookType.AROUND,
     )
+    if registry is not None:
+        HookRegistry.register(
+            "sglang.multimodal_gen.runtime.models.dits.qwen_image21."
+            "QwenImage21Attention.__init__",
+            mark_qwen_image21_target,
+            HookType.AFTER,
+        )
+        HookRegistry.register(
+            "sglang.multimodal_gen.runtime.layers.attention.layer."
+            "USPAttention._forward_with_replicated_kv_prefix_split",
+            around_replicated_kv_prefix_split,
+            HookType.AROUND,
+        )

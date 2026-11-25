@@ -32,12 +32,17 @@
 - [2026-11-18：GLM-5.3 FP8 absorb BMM 分发对齐](#2026-11-18-glm-53-fp8-absorb-bmm-分发对齐)
 - [2026-11-19：DeepEP 清理接口兼容](#2026-11-19-deepep-清理接口兼容)
 - [2026-11-19：GLM-5.3 FP8 稳态 prefill 优化](#2026-11-19-glm-53-fp8-稳态-prefill-优化)
+- [2026-11-24：gfx938 Qwen Add、Gemma RMSNorm 与 FP8 量化融合](#2026-11-24-gfx938-qwen-addgemma-rmsnorm-与-fp8-量化融合)
+- [2026-11-24：gfx938 Qwen SiLU mul 与 FP8 量化融合](#2026-11-24-gfx938-qwen-silu-mul-与-fp8-量化融合)
 - [2026-11-20：gfx938 Qwen attention 门控与 FP8 量化融合](#2026-11-20-gfx938-qwen-attention-门控与-fp8-量化融合)
 
 - [2026-11-20：gfx938 Qwen GDN 门控归一化与 FP8 量化融合](#2026-11-20-gfx938-qwen-gdn-门控归一化与-fp8-量化融合)
 - [2026-11-19：DeepSeek-V4 TopK v2 JIT](#2026-11-19-deepseek-v4-topk-v2-jit)
 - [2026-11-19：DeepSeek-V4 compression JIT](#2026-11-19-deepseek-v4-compression-jit)
 - [2026-11-20：DeepSeek-V4 PD transfer import](#2026-11-20-deepseek-v4-pd-transfer-import)
+- [2026-11-20：Qwen-Image 2.1 四卡 Ulysses 直收](#2026-11-20-qwen-image-21-四卡-ulysses-直收)
+- [2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步](#2026-11-23-qwen-image-21-ulysses-直收-pr-同步)
+- [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -728,6 +733,43 @@ bw46 HCU 4/5 在同一容器、同一 DTK 和同一 TP2 配置串行运行基线
 单请求合成输入，固定输出 128 token，丢弃首轮后各取七次中位数。输入 128 token 时，TTFT 244.95→226.99 ms，decode 131.20→132.27 tok/s。输入 2048 token 时，TTFT 251.74→242.41 ms，decode 131.01→132.09 tok/s。两组负载的每轮请求均执行 32 轮 verify。这组单卡对串行对照用于烟测，TTFT 观测区间重叠。其他模型、批量和完整精度评测未执行。
 
 L0、三个定向测试、导览生成和 `git diff --check` 通过。完整 unittest 在当前 venv 留有两项启动测试失败，干净 HEAD 复现同样失败。原始算子与服务证据保存在本轮服务器实验目录。
+
+## 2026-11-24 gfx938 Qwen Add、Gemma RMSNorm 与 FP8 量化融合
+
+`SGLANG_HCU_QWEN_RMS_FP8_FUSION=1` 将 Qwen TP1 decoder 的 residual add、
+Gemma RMSNorm 和逐 token E4M3FN 量化交给 LightOp
+`gemma_rms_norm_per_token_fp8_quant`。插件要求 gfx938、行连续且对齐的
+BF16 `[M, 5120]` 输入与 residual，以及配对的动态 activation、
+channel weight FP8 投影。开关默认关闭。
+
+融合写回 residual 和 BF16 归一化结果，GDN 的 `in_proj_ba` 继续使用
+BF16。插件在同一 decoder 调用内把量化结果传给配对的
+`qkv_proj`、`in_proj_qkvz` 或 `gate_up_proj`，跳过对应 GEMM 前的独立量化。
+无 residual、合并 in-proj、序列并行、未支持的布局或 LightOp 导出缺失时
+保持既有路径。
+
+LightOp 的这一 FP8 内核用 BF16 舍入后的 residual sum 计算 RMS。
+分步 Gemma RMSNorm 用 FP32 residual sum 做归一化。残差写回语义一致，
+归一化结果、FP8 与 scale 可能有数值差异。定向数据流覆盖见
+`tests/runtime/qwen_rms_fp8.py`。
+
+Qwen3.8-27B Channel FP8 的 gfx938 TP1 部署使用当前接入的运行时副本，
+在 DTK 26.10、SGLang 0.5.22 和 MTP 3/1/4 下验证真实生成。9 次 BS1 VERIFY
+Graph replay 中每次都执行 127 个 Add RMSNorm FP8 kernel。组件对拍覆盖
+eager 与换输入 Graph replay，residual 写回逐位一致，反量化输出的最大
+相对 L2 差异为 1.83%。部署检查的范围是算子对拍和服务冒烟。
+
+## 2026-11-24 gfx938 Qwen SiLU mul 与 FP8 量化融合
+
+`SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT=1` 使 Qwen MLP 把连续 BF16 GateUp
+送入现有 RowParallelLinear 的 LightOp SiLU mul + 逐 token E4M3FN 融合。
+动态通道 FP8 的 down_proj 接收量化结果和 FP32 scale，复用既有 GEMM。
+没有匹配的硬件、布局或 FP8 消费者时，继续执行原有激活和量化。
+
+LightOp 的通用路径使用最小 scale。Qwen TP1 的 17408 宽用通用内核，
+在上述部署的每次 BS1 VERIFY Graph replay 中执行 64 个 SiLU mul FP8
+kernel。组件对拍中反量化输出的最大相对 L2 差异为 0.16%。调用和回退
+测试见 `tests/runtime/qwen_silu_fp8.py`。
 
 ## 2026-11-20 gfx938 Qwen GDN 门控归一化与 FP8 量化融合
 
@@ -5150,3 +5192,127 @@ adapter 当前分支与最新 upstream `release/sglang_v0.5.22` 均为
 - 本次整理对 Hook 入参、combined 元数据、空段、score 空间上限、side-stream 顺序及 symmetric-memory 回退做 CPU 契约检查。评审补测通过真实 Python 分发入口覆盖合批 segment 2、slot 复制及缓存复用、门控和分段回退。真实 HCU 数值与 RSC 的数据来自原实验版本。整理后的提交尚未复跑完整 HCU 服务。
 
 最终性能配方选固定 EPLB、split、packed FP8 CP KV 和 adapter 的请求广播压缩。两项插件试验都由独立开关控制。Adapter 压缩作用在 CPU 广播的私有载荷层。
+
+## 2026-11-21 GLM5.2 FP8 最新 22 分支组合验证
+
+以 1d51ae5 为固定 plugin 基点，保留用户 3872dc0/#89 的既有 RoPE 方案，启动配方补齐 LightOP RoPE 开关；不新增 RoPE 实现。仅新增 current_dsa 的 LightOP planner resolver，backend/indexer 共用，非 HCU 委托原 resolver。adapter 同卡数外来 PCI guard 修复单独归仓。修复前反例、旧基点组件通过及最新组合未验收项分别记录，见 [FP8 适配记录](glm52-fp8-adaptation.md)。
+
+本轮固定组合已完成 Graph 服务、两轮各81请求文本/EAGLE统计一致、三项正常stop检查、32份逐rank trace及稳定吞吐对照。具体短输入TTFT退化、0518 profiler后会话异常和未完成数据集精度范围见 FP8 适配记录；未声明全仓合同或CPU全套通过。
+
+## 2026-11-23 PR 拆分检查
+
+LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量、设备可见）和3项gfx938 GPU/变输入Graph回归。隐藏设备时接线测试收集遇到上游 cutlass_fp8_supported 的 NoneType 比较错误，原失败保留，不记作通过。完整CPU unittest复测195项，仍为3项导入错误、13项跳过。L0与导览快照检查通过；未执行浏览器视觉验收。adapter节点门禁与triage失败另列于两仓PR说明，未以模型精度结果覆盖这些失败。仅准备Draft评审，未重复提交已有RoPE/TopK实现。
+
+## 2026-11-23 DeepSeek V4 0731 HCU MegaMoE Prefill
+
+在 SGLang 0.5.22 的 CUDA 平台语义下，Plugin 用参数校验 Hook 接入真实 HCU 的 `slimquant_marlin` MegaMoE Prefill 路径。Hook 根据 HCU、MoE 后端、MegaMoE runtime 和 overlap 配置选择兼容分支。量化格式由后续的权重准备和执行路径处理。其他配置交回原校验函数。
+
+测试部署使用 CP8/EP8、每 rank 4096 token cap，从 0.5.18 的 `91cdff` 包提取的源码重编译 `megamoe` Python 3.12 扩展。目标为 DTK 26.10、`gfx936` 和 code object v5。DSPARK draft 与 Decode 继续使用 DeepEP 和 DeepGEMM。
+
+完整参数解析、W4A8 GPU 原语和 1P1D 冒烟通过。请求日志记录 `runtime=megamoe quant=w4a8 cap=4096 factory=megamoe`，Prefill worker 加载了新扩展。相同输入 ID 的单请求 4K/128K 场景各生成 1024 token，缓存命中为 0，端到端分别耗时 6.99 秒和 11.12 秒。当前验证覆盖 CP8/EP8 的 W4A8 Prefill。
+
+移除部署角色和量化判断后，复验了 Hook 的放行与回退分支。上述 GPU 和性能结果来自此前的 W4A8 Prefill 部署。
+
+## MiniMax-H3 参考视频预处理
+
+将 DAS 提交 `62713c5` 的输入处理移至 diffusion 插件。HCU 先传输 uint8 帧，
+直接生成连续的 FP32 视频。VAE 仅对运行时持有的输入复用默认归一化的存储，
+重新配置自定义 transform 后回到调用方提供的实现。
+
+初次移植在 1507 镜像原插件基线、gfx938 上验证。124×768×1344 RGB 帧
+经过真实 processor 的峰值分配从 4394.25 降至 1830.94 MiB。两组各运行
+五次，归一化输出及真实 Ref2VA 权重对 17 帧小片段编码所得 FP16 latent
+均逐字节相同。该数据覆盖参考输入和编码阶段。
+
+## MiniMax-H3 去噪结束时释放 USP 显存
+
+0.5.22 已按角色、dtype 和设备复用 Ulysses all-to-all 的容量。DAS 提交
+`62713c5` 还在去噪退出时交还当前设备的缓存。插件将这一部分接到 H3
+完整去噪循环的退出路径，使后续 VAE 和请求可用这部分内存。
+在 gfx938 注入请求异常后，原始异常和已返回视图均保留。一个 256 MiB
+的实际 staging 分配在原镜像继续驻留，插件在最后一个视图释放时回收全部
+256 MiB。该检查覆盖缓存生命周期，未复现旧版 50 请求压力场景。
+
+## MiniMax-H3 HCU SubBlock 稀疏注意力
+
+从 DAS 的 `52f1e99` 迁移到 diffusion 插件。使用 `SGLANG_PLUGINS=hcu` 入口，
+设置 `--attention-backend subblock_sparse_attn` 和
+`--component-attention-backends text_encoder=torch_sdpa,transformer=subblock_sparse_attn`。
+需安装与目标 Torch、DTK 和 Python 匹配的 `dcu_bsa` wheel。本轮构建使用
+DTK 26.10、Torch 2.13、Python 3.12，并包含 gfx936 和 gfx938。
+稀疏内核使用 BF16、head_dim 128，前 10 步按原生 schedule 执行稠密注意力。
+
+插件在 HCU 上连接原生 SubBlock router 与 DCU 内核。逐行有效块数与局部尾块
+传给内核，仅排序有效前缀。内部稠密实现单独记录后端选择，外层 transformer
+仍校验显式配置是否生效。在 release 使用的 FA2 只继承基础 packed-varlen 方法时，
+HCU 通过原有 flash-attn 的变长入口执行 sBSA 的内部稠密回退。
+
+1507 镜像的初次移植在两个架构各通过 26 项原生数值测试，均通过 SGLang 后端解析和第 9/10 步
+派发检查。gfx938 的 37,736 token、14 heads 测试中，FA2 中位耗时
+45.43 ms，sBSA 含路由、排序和执行为 22.48 ms。固定稀疏计划的四个边界
+Q 行通过 FP32 参考比对。
+
+## 2026-11-20 Qwen-Image 2.1 四卡 Ulysses 直收
+
+在 `release/sglang_v0.5.22`（基线 `8b730e0`）将实验插件的 Ulysses 直收迁入
+`hcu` 的 diffusion 注册入口。标记限定在 Qwen-Image 2.1 的目标 attention。
+单样本、Ring 1、Ulysses 多卡、HIP eager 和 Torch SDPA 满足输入条件时，
+all-to-all 将 K/V 直接写入包含 prefix 的最终缓冲区，省去接收后的拼接。
+新形状由所有 rank 共同完成逐位校验。准入失败时所有 rank 回到当前有效的框架路径。
+实现、接线和注册目标分别位于
+[直收实现](../hcu_sglang/multimodal_gen/qwen_image21_direct_recv.py)、
+[attention 注册](../hcu_sglang/multimodal_gen/attention.py)和
+[目标合同](../tests/contracts/hcu_source_alignment_targets.json)。
+
+在社区源码 `baa9befa38`、`sglang0522` 容器和四张 BW1000 上，以正式 `hcu`
+入口验证 SP4、Ulysses 4、Ring 1、TP1。BF16、1024×1024、40 步、CFG 1、
+每请求 1 张，预热后串行测量 10 条 HTTP 请求。正式插件平均 5.015 秒，
+同卡原路径平均 5.316 秒，延迟降低 5.65%。四种 prefix 长度均通过所有 rank
+校验，10 张 PNG 的 SHA256 与原路径及独立实验插件一致。其它并行配置及
+Graph 和 compile 下的端到端行为未单独测量。
+
+离线结构检查通过。全量 unittest 的 1 项失败和 2 项错误在未修改的
+`8b730e0` 基线上同样复现。
+
+## 2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步
+
+用途：将 PR #115 的 `e4c6e52` 与发布分支
+`release/sglang_v0.5.22@adcd2a5` 合并，保留目标分支的新功能及修复。
+冲突仅涉及本文的时间索引、追加记录和生成页 `architecture.html`；
+保留两边的记录，并通过 `tools/build_guide.py` 重新生成导览。
+直收实现、attention Hook 和两个注册目标相对 PR 原提交保持不变。
+
+本次在宿主 Python 3.12.6 执行 `ci/l0_gate.py`（716 Python、8 Skill）和
+导览生成/快照检查，均通过。`python3.12 -m unittest discover -s tests -v`
+对候选与未修改的 `adcd2a5` 各运行 200 项，均为 12 errors、21 skipped；
+错误测试和终端异常逐项相同，其中 10 项缺少 Torch，另 2 项为既有硬件检测
+测试替身缺少 `is_available`。全量测试未标记为通过；未新增测试错误。
+相对目标分支的 `git diff --check` 通过。
+
+本次只执行离线结构与 CPU 检查，不重新声明历史 GPU、图片精度或性能结果。
+导览模板及交互未修改，生成快照检查不代替浏览器渲染、交互和窄屏验收。
+
+## 2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新
+
+将 PR #115 的 `c6cf298` 同步到 release 基线 `18c716b`（先合并 `ba442a0`），
+包含 `c73e515` 的 LightOP MQA planner / GLM5.2 FP8 文档与示例，以及后续
+HY3、单测和 MiniMax-H3 更新。冲突位于开发记录、生成导览和注册目标合同；
+保留双方记录与目标，并重新生成导览。未删除 release 中的文档、示例或运行时脚本。
+
+相对新基线，运行时代码仍只有 `attention.py` 和
+`qwen_image21_direct_recv.py`。直收模块字节与 PR 原 head 相同，两个 Qwen
+包装函数的 AST 保持不变；新基线的 attention Hook 全部保留，仅增加原有
+Qwen 目标标记和 replicated-KV-prefix 两个 Hook。文档、生成页及这两个 Hook
+的目标合同作为配套变更保留。
+
+宿主 Python 3.12 的 L0（731 Python、8 Skill）与导览快照检查通过。
+候选和未修改的 `ba442a0` 各执行 212 项 unittest，均为 13 errors、21 skipped；
+13 项错误的测试名与终端异常逐项一致，全部是宿主缺少 Torch。未将全量单测
+记为通过。新基线相对差异的空白检查通过，没有新增删除项。
+
+本次为分支同步，未重跑四卡模型、PNG 逐位或延迟测试；此前 5.65% 和 PNG
+SHA-256 结果保持历史证据口径。未修改导览模板或交互，未执行浏览器视觉验收。
+
+推送前 release 又合入 `18c716b`（#124，GLM-5.3 Channel FP8 HiSparse 池容量修复），
+已完整保留该提交的运行时代码和记录，并重新生成导览。上述全量单测对照以
+`ba442a0` 为准；最终同步另执行 L0、导览检查及导览单测。

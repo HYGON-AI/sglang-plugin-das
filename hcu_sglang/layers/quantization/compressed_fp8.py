@@ -11,6 +11,7 @@ import torch
 from sglang.srt.layers.quantization import fp8_utils as U
 from sglang.srt.layers.quantization.compressed_tensors.schemes import compressed_tensors_w8a8_fp8 as Q
 from sglang.srt.utils import get_bool_env_var
+from hcu_sglang.layers import qwen_rms_fp8
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.layers.quantization import fp8_block as B
 
@@ -213,6 +214,10 @@ def apply_weights(
     input_quant_args: Optional[list[torch.Tensor]] = None,
     silu_quant_args: Optional[list[torch.Tensor]] = None,
 ) -> torch.Tensor:
+    if qwen_rms_fp8.enabled and isinstance(x, torch.Tensor):
+        prequantized = qwen_rms_fp8.take_prequantized_input(layer, x)
+        if prequantized is not None:
+            x = prequantized
     if _use_lightop_channel_fp8 and self.strategy == Q.QuantizationStrategy.CHANNEL:
         return apply_fp8_lightop_channelwise_linear(
             input=x,
