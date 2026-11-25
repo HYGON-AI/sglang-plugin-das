@@ -137,6 +137,50 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
                             {'transformer': {'self': 'fa', 'cross': 'torch_sdpa'}},
                         )
 
+    def test_h3_qknorm_probe_is_scoped_to_gfx936_constructor(self):
+        qknorm_rope.register_hooks(self.diffusion.HookRegistry)
+        probe, attention_init = (
+            hook for _, hook, _ in self.diffusion_calls
+        )
+
+        def construct(attention):
+            attention._use_fused_qknorm_rope = probe(lambda: True)
+
+        with (
+            patch.object(qknorm_rope, "is_hcu", return_value=True),
+            patch.object(qknorm_rope.torch.cuda, "current_device", return_value=2),
+            patch.object(qknorm_rope, "get_gcn_arch") as arch,
+        ):
+            for name, expected in (("gfx936:sramecc+", True), ("gfx938", False)):
+                with self.subTest(arch=name):
+                    arch.return_value = name
+                    attention = SimpleNamespace()
+                    attention_init(construct, attention)
+                    self.assertIs(attention._use_fused_qknorm_rope, expected)
+                    arch.assert_called_with(2)
+                    self.assertFalse(probe(lambda: True))
+
+            arch.return_value = "gfx936"
+            attention = SimpleNamespace()
+            attention_init(
+                lambda obj: setattr(obj, "_use_fused_qknorm_rope", probe(lambda: False)),
+                attention,
+            )
+            self.assertFalse(attention._use_fused_qknorm_rope)
+
+            def failed_constructor(attention):
+                construct(attention)
+                raise ValueError("constructor failed")
+
+            with self.assertRaisesRegex(ValueError, "constructor failed"):
+                attention_init(failed_constructor, SimpleNamespace())
+            self.assertFalse(probe(lambda: True))
+
+        with patch.object(qknorm_rope, "is_hcu", return_value=False):
+            attention = SimpleNamespace()
+            attention_init(construct, attention)
+            self.assertTrue(attention._use_fused_qknorm_rope)
+
     def test_existing_srt_registration_stays_in_the_srt_registry(self):
         minimax_h3.register_hooks()
         qknorm_rope.register_hooks()

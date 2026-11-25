@@ -45,6 +45,7 @@
 - [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
 
 - [2026-11-24：MiniMax H3 FA 后端透传](#2026-11-24-minimax-h3-fa-后端透传)
+- [2026-11-25：MiniMax H3 DiT 上游 QK Norm + RoPE](#2026-11-25-minimax-h3-dit-上游-qk-norm--rope)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5337,3 +5338,46 @@ mini T2VA。原始显式组件参数和省略组件参数均得到
 
 本轮组合验证覆盖启动参数校验和后端选路。权重加载、完整服务、请求生成
 和 Graph 仍待验证。
+
+## 2026-11-25 MiniMax H3 DiT 上游 QK Norm + RoPE
+
+以官方 SGLang v0.5.22 `baa9befa`、plugin `a3cd9fa` 和 adapter
+`866ff64` 为基线。此前 diffusion 能力检查在 HCU 上返回 false，
+而 H3 Attention 构造后的 Hook 也关闭融合。绕过 Hook 的探针复现了 DTK
+hipcc 的 `float2` 解构和 shuffle 掩码编译错误。Adapter 在生成的
+JIT 输入中用 `.x/.y` 读向量、使用宽度为 32 的 HIP shuffle，
+并用 `kDLGPU` 匹配 DLPack 设备类型。官方源码继续由固定版本提供。
+
+Plugin 在当前设备为 gfx936 的 H3 Attention 构造期间调用上游能力检查，
+由其 JIT 探测结果决定是否启用。其他 HCU 构造和同一公共探针的其他
+调用方走原有保护，构造退出时恢复探针作用域。对比参考使用当前
+plugin 的 RMSNorm 与 adapter 的 H3 partial RoPE。
+
+DTK 26.10、Torch 2.13.0、GPU 7 上，BF16 head128/rotary96 的原位及
+out-of-place JIT 均编译通过。四组 packed QKV 覆盖 17、1017、4096、
+38848 tokens、7/14/56 heads、int32/int64 positions。Q/K 与分离参考
+逐位一致，两种融合输出逐位一致，V 逐位保持，两次变输入和位置的
+Graph replay 与 eager 一致。原始脚本及日志位于本轮独立的
+`dit_qknorm_restore_20261125.*` 目录。
+
+真实 Diffusion Hook、单卡 TP=1 及 FA 组合通过 H3 Attention 前向回归。
+该用例实际命中上游融合一次，固定输入的输出与分离路径逐位一致。
+Plugin 注册测试预加载 LTX 配置后通过 9 项，L0 和离线导览快照检查通过。
+Adapter JIT 输入测试通过 34 项，16 项远端专用用例按环境跳过。Adapter
+L0 在干净 `866ff64` 和本次改动上报告相同的 `vllm_hisparse` 算子登记
+和 tier matrix 快照两项失败。
+
+复现时在 DTK 26.10 容器中通过 `PYTHONPATH` 加载
+`/workspace/sglang/python:/workspace/sglang-plugin-das:/workspace/adapter-das`。
+用 `HIP_VISIBLE_DEVICES=7 CUDA_VISIBLE_DEVICES=7 GPU_ARCHS=gfx936`
+依次运行证据目录的 `probe.py`、`check.py` 和 `integration.py`。
+
+GPU 7 用交替的 GPU event 计时对比现有分离路径，17 轮去掉前 4 轮，
+取中位数。1017 tokens / 14 heads 为 0.357 → 0.116 ms，
+4096 / 56 为 2.209 → 0.845 ms，38848 / 56 为 20.696 → 7.941 ms。
+这些数字仅计 RMSNorm 和 RoPE 算子段。
+
+GPU 6 使用相同源码组合、单卡 FA 和 normal INT8 权重通过 T2VA 5 步
+生成。服务健康，5 步去噪完成，1344×768 H.264 和 AAC 音视频通过 FFmpeg
+完整解码。证据目录的 `smoke.sh` 记录启动参数和客户端调用。50 步及
+Ulysses 多卡整模型回归待验证。
