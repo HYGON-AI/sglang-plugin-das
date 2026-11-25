@@ -119,7 +119,6 @@
     "sglang.multimodal_gen.runtime.models.dits.wanvideo.WanTransformer3DModel.__init__",
     "sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.klvae.AutoencoderKL.setup_forward",
     "sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.processor.VAEProcessor.convert_numpy_to_tensor",
-    "sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.vit_utils.apply_rotary_pos_emb_qk",
     "sglang.multimodal_gen.runtime.pipelines_core.executors.pipeline_executor.PipelineExecutor.profile_execution",
     "sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.stages.denoising.MiniMaxH3DenoisingStage._run_full_loop",
     "sglang.multimodal_gen.runtime.platforms.cuda.CudaPlatformBase.get_attn_backend_cls_str",

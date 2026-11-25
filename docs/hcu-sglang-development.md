@@ -49,6 +49,7 @@
 - [2026-11-25：MiniMax H3 DiT 独立 Q/K RMSNorm](#2026-11-25-minimax-h3-dit-独立-qk-rmsnorm)
 - [2026-11-25：MiniMax H3 DiT BF16 AdaLN 融合](#2026-11-25-minimax-h3-dit-bf16-adaln-融合)
 - [2026-11-25：MiniMax H3 compressed FP32 AdaLN 融合](#2026-11-25-minimax-h3-compressed-fp32-adaln-融合)
+- [2026-11-25：MiniMax H3 通用 partial RoPE](#2026-11-25-minimax-h3-通用-partial-rope)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5472,3 +5473,42 @@ GPU 5 使用真实 compressed INT8 权重，单卡 FA 的 `lossless`
 T2VA 请求完成 2 步去噪。1344×768 H.264 和 AAC 输出通过 FFmpeg
 完整解码。14 项定向单测、L0 及导览快照检查通过。算子微基准
 计时与生成的短测分别留证。50 步生成质量对比和多卡整模型回归待验证。
+
+## 2026-11-25 MiniMax H3 通用 partial RoPE
+
+基线为官方 v0.5.22 `baa9befa`、adapter `c9a69da`、plugin `5d28a47`。
+移除 plugin 对 DiT `_apply_rope_qk` 和 VAE `apply_rotary_pos_emb_qk` 的
+专用分发。独立 RoPE 由上游调用 `sgl_kernel.rotary_embedding`，VAE
+仍按上游条件选择融合或独立路径。DiT 在 gfx936 满足条件时继续用
+QK Norm + RoPE 融合。
+
+DTK 26.10、Torch 2.13.0、gfx936 GPU 7 的六组算子对拍中，通用实现
+通过 FP32 参考容差检查，未旋转的通道和 V 保持逐位一致。相对旧专用
+实现，BF16/FP16 最大绝对差分别为 0.03125/0.00390625。Packed QKV
+和 int32 位置索引的两次 Graph 重放更换输入和位置后，均与通用实现
+的 eager 结果逐位一致。
+
+GPU event 交替计时，18 轮去掉前 5 轮取中位数。以下时间以毫秒计。
+
+| 布局 | Tokens / Heads | 专用 | 通用 |
+| --- | ---: | ---: | ---: |
+| DiT BF16 packed | 4096 / 56 | 0.392 | 0.639 |
+| DiT BF16 packed | 38848 / 56 | 3.646 | 5.931 |
+| DiT BF16 contiguous | 4096 / 56 | 0.392 | 0.242 |
+| VAE FP16 contiguous | 8197 / 32 | 0.472 | 0.230 |
+
+DiT 分离路径的 packed QKV 需要通用包装层连续化 Q/K 并将结果写回，
+计时包含连续化和写回的开销。复现见节点证据目录
+`dit_h3_generic_rope_20261125.yrMXU6` 的 `bench.py`、`integration.py`
+和 `smoke.sh`。测试通过 `PYTHONPATH` 加载三仓源码。
+
+GPU 6 的实际 Attention 前向确认 DiT 融合路径调用一次 JIT 融合，
+DiT 分离路径和 VAE 分离路径各调用一次通用 RoPE。DiT 使用 BF16、
+FA、17 tokens、2 heads、head128，VAE 使用 FP16、Torch SDPA、
+2 个 tile、每个 17 tokens、32 heads、head64。相对专用实现，注意力
+输出的最大绝对差分别为 0.001953125 和 0.00048828125。
+
+GPU 5 使用真实 compressed INT8 权重及单卡 FA 完成 `lossless`
+T2VA 两步去噪。1344×768 H.264 和 AAC 通过 FFmpeg 完整解码。
+10 项定向单测、L0、导览快照与桌面及窄屏导航检查通过。
+50 步生成质量和多卡整模型性能待验证。
