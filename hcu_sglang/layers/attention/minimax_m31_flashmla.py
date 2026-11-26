@@ -96,7 +96,7 @@ def _fp8_verify_split_override() -> Optional[torch.Tensor]:
     splits = int(os.getenv(name, "8"))
     if splits not in (0, 1, 2, 4, 8):
         raise ValueError(f"{name} must be one of 0, 1, 2, 4, 8, got {splits}")
-    return _cpu_i32((splits,)) if splits else None
+    return torch.tensor([splits], dtype=torch.int32, device="cpu") if splits else None
 
 
 @functools.lru_cache(maxsize=None)

@@ -2620,3 +2620,9 @@ HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度
 - 本次整理对 Hook 入参、combined 元数据、空段、score 空间上限、side-stream 顺序及 symmetric-memory 回退做 CPU 契约检查。评审补测通过真实 Python 分发入口覆盖合批 segment 2、slot 复制及缓存复用、门控和分段回退。真实 HCU 数值与 RSC 的数据来自原实验版本。整理后的提交尚未复跑完整 HCU 服务。
 
 最终性能配方选固定 EPLB、split、packed FP8 CP KV 和 adapter 的请求广播压缩。两项插件试验都由独立开关控制。Adapter 压缩作用在 CPU 广播的私有载荷层。
+
+## MiniMax HiSparse 11-26 DP16EP16 对照基线
+
+本轮从 MiniMax 上游 6a6f333 开始，沿用 b67773a 中三项已归档的 DP16 兼容修复。注册 DeepEP 的 EP 分布记录函数，使 EPLB 路径可用。HIP 的 HiSparse 规划使用原生 wave shuffle。FlashMLA FP8 Verify 固定 split 显式构造 CPU int32 参数，保留自动 split 配置和非 CPU 默认设备回归用例。
+
+对照配置为 4×4 gfx938、EPLB、FP8 KV 和索引、DSpark static、Verify fixed8 和模拟接受长度 3.6。两组共用此提交与同一套 SGLang、adapter 和 vendor 包。主机检查覆盖补丁和构建。运行时 Hook、HCU JIT、Graph、服务和性能须由目标容器中本轮的启动与 benchmark 证据验收。
