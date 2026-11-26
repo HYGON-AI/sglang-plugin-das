@@ -157,6 +157,14 @@ def around_gate(original, x, gate, other, indices, *, dtype, allow_inplace=True)
     return original(x, gate, other, indices, dtype=dtype, allow_inplace=allow_inplace)
 
 
+def around_mlp_forward(original, layer, x):
+    if not envs.SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_SWIGLU_QUANT_FUSION:
+        return original(layer, x)
+    from hcu_sglang.multimodal_gen import minimax_h3_swiglu_quant
+
+    return minimax_h3_swiglu_quant.around_mlp_forward(original, layer, x)
+
+
 def register_hooks(registry=None):
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     if registry is not None:
@@ -165,6 +173,7 @@ def register_hooks(registry=None):
     for name in ("MiniMaxH3DiTBlock", "MiniMaxH3FinalLayer"):
         HookRegistry.register(prefix + name + ".__init__", after_layer_init, HookType.AFTER)
         HookRegistry.register(prefix + name + ".forward", around_layer_forward, HookType.AROUND)
+    HookRegistry.register(prefix + "MiniMaxH3MLP.forward", around_mlp_forward, HookType.AROUND)
     for name, hook in (
         ("_modulate_rmsnorm_scale_shift", around_rmsnorm_scale_shift),
         ("_modulate_scale_shift", around_scale_shift),

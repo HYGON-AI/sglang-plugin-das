@@ -111,6 +111,7 @@
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTModel.post_load_weights",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3FinalLayer.__init__",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3FinalLayer.forward",
+    "sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3MLP.forward",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_rope_qk",
     "sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_gate",

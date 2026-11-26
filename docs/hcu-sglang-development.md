@@ -55,6 +55,7 @@
 - [2026-11-26：MiniMax H3 Lightop 整投影直返](#2026-11-26-minimax-h3-lightop-整投影直返)
 - [2026-11-26：MiniMax H3 AdaLN 与 fc1 INT8 行量化](#2026-11-26-minimax-h3-adaln-与-fc1-int8-行量化)
 - [2026-11-26：MiniMax H3 AdaLN 与 dense QKV INT8 行量化](#2026-11-26-minimax-h3-adaln-与-dense-qkv-int8-行量化)
+- [2026-11-26：MiniMax H3 SwiGLU 与 fc2 INT8 行量化](#2026-11-26-minimax-h3-swiglu-与-fc2-int8-行量化)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5711,3 +5712,26 @@ VDN、其他后端、Ulysses 和 Ring 保留原 BF16 激活，供各自的 Atten
 DiT block 在 dense 路径上先后命中 QKV 和 fc1，输出与关闭开关的参考逐位
 一致。带 hybrid 模块的对照仍只命中 fc1。结果见
 `artifacts/minimax-h3-affine-swiglu.ScAuG9/qkv-combo.log`。
+
+## 2026-11-26 MiniMax H3 SwiGLU 与 fc2 INT8 行量化
+
+迁移 DAS `4d54971360`，沿用 `3394c9844d` 的按设备缓存和跨 stream 就绪事件。
+gfx936 上的本地 H3 INT8 MLP 将 SwiGLU 和 fc2 输入逐行量化合并到一个
+Triton kernel，再调用有序 Lightop 整投影。SiLU 表用当前 H3 的 BF16
+激活实现生成，量化前保留 SiLU 与乘法各自的 BF16 舍入。
+
+设置 `SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_SWIGLU_QUANT_FUSION=1`，同时开启
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM` 和
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM_WHOLE`。新开关默认关闭。
+当前覆盖 `mode="both"`、TP=1、无 bias 且由 Lightop 支持的本地 fc2。
+冷启动 Graph capture、无法量化的输入或 Lightop 拒绝时，复用已算出的 fc1
+输出执行原 SwiGLU 和 fc2。
+
+在 `lyl_sglang_0522` 的 gfx936 GPU 7 上，量化、Lightop 和注册组合通过
+35 项测试和 2 个子测试。SwiGLU 后的 INT8 值和 scale 与现有路径逐位一致。
+真实 DiT block 同时启用 affine 量化和 SwiGLU，命中原生有序 Lightop，
+输出与分别执行 activation 和量化时逐位一致。验证了冷 cache 的 capture
+保护、provider 拒绝回退和既有 Lightop 整投影 Graph 重放。整模型生成、
+端到端延迟和融合后的完整 DiT Graph 重放待测。复现命令和日志见
+`artifacts/minimax-h3-affine-swiglu.ScAuG9/reproduce.sh` 与
+`artifacts/minimax-h3-affine-swiglu.ScAuG9/final-combo.log`。

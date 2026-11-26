@@ -208,3 +208,68 @@ def test_dit_qkv_affine_is_limited_to_dense_consumers(monkeypatch, block_inputs,
     else:
         assert len(shifts) == 2 and shifts[0] is params[0] and shifts[1] is params[3]
     assert torch.equal(actual, expected)
+
+
+GEMM_FLAG = "SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM"
+WHOLE_FLAG = "SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM_WHOLE"
+SWIGLU_FLAG = "SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_SWIGLU_QUANT_FUSION"
+
+
+@requires_gfx936
+def test_swiglu_rows_match_upstream_activation_rounding():
+    from hcu_sglang.multimodal_gen import minimax_h3_quant as quant
+    from hcu_sglang.multimodal_gen import minimax_h3_swiglu_quant as swiglu
+    from sglang.multimodal_gen.runtime.models.dits.minimax_h3 import _silu_mul
+
+    generator = torch.Generator(device="cuda").manual_seed(47)
+    hidden = torch.randn((65, 1024), device="cuda", dtype=torch.bfloat16, generator=generator)
+    with torch.inference_mode():
+        expected_q, expected_scale = quant.quant_rows(_silu_mul(hidden, reuse_input=False))
+        q, scale = swiglu.quant_swiglu_rows(hidden)
+    assert torch.equal(q, expected_q)
+    assert torch.equal(scale, expected_scale)
+
+
+@requires_gfx936
+@pytest.mark.parametrize("declined", [False, True])
+def test_dit_swiglu_fc2_composes_with_affine_and_calls_fc1_once(monkeypatch, block_inputs, declined):
+    from hcu_sglang.multimodal_gen import minimax_h3_quant as quant
+    from hcu_sglang.multimodal_gen import minimax_h3_swiglu_quant as swiglu
+
+    block, x, kwargs = block_inputs
+    for flag in (GEMM_FLAG, WHOLE_FLAG, SWIGLU_FLAG):
+        monkeypatch.delenv(flag, raising=False)
+    with torch.inference_mode():
+        expected = block(x.clone(), **kwargs)
+        for flag in (FLAG, GEMM_FLAG, WHOLE_FLAG, SWIGLU_FLAG):
+            monkeypatch.setenv(flag, "1")
+        native_gemm = swiglu.try_lightop_gemm
+
+        def exercise_gemm(*args, **kwargs):
+            if declined:
+                return None
+            result = native_gemm(*args, **kwargs)
+            assert result is not None
+            return result
+
+        with (
+            patch.object(block.mlp.fc1, "forward", wraps=block.mlp.fc1.forward) as fc1,
+            patch.object(quant, "quant_affine_rows", wraps=quant.quant_affine_rows) as affine,
+            patch.object(swiglu, "try_lightop_gemm", side_effect=exercise_gemm) as gemm,
+        ):
+            actual = block(x.clone(), **kwargs)
+        fc1.assert_called_once()
+        affine.assert_called_once()
+        gemm.assert_called_once()
+    assert torch.equal(actual, expected)
+
+
+@requires_gfx936
+def test_cold_swiglu_capture_does_not_publish_table(monkeypatch):
+    from hcu_sglang.multimodal_gen import minimax_h3_swiglu_quant as swiglu
+
+    monkeypatch.setattr(swiglu, "_tables", {})
+    hidden = torch.zeros((17, 256), device="cuda", dtype=torch.bfloat16)
+    with patch("torch.cuda.is_current_stream_capturing", return_value=True):
+        assert swiglu.quant_swiglu_rows(hidden) is None
+    assert swiglu._tables == {}
