@@ -57,6 +57,12 @@
 
 两份早期独立开发记录已全文收录（卷内同链）。历史结果不代表当前代码已重新验证。
 
+## 2026-11-26 GLM-5.3 IFB Draft seed 槽位转换
+
+GLM-5.3 Channel FP8 的 IFB 初始 Draft Prefill 开启 seed 复用时，fused RAGGED TopK 记录拼接 KV 中的位置，首轮 fused PAGED Draft Decode 使用本地 KV 槽位。在 NextN 发布并选出每请求的 seed 行后，使用现有 DSA 后端逻辑转换 capture buffer。保留原 Prefill TopK 和正常 Draft Extend 的 PAGED 结果。
+
+200Ki@97% c4 的原配置已定位故障在首轮 Draft Decode 消费 seed 时。槽位转换后的同输入复验中，TP0–7 都执行转换，四条请求各返回 16 token 和 198656 cached tokens，VMFault 计数为 0。双开关配置的完整调用核验和端到端精度待测。
+
 ---
 
 ## 35. 2026-11-01 RMSNorm/Gemma HCU 分支继续迁移
