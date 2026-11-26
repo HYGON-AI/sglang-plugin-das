@@ -10,6 +10,14 @@ def enabled(layer, quant_config, prefix):
         "compressed-tensors",
     ):
         return False
+    if (
+        getattr(quant_config, "quant_format", None) == "float-quantized"
+        and not any(
+            getattr(scheme.get("weights"), "type", None) == "int"
+            for scheme in quant_config.target_scheme_map.values()
+        )
+    ):
+        return False
     scheme = quant_config.get_scheme_dict(layer, layer_name=prefix)
     if scheme is None:
         return False
@@ -155,18 +163,22 @@ def install(layer):
     layer.quant_method = ChannelwiseInt8Method()
 
 def around_project_bias(original, head, latent_states, *, weight=None):
+    from . import channelwise_fp8
     method = getattr(head.markov_w2, "quant_method", None)
-    if not isinstance(method, ChannelwiseInt8Method):
+    if not isinstance(method, (ChannelwiseInt8Method, channelwise_fp8.ChannelwiseFp8Method)):
         return original(head, latent_states, weight=weight)
     if weight is not None:
         raise ValueError("Quantized Markov slices require matching scale offsets")
     dtype = torch.bfloat16 if head._opt_markov_w2_bf16 else torch.float32
+    if isinstance(method, channelwise_fp8.ChannelwiseFp8Method):
+        return method.apply_with_output_dtype(head.markov_w2, latent_states, output_dtype=dtype).float()
     return method.apply(head.markov_w2, latent_states.to(dtype)).float()
 
 
 def around_step_bias(original, head, prev_tokens, *, hidden_states, state):
+    from . import channelwise_fp8
     method = getattr(head.markov_w2, "quant_method", None)
-    if not isinstance(method, ChannelwiseInt8Method):
+    if not isinstance(method, (ChannelwiseInt8Method, channelwise_fp8.ChannelwiseFp8Method)):
         return original(head, prev_tokens, hidden_states=hidden_states, state=state)
     latent = head.get_prev_embeddings(prev_tokens)
     shard = head._tp_shard
@@ -174,8 +186,24 @@ def around_step_bias(original, head, prev_tokens, *, hidden_states, state):
         return head.project_bias(latent), state
     start, end = shard.org_vocab_start, shard.org_vocab_end
     dtype = torch.bfloat16 if head._opt_markov_w2_bf16 else torch.float32
+    if isinstance(method, channelwise_fp8.ChannelwiseFp8Method):
+        return channelwise_fp8.linear(
+            latent, head.markov_w2.weight[start:end],
+            head.markov_w2.weight_scale_inv[start:end], output_dtype=dtype,
+        ), state
     return linear(latent, head.markov_w2.weight[start:end],
                   head.markov_w2.weight_scale[start:end], output_dtype=dtype), state
+
+
+def around_draft_lm_logits(original, model, x_post_hc):
+    from .channelwise_fp8 import ChannelwiseFp8Method
+    method = getattr(model.lm_head, "quant_method", None)
+    if not model._use_fp32_lm_head or not isinstance(method, ChannelwiseFp8Method):
+        return original(model, x_post_hc)
+    from sglang.srt.models.deepseek_v4_dspark import gather_and_crop_vocab
+    x = model.stages[-1].norm(x_post_hc)
+    logits = method.apply_with_output_dtype(model.lm_head, x, output_dtype=torch.float32)
+    return logits if model._opt_markov_w2_tp_shard else gather_and_crop_vocab(logits, model.lm_head)
 
 
 def register_hooks():
@@ -192,3 +220,7 @@ def register_hooks():
         around_step_bias, HookType.AROUND,
     )
 
+    HookRegistry.register(
+        "sglang.srt.models.deepseek_v4_dspark.DeepseekV4ForCausalLMDSpark._logits_from_x_post_hc",
+        around_draft_lm_logits, HookType.AROUND,
+    )

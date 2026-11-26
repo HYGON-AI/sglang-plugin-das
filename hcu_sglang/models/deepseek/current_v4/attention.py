@@ -3,7 +3,7 @@
 """Owned HCU MQA classes with their original class closures and current ABI."""
 from __future__ import annotations
 
-from hcu_sglang.layers.quantization import channelwise_int8
+from hcu_sglang.layers.quantization import channelwise_fp8, channelwise_int8
 import functools
 import sglang.srt.models.deepseek_v4 as upstream
 from hcu_sglang.utils.detection import is_hcu
@@ -206,7 +206,8 @@ class MqaAttentionBase(nn.Module):
         fuse: bool = (
             envs.SGLANG_OPT_FUSE_WQA_WKV.get() if fuse_wqa_wkv is None else fuse_wqa_wkv
         )
-        fp8: bool = (
+        self.wo_a_channelwise_fp8 = self.is_dsv41 and channelwise_fp8.enabled(quant_config)
+        fp8: bool = not self.wo_a_channelwise_fp8 and (
             wo_a_fp8_gemm_enabled(quant_config) if wo_a_fp8 is None else wo_a_fp8
         )
         reduce_results: bool = (
@@ -277,10 +278,12 @@ class MqaAttentionBase(nn.Module):
             parallel_group="attn_tp",
             **({} if quantize_wo_a else {"params_dtype": torch.bfloat16}),
         )
-        self.wo_a_int8 = self.is_dsv41 and channelwise_int8.enabled(
+        self.wo_a_int8 = self.is_dsv41 and not self.wo_a_channelwise_fp8 and channelwise_int8.enabled(
             self.wo_a, quant_config, add_prefix("wo_a", prefix)
         )
-        if self.wo_a_int8:
+        if self.wo_a_channelwise_fp8:
+            channelwise_fp8.install(self.wo_a)
+        elif self.wo_a_int8:
             channelwise_int8.install(self.wo_a)
         if quantize_wo_a:
             assert hasattr(self.wo_a, "weight_scale_inv"), (
@@ -2101,7 +2104,9 @@ class MQALayer(MqaAttentionBase):
 
             o = o.view(o.shape[0], self.n_local_groups, -1)
 
-            if self.wo_a_int8:
+            if self.wo_a_channelwise_fp8:
+                o = channelwise_fp8.grouped(o, self.wo_a, self.n_local_groups, self.o_lora_rank)
+            elif self.wo_a_int8:
                 o = channelwise_int8.grouped(
                     o, self.wo_a, self.n_local_groups, self.o_lora_rank
                 )

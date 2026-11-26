@@ -134,3 +134,9 @@ LightOp 自行选择 launch，不套用旧 sgl_kernel 的 256-thread head 分块
 `SGLANG_HCU_W8A8_USE_LIGHTOP` 为插件布尔开关，默认 `False`。GLM CT W4A8 配方显式设置为 `1`，使既有 `triton_scaled_mm` 接口使用镜像内公共 LightOp 分发，跳过插件自行选择的 smooth ASM 快路径；公共接口内部仍可能使用 ASM。开关不改变输入 INT8 量化值、token scale、权重或输出 dtype；默认关闭及非 HCU 的行为保持原样。应在服务启动前设置，Graph 捕获后不要切换后端。
 
 真实首层 Q-b 的两组八 rank 输入、权重和 scale 对照中，两套镜像的公共接口均逐元素重建原生输出；插件的 ASM 快路径有四个元素不同。该有限组件证据不证明所有 shape 或完整模型通过，后续分发和模型复测见[开发记录](hcu-sglang-development.md#2026-11-05-glm-ct-w4a8-的-w8a8-gemm-分发)。
+
+## DeepSeek V4.1 的逐通道 FP8 特殊投影
+
+`SGLANG_DSV41_CHANNELWISE_FP8_RUNTIME` 默认为 `auto`。插件根据 HCU、量化方案和本地 checkpoint 的 safetensors 元数据选择路径。目标与独立草稿各自检查自己的 checkpoint。符合条件的 wo_a、Markov 输出投影和 lm_head 保留 E4M3 权重及每输出行的 FP32 scale，Markov 的 BF16 embedding 沿用原加载器。要求 FP32 logits 时，lm_head 直接输出 FP32。
+
+`0` 关闭此路径。`1` 用于显式选择兼容量化方案的自定义加载器，权重类型、scale 形状和加载完整性仍由 loader 校验。修改环境变量后重新启动服务。FP8 lm_head 与 lm_head LoRA 的组合会在初始化时报告不支持。

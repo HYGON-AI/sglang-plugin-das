@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from hcu_sglang.layers.quantization import channelwise_int8
+from hcu_sglang.layers.quantization import channelwise_fp8, channelwise_int8
 
 import types
 import dis
@@ -287,6 +287,10 @@ class _ModelMethods:
         super(DeepseekV4ForCausalLMDSpark, self).__init__()
         self.config = config
         self.quant_config = quant_config
+        self._dsv41_channelwise_fp8 = False
+        if getattr(config, "model_type", None) == "deepseek_v41":
+            channelwise_fp8.configure_checkpoint(quant_config, config)
+            self._dsv41_channelwise_fp8 = channelwise_fp8.enabled(quant_config)
         self.num_fused_shared_experts = (
             0 if is_shared_experts_fusion_disabled() else config.n_shared_experts
         )
@@ -409,7 +413,9 @@ class _ModelMethods:
             markov_rank=int(dspark_config.markov_rank),
             is_dsv41=getattr(config, "model_type", None) == "deepseek_v41",
         )
-        if (getattr(config, "model_type", None) == "deepseek_v41"
+        if self._dsv41_channelwise_fp8:
+            channelwise_fp8.install(self.markov_head.markov_w2)
+        elif (getattr(config, "model_type", None) == "deepseek_v41"
             and channelwise_int8.enabled(self.markov_head.markov_w2, quant_config,
                                          add_prefix("markov_head.head", prefix))):
             channelwise_int8.install(self.markov_head.markov_w2)
@@ -663,7 +669,8 @@ class _ModelMethods:
             else "weight_scale_inv"
         )
 
-        weights = _dequant_fp8_wo_a_streaming(weights)
+        if not self._dsv41_channelwise_fp8:
+            weights = _dequant_fp8_wo_a_streaming(weights)
 
         stacked_params_mapping = DEEPSEEK_V4_STACKED_PARAMS_MAPPING
         from sglang.srt.layers.moe.fused_moe_triton import FusedMoE
@@ -683,6 +690,13 @@ class _ModelMethods:
             )
             if mapped is None:
                 continue
+            if self._dsv41_channelwise_fp8 and mapped not in params_dict:
+                module, _, field = mapped.rpartition(".")
+                candidate = module + ".weight_scale_inv"
+                if (field in ("scale", "weight_scale") and
+                    (module == "markov_head.markov_w2" or module.endswith(".self_attn.wo_a")) and
+                    candidate in params_dict):
+                    mapped = candidate
             if self.num_fused_shared_experts > 0 and ".mlp.shared_experts." in mapped:
                 mapped = mapped.replace(
                     ".mlp.shared_experts.",

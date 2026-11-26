@@ -34,3 +34,5 @@ def register_hooks() -> None:
     compressed_w4a8.register_hooks()
     from . import channelwise_int8
     channelwise_int8.register_hooks()
+    from . import channelwise_fp8_heads
+    channelwise_fp8_heads.register_hooks()
