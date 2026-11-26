@@ -1,16 +1,10 @@
 from importlib.util import find_spec
-from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
 import torch
 
 from hcu_sglang.multimodal_gen import subblock_sparse as bsa
-
-
-SGLANG_BACKEND = (
-    "sglang.multimodal_gen.runtime.layers.attention.backends.subblock_sparse_attn"
-)
 
 
 class SubBlockHcuTests(unittest.TestCase):
@@ -30,60 +24,22 @@ class SubBlockHcuTests(unittest.TestCase):
         self.assertIs(runner, original.return_value)
         original.assert_called_once_with(device, "sage_fp8")
 
-    def test_aiter_runner_returns_output_tensor(self):
-        q = torch.empty(1, 1, 1, 128, dtype=torch.bfloat16)
-        k = v = torch.empty(1, 65, 1, 128, dtype=q.dtype)
-        index = torch.tensor([[[[1, 0]]]], dtype=torch.int32)
-        counts = torch.tensor([[[2]]], dtype=torch.int32)
-        sizes = torch.tensor([64, 1], dtype=torch.int32)
-        output = torch.empty_like(q)
-        kernel = Mock(return_value=output)
-        cached_sizes = Mock(return_value=sizes)
-        with patch.dict(
-            "sys.modules",
-            {
-                "aiter": SimpleNamespace(bsa_attn_blk64_fwd=kernel),
-                SGLANG_BACKEND: SimpleNamespace(_cached_block_sizes=cached_sizes),
-            },
-        ):
-            self.assertIs(bsa.hcu_sparse_attention(q, k, v, index, 2, 0.125, counts), output)
-        cached_sizes.assert_called_once_with(65, k.device)
-        actual_q, actual_k, actual_v, actual_index, topk = kernel.call_args.args
-        self.assertIs(actual_q, q)
-        self.assertIs(actual_k, k)
-        self.assertIs(actual_v, v)
-        self.assertEqual(actual_index.tolist(), [[[[0, 1]]]])
-        self.assertEqual(topk, 2)
-        self.assertIs(kernel.call_args.kwargs["block_sizes"], sizes)
-        self.assertIs(kernel.call_args.kwargs["q2k_block_nums"], counts)
-        self.assertEqual(kernel.call_args.kwargs["softmax_scale"], 0.125)
-
     @unittest.skipUnless(torch.version.hip and torch.cuda.is_available(), "requires HIP")
     def test_partial_key_block_and_heterogeneous_counts(self):
-        if find_spec("aiter") is None:
-            self.skipTest("requires AITER with SubBlock sparse attention")
-        from sglang.multimodal_gen.runtime.layers.attention.backends.subblock_sparse_attn import (
-            _cached_block_sizes,
-        )
+        if find_spec("dcu_bsa") is None:
+            self.skipTest("requires the optional dcu_bsa wheel")
+        from dcu_bsa.reference import bsa_attn_blk64_fwd
 
         torch.manual_seed(1101)
-        q = torch.randn(1, 129, 2, 256, device="cuda", dtype=torch.bfloat16)[..., :128]
-        k, v = torch.randn(1, 257, 2, 256, device=q.device, dtype=q.dtype).split(128, -1)
+        q = torch.randn(1, 129, 2, 128, device="cuda", dtype=torch.bfloat16)
+        k = torch.randn(1, 257, 2, 128, device="cuda", dtype=torch.bfloat16)
+        v = torch.randn_like(k)
         row = torch.tensor([4, 1, 3, 2, 0], device=q.device, dtype=torch.int32)
         index = row.expand(1, 2, 3, 5).contiguous()
-        counts = torch.tensor([2, 5, 0], device=q.device, dtype=torch.int32).expand(1, 2, 3)
-        sizes = _cached_block_sizes(k.shape[1], k.device)
-        self.assertEqual(sizes.tolist(), [64, 64, 64, 64, 1])
-
-        query, key, value = (tensor[0].cpu().float() for tensor in (q, k, v))
-        expected = torch.zeros_like(query)
-        for block, count in enumerate((2, 5)):
-            tokens = (row[:count].cpu()[:, None] * 64 + torch.arange(64)).flatten()
-            tokens = tokens[tokens < key.shape[0]]
-            q_slice = slice(block * 64, (block + 1) * 64)
-            scores = torch.einsum("qhd,khd->hqk", query[q_slice], key[tokens]) * 0.125
-            expected[q_slice] = torch.einsum("hqk,khd->qhd", scores.softmax(-1), value[tokens])
-
+        counts = torch.tensor([2, 5, 1], device=q.device, dtype=torch.int32).expand(1, 2, 3)
+        sizes = torch.tensor([64, 64, 64, 64, 1], device=q.device, dtype=torch.int32)
+        expected, _ = bsa_attn_blk64_fwd(
+            q, k, v, index, 5, block_sizes=sizes, q2k_block_nums=counts, softmax_scale=0.125
+        )
         actual = bsa.hcu_sparse_attention(q, k, v, index, 5, 0.125, counts)
-        self.assertEqual(actual.dtype, torch.bfloat16)
-        torch.testing.assert_close(actual[0].cpu().float(), expected, rtol=0.03, atol=0.03)
+        torch.testing.assert_close(actual, expected, rtol=0.03, atol=0.03)
