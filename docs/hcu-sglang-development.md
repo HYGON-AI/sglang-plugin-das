@@ -2626,3 +2626,7 @@ HiSparse 共用 Decode 的 DeepEP receive overlap、Draft SWA split-KV 和长度
 本轮从 MiniMax 上游 6a6f333 开始，沿用 b67773a 中三项已归档的 DP16 兼容修复。注册 DeepEP 的 EP 分布记录函数，使 EPLB 路径可用。HIP 的 HiSparse 规划使用原生 wave shuffle。FlashMLA FP8 Verify 固定 split 显式构造 CPU int32 参数，保留自动 split 配置和非 CPU 默认设备回归用例。
 
 对照配置为 4×4 gfx938、EPLB、FP8 KV 和索引、DSpark static、Verify fixed8 和模拟接受长度 3.6。两组共用此提交与同一套 SGLang、adapter 和 vendor 包。主机检查覆盖补丁和构建。运行时 Hook、HCU JIT、Graph、服务和性能须由目标容器中本轮的启动与 benchmark 证据验收。
+
+### 11-26 Verify 写回元数据
+
+BS128 的开启组每步在 Verify 之后写回接受 token，CPU/GPU trace 中有重复构造的偏移及 batch 计数。Coordinator 初始化时分配一次不可变的位置偏移和 int32 batch 计数。每步仍用本轮 prefix 与 accepted 和 scratch slots，逐层写回入口收到同值、同 dtype 的 batch 计数视图。按 head 换页另由实验启动参数控制，两项机制分别记录。结构与语法检查在登录节点运行，HCU 写回、Graph 和端到端实测在四节点环境留证。
