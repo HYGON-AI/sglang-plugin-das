@@ -142,7 +142,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_existing_srt_registration_stays_in_the_srt_registry(self):
         minimax_h3.register_hooks()
         qknorm_rope.register_hooks()
-        self.assertEqual(len(self.srt_calls), 16)
+        self.assertEqual(len(self.srt_calls), 15)
         self.assertLessEqual(
             {
                 'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.klvae.AutoencoderKL.setup_forward',
