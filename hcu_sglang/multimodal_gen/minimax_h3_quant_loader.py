@@ -44,12 +44,6 @@ def around_resolve_quant_load_spec(original, **kwargs):
     return result
 
 
-def after_attention_init(result, attention, *args, **kwargs):
-    if is_hcu():
-        attention._use_fused_qknorm_rope = False
-    return result
-
-
 def register_hooks(registry=None):
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
     if registry is not None:
@@ -65,10 +59,4 @@ def register_hooks(registry=None):
         "resolve_transformer_quant_load_spec",
         around_resolve_quant_load_spec,
         HookType.AROUND,
-    )
-    HookRegistry.register(
-        "sglang.multimodal_gen.runtime.models.dits.minimax_h3."
-        "MiniMaxH3Attention.__init__",
-        after_attention_init,
-        HookType.AFTER,
     )
