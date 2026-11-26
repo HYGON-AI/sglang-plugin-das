@@ -8,6 +8,7 @@ from functools import lru_cache
 import torch
 
 from hcu_sglang.multimodal_gen import minimax_h3_quant_env as envs
+from hcu_sglang.utils.detection import get_gcn_arch
 
 
 @lru_cache(maxsize=1)
@@ -30,6 +31,25 @@ def _ordered_gemm():
     return gemm
 
 
+def _lightop_allowed():
+    return (
+        envs.SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM
+        and not torch.is_grad_enabled()
+        and not torch.compiler.is_compiling()
+        and torch.version.hip is not None
+    )
+
+
+def lightop_gemm_enabled(qw):
+    return (
+        _lightop_allowed()
+        and qw.shape[0] % 256 == 0
+        and qw.shape[1] % 128 == 0
+        and get_gcn_arch(qw.device.index).partition(":")[0] == "gfx936"
+        and _ordered_gemm() is not None
+    )
+
+
 def try_lightop_gemm(qx, qw, sx, sw, bias=None):
     """Return BF16 output or None; Lightop owns architecture/alignment checks.
 
@@ -37,10 +57,7 @@ def try_lightop_gemm(qx, qw, sx, sw, bias=None):
     dispatch. Runtime kernel errors propagate rather than silently falling back.
     """
     if (
-        not envs.SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM
-        or torch.is_grad_enabled()
-        or torch.compiler.is_compiling()
-        or torch.version.hip is None
+        not _lightop_allowed()
         or bias is not None
         or qx.ndim != 2
         or qw.ndim != 2

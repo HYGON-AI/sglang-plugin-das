@@ -52,6 +52,7 @@
 - [2026-11-25：MiniMax H3 通用 partial RoPE](#2026-11-25-minimax-h3-通用-partial-rope)
 - [2026-11-25：MiniMax H3 上游 Attention 后端选择](#2026-11-25-minimax-h3-上游-attention-后端选择)
 - [2026-11-26：MiniMax H3 有序 Lightop INT8 GEMM](#2026-11-26-minimax-h3-有序-lightop-int8-gemm)
+- [2026-11-26：MiniMax H3 Lightop 整投影直返](#2026-11-26-minimax-h3-lightop-整投影直返)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5658,3 +5659,21 @@ PyTorch 2.13.0 和 Lightop `0.6.0+dtk2610.torch2130.2611201654.ge44844`
 10 项通过。覆盖真实有序内核、跨块和末尾 padding、BF16 舍入边界、
 旧版 ABI、provider 拒绝与执行错误传播。结果见
 `artifacts/minimax-h3-lightop.Nw3uQV/chunked-pytest.log`。
+
+## 2026-11-26 MiniMax H3 Lightop 整投影直返
+
+迁移 DAS `e515d2c312`。在有序 Lightop 开关的基础上，
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM_WHOLE=1` 可让符合条件的
+投影一次量化全部输入行、调用一次 Lightop，并返回实际行数对应的连续视图。
+该视图与 Lightop 输出共享存储，省掉预先分配的目的张量和分块写回。
+开关默认关闭。在分配整投影的量化缓冲前检查 gfx936、权重对齐和 ordered API。
+Lightop 拒绝时先释放临时引用，由原有分块路径继续处理。
+
+在 `lyl_sglang_0522` 容器的物理 GPU 7 上，17 项针对性测试通过。
+实际 H3 INT8 Linear 对 1 行和 65 行的输入各命中一次 Lightop，
+去掉 padding 后与原路径逐位一致，并与 Lightop 返回值共享存储。
+整投影拒绝时验证分块行数为 32、32、1。预热后的 Graph 首次重放以及
+改变输入和行量化 scale 后的重放均与原路径逐位一致。复现命令和日志见
+`artifacts/minimax-h3-lightop.Nw3uQV/reproduce.sh` 与
+`artifacts/minimax-h3-lightop.Nw3uQV/final-pytest.log`。
+本次验证覆盖 Linear 路径、原生分发及 Graph，整模型生成和端到端收益待测。

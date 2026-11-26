@@ -439,6 +439,21 @@ def linear(x, qw, sw, bias=None, *, mode="both", chunk=4096):
         raise ValueError("Unsupported _int_mm dimensions or scale shape")
     if m < 1 or chunk < 16 or chunk % 16:
         raise ValueError("Expected M>0 and chunk a positive multiple of 16")
+    if (
+        mode == "both"
+        and bias is None
+        and envs.SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM_WHOLE
+        and _row_quant_block_size(x, "int8") is not None
+        and minimax_h3_lightop_gemm.lightop_gemm_enabled(qw)
+    ):
+        qx, sx = quant_rows(x)
+        result = minimax_h3_lightop_gemm.try_lightop_gemm(qx, qw, sx, sw)
+        if result is not None:
+            # Quantization pads M; slicing rows preserves contiguous layout
+            # and shares Lightop's allocation without a destination copy.
+            return result[:m]
+        # Unsupported GEMM keeps the original bounded-chunk fallback.
+        del qx, sx
     out = torch.empty((m, qw.shape[0]), device=x.device, dtype=x.dtype)
     for lo in range(0, m, chunk):
         part = x[lo : lo + chunk]

@@ -11,6 +11,7 @@ from hcu_sglang.multimodal_gen import minimax_h3_lightop_gemm as lightop_gemm
 from hcu_sglang.multimodal_gen import minimax_h3_quant_env as envs
 
 FLAG = "SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM"
+WHOLE_FLAG = "SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM_WHOLE"
 requires_gfx936 = pytest.mark.skipif(
     os.environ.get("HCU_PLUGIN_RUN_GPU_TESTS") != "1"
     or torch.version.hip is None
@@ -28,10 +29,11 @@ def reset_capability_cache():
 
 
 def test_lightop_is_opt_in(monkeypatch):
-    monkeypatch.delenv(FLAG, raising=False)
-    assert not envs.SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM
-    monkeypatch.setenv(FLAG, "1")
-    assert envs.SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM
+    for flag in (FLAG, WHOLE_FLAG):
+        monkeypatch.delenv(flag, raising=False)
+        assert not getattr(envs, flag)
+        monkeypatch.setenv(flag, "1")
+        assert getattr(envs, flag)
 
 
 def test_missing_and_legacy_lightop():
@@ -65,6 +67,7 @@ def test_ordered_lightop_matches_linear(monkeypatch, m):
 
     x, w, sw = _inputs(m)
     monkeypatch.delenv(FLAG, raising=False)
+    monkeypatch.delenv(WHOLE_FLAG, raising=False)
     with torch.inference_mode():
         expected = linear(x, w, sw, chunk=32)
     monkeypatch.setenv(FLAG, "1")
@@ -148,3 +151,111 @@ def test_lightop_kernel_failure_propagates(monkeypatch):
     ):
         capability.return_value.side_effect = RuntimeError("kernel failure")
         linear(x, w, sw)
+
+
+@requires_gfx936
+@pytest.mark.parametrize("m", [1, 65])
+def test_whole_projection_returns_lightop_storage(monkeypatch, m):
+    from hcu_sglang.multimodal_gen.minimax_h3_quant import MiniMaxH3Int8LinearMethod
+
+    x, w, sw = _inputs(m)
+    layer = SimpleNamespace(weight=w, weight_scale_inv=sw)
+    method = MiniMaxH3Int8LinearMethod(fused=True)
+    monkeypatch.delenv(FLAG, raising=False)
+    with torch.inference_mode():
+        expected = method.apply(layer, x)
+    monkeypatch.setenv(FLAG, "1")
+    monkeypatch.setenv(WHOLE_FLAG, "1")
+
+    native_gemm = lightop_gemm._ordered_gemm()
+    assert native_gemm is not None
+    outputs = []
+
+    def gemm(*args, **kwargs):
+        supported, result = native_gemm(*args, **kwargs)
+        assert supported
+        outputs.append(result)
+        return supported, result
+
+    with torch.inference_mode(), patch.object(lightop_gemm, "_ordered_gemm", return_value=gemm):
+        actual = method.apply(layer, x)
+
+    assert len(outputs) == 1
+    assert outputs[0].shape[0] == max(32, (m + 15) // 16 * 16)
+    assert actual.shape == (m, w.shape[0]) and actual.is_contiguous()
+    assert actual.untyped_storage().data_ptr() == outputs[0].untyped_storage().data_ptr()
+    assert torch.equal(actual, expected)
+
+
+@requires_gfx936
+@pytest.mark.parametrize("case", ["disabled", "legacy", "unaligned", "declined"])
+def test_whole_projection_falls_back_to_bounded_chunks(monkeypatch, case):
+    from hcu_sglang.multimodal_gen import minimax_h3_quant as quant
+
+    x, w, sw = _inputs(n=80, k=112) if case == "unaligned" else _inputs()
+    monkeypatch.delenv(FLAG, raising=False)
+    with torch.inference_mode():
+        expected = quant.linear(x, w, sw, chunk=32)
+    monkeypatch.setenv(FLAG, "0" if case == "disabled" else "1")
+    monkeypatch.setenv(WHOLE_FLAG, "1")
+
+    def decline(*args, **kwargs):
+        return False, None
+
+    with (
+        torch.inference_mode(),
+        patch.object(quant, "quant_rows", wraps=quant.quant_rows) as quantize,
+        patch.object(
+            lightop_gemm, "_ordered_gemm", return_value=None if case == "legacy" else decline,
+        ),
+    ):
+        actual = quant.linear(x, w, sw, chunk=32)
+
+    rows = [call.args[0].shape[0] for call in quantize.call_args_list]
+    assert rows == ([65, 32, 32, 1] if case == "declined" else [32, 32, 1])
+    assert torch.equal(actual, expected)
+
+
+@requires_gfx936
+def test_whole_projection_graph_replays_changed_input(monkeypatch):
+    from hcu_sglang.multimodal_gen.minimax_h3_quant import linear
+
+    x, w, sw = _inputs()
+    changed = -x.roll(1, dims=-1) * 2
+    monkeypatch.delenv(FLAG, raising=False)
+    with torch.inference_mode():
+        expected_initial = linear(x, w, sw, chunk=32)
+        expected_changed = linear(changed, w, sw, chunk=32)
+    assert not torch.equal(expected_initial, expected_changed)
+    monkeypatch.setenv(FLAG, "1")
+    monkeypatch.setenv(WHOLE_FLAG, "1")
+    native_gemm = lightop_gemm._ordered_gemm()
+    assert native_gemm is not None
+    hits = []
+
+    def gemm(*args, **kwargs):
+        supported, result = native_gemm(*args, **kwargs)
+        assert supported
+        hits.append(args[0].shape[0])
+        return supported, result
+
+    with (
+        torch.inference_mode(),
+        patch.object(lightop_gemm, "_ordered_gemm", return_value=gemm),
+    ):
+        current = torch.cuda.current_stream()
+        warmup = torch.cuda.Stream()
+        warmup.wait_stream(current)
+        with torch.cuda.stream(warmup):
+            linear(x, w, sw, chunk=32)
+        current.wait_stream(warmup)
+        graph = torch.cuda.CUDAGraph()
+        with torch.cuda.graph(graph):
+            actual = linear(x, w, sw, chunk=32)
+        graph.replay()
+        assert torch.equal(actual, expected_initial)
+        x.copy_(changed)
+        graph.replay()
+
+    assert hits == [80, 80]
+    assert torch.equal(actual, expected_changed)
