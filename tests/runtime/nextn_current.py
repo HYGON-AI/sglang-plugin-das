@@ -12,6 +12,8 @@ from sglang.srt.models import deepseek_nextn as S
 from sglang.srt.plugins.hook_registry import HookRegistry
 from hcu_sglang.models.deepseek.deepseek_nextn.hooks import model as hooks
 from hcu_sglang.models.deepseek.deepseek_nextn.methods import model as plugin
+from hcu_sglang.environ import register_envs
+register_envs()
 
 class Norm(torch.nn.Module):
     def __init__(self,size,eps):super().__init__();self.weight=torch.ones(size);self.variance_epsilon=eps
