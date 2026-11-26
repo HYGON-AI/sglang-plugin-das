@@ -54,6 +54,7 @@
 - [2026-11-26：MiniMax H3 有序 Lightop INT8 GEMM](#2026-11-26-minimax-h3-有序-lightop-int8-gemm)
 - [2026-11-26：MiniMax H3 Lightop 整投影直返](#2026-11-26-minimax-h3-lightop-整投影直返)
 - [2026-11-26：MiniMax H3 AdaLN 与 fc1 INT8 行量化](#2026-11-26-minimax-h3-adaln-与-fc1-int8-行量化)
+- [2026-11-26：MiniMax H3 AdaLN 与 dense QKV INT8 行量化](#2026-11-26-minimax-h3-adaln-与-dense-qkv-int8-行量化)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5697,3 +5698,16 @@ adapter `9eb2586` 完成 12 项针对性测试和 2 个子测试。对比 fused 
 `affine → quant_rows`，INT8 值和 scale 逐位一致。真实 DiT block 只命中
 fc1，最终输出逐位一致。开了上游融合或额外投影 Hook 时继续走既有路径。
 组合运行日志见 `artifacts/minimax-h3-affine-swiglu.ScAuG9/fc1-combo.log`。
+
+## 2026-11-26 MiniMax H3 AdaLN 与 dense QKV INT8 行量化
+
+将 DAS `f3c40c6e19` 的 Attention 路径接入同一个 affine 量化开关。
+`norm1` 的独立 FP32 affine 只在真实 H3 dense FA/FA2 的本地 INT8 QKV
+投影处合并。该选择要求 TP=1、无附加投影 Hook 和无 hybrid 分支。
+VDN、其他后端、Ulysses 和 Ring 保留原 BF16 激活，供各自的 Attention
+消费者使用。沿用 upstream 的 `forward` 和 INT8 Linear，不增加新的注册目标。
+
+`lyl_sglang_0522` 的 gfx936 GPU 7 上通过 6 项 affine 用例。真实 DTK FA2
+DiT block 在 dense 路径上先后命中 QKV 和 fc1，输出与关闭开关的参考逐位
+一致。带 hybrid 模块的对照仍只命中 fc1。结果见
+`artifacts/minimax-h3-affine-swiglu.ScAuG9/qkv-combo.log`。

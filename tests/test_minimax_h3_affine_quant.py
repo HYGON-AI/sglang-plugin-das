@@ -178,3 +178,33 @@ def test_dit_preserves_existing_affine_consumers(monkeypatch, block_inputs, case
             actual = block(x.clone(), **kwargs)
         fused.assert_not_called()
     assert torch.equal(actual, expected)
+
+
+@requires_gfx936
+@pytest.mark.parametrize("has_hybrid", [False, True])
+def test_dit_qkv_affine_is_limited_to_dense_consumers(monkeypatch, block_inputs, has_hybrid):
+    from hcu_adapter.bridges.sglang_diffusion_fa2 import HcuFlashAttention2Impl
+    from hcu_sglang.multimodal_gen import minimax_h3_quant as quant
+    from sglang.multimodal_gen.runtime.platforms import AttentionBackendEnum
+
+    block, x, kwargs = block_inputs
+    block.attn._attention_impl = HcuFlashAttention2Impl(
+        num_heads=2, head_size=128, causal=False, softmax_scale=128 ** -0.5,
+    )
+    block.attn._attention_backend_enum = AttentionBackendEnum.FA2
+    if has_hybrid:
+        block.attn.hybrid = torch.nn.Identity()
+
+    with torch.inference_mode():
+        expected = block(x.clone(), **kwargs)
+        monkeypatch.setenv(FLAG, "1")
+        with patch.object(quant, "quant_affine_rows", wraps=quant.quant_affine_rows) as fused:
+            actual = block(x.clone(), **kwargs)
+
+    shifts = [call.args[1] for call in fused.call_args_list]
+    params = kwargs["adaln_params"]
+    if has_hybrid:
+        assert len(shifts) == 1 and shifts[0] is params[3]
+    else:
+        assert len(shifts) == 2 and shifts[0] is params[0] and shifts[1] is params[3]
+    assert torch.equal(actual, expected)

@@ -13,6 +13,7 @@ _AFFINE_SCOPE = ContextVar("hcu_minimax_h3_affine_quant", default=None)
 @dataclass
 class _AffineScope:
     block: object
+    allow_qkv: bool
     projection: object | None = None
     pending: tuple | None = None
 
@@ -40,7 +41,9 @@ def around_layer_forward(original, layer, *args, **kwargs):
         and not torch.is_grad_enabled()
         and not torch.compiler.is_compiling()
     ):
-        scope = _AffineScope(layer)
+        scope = _AffineScope(
+            layer, allow_qkv=not (kwargs.get("ulysses_active") or kwargs.get("ring_active")),
+        )
     token = _ACTIVE.set(active)
     scope_token = _AFFINE_SCOPE.set(scope)
     try:
@@ -73,15 +76,27 @@ def _eligible_projection(consumer, projection):
     return None
 
 
-def _affine_projection(block, norm):
+def _affine_projection(scope, norm):
     from sglang.multimodal_gen.runtime.models.dits.minimax_h3 import (
+        MiniMaxH3Attention,
         MiniMaxH3DiTBlock,
         MiniMaxH3MLP,
     )
+    from sglang.multimodal_gen.runtime.platforms import AttentionBackendEnum
 
-    if type(block) is MiniMaxH3DiTBlock and norm is block.norm2:
-        if type(block.mlp) is MiniMaxH3MLP:
-            return _eligible_projection(block.mlp, block.mlp.fc1)
+    block = scope.block
+    if type(block) is not MiniMaxH3DiTBlock:
+        return None
+    if norm is block.norm2 and type(block.mlp) is MiniMaxH3MLP:
+        return _eligible_projection(block.mlp, block.mlp.fc1)
+    if norm is block.norm1 and scope.allow_qkv:
+        attention = block.attn
+        if (
+            type(attention) is MiniMaxH3Attention
+            and attention.hybrid is None
+            and attention._attention_backend_enum in (AttentionBackendEnum.FA, AttentionBackendEnum.FA2)
+        ):
+            return _eligible_projection(attention, attention.qkv_proj)
     return None
 
 
@@ -90,7 +105,7 @@ def around_rmsnorm_scale_shift(original, x, norm, shift, scale, indices, *, dtyp
     if scope is None:
         return original(x, norm, shift, scale, indices, dtype=dtype, fused=fused)
     previous = scope.projection
-    scope.projection = _affine_projection(scope.block, norm)
+    scope.projection = _affine_projection(scope, norm)
     try:
         return original(x, norm, shift, scale, indices, dtype=dtype, fused=fused)
     finally:
