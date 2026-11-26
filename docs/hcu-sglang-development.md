@@ -4635,22 +4635,13 @@ FP8 DP8 的 vendor FA 和 INT8 DP8 的 HCU KV layout=1；UI 与配置测试同�
 
 ## MiniMax-H3 HCU SubBlock 稀疏注意力
 
-从 DAS 的 `52f1e99` 迁移到 diffusion 插件。使用 `SGLANG_PLUGINS=hcu` 入口，
-设置 `--attention-backend subblock_sparse_attn` 和
+启用 `SGLANG_PLUGINS=hcu`，设置 `--attention-backend subblock_sparse_attn` 和
 `--component-attention-backends text_encoder=torch_sdpa,transformer=subblock_sparse_attn`。
-需安装与目标 Torch、DTK 和 Python 匹配的 `dcu_bsa` wheel。本轮构建使用
-DTK 26.10、Torch 2.13、Python 3.12，并包含 gfx936 和 gfx938。
-稀疏内核使用 BF16、head_dim 128，前 10 步按原生 schedule 执行稠密注意力。
+前 10 步使用稠密注意力，后续符合稀疏条件的请求调用 [AITER 的 `bsa_attn_blk64_fwd`](https://github.com/HYGON-AI/aiter-das/blob/69b7b0/docs/subblock_sparse_attn.md)（gfx936/gfx938、BF16、head_dim 128）。
 
-插件在 HCU 上连接原生 SubBlock router 与 DCU 内核。逐行有效块数与局部尾块
-传给内核，仅排序有效前缀。内部稠密实现单独记录后端选择，外层 transformer
-仍校验显式配置是否生效。在 release 使用的 FA2 只继承基础 packed-varlen 方法时，
-HCU 通过原有 flash-attn 的变长入口执行 sBSA 的内部稠密回退。
+安装与镜像 Torch 版本匹配的 AITER。RoPE 优先调用已注册的 Torch 算子，1507 镜像可通过 `sgl_kernel.minimax_h3_rotary_embedding` 调用同一实现。
 
-1507 镜像的初次移植在两个架构各通过 26 项原生数值测试，均通过 SGLang 后端解析和第 9/10 步
-派发检查。gfx938 的 37,736 token、14 heads 测试中，FA2 中位耗时
-45.43 ms，sBSA 含路由、排序和执行为 22.48 ms。固定稀疏计划的四个边界
-Q 行通过 FP32 参考比对。
+已在 gfx938 上完成数值与 MiniMax-H3 四卡 T2VA 功能验证。
 
 将插件 [#116](https://github.com/HYGON-AI/sglang-plugin-das/pull/116) 的整页容量和长请求准入覆盖到 GLM-5.3 Channel FP8 的 HiSparse PD Decode。Index-K 与逻辑分配器使用同一个整页容量，MTP draft 继续从 target 分配器取逻辑地址空间。单服务 Prefill 的准入口径仍由设备池决定。Mooncake 的 host KV 注册沿用发布基线的 CPU 张量地址。
 
