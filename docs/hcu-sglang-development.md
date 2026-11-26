@@ -5546,3 +5546,93 @@ GPU 5 使用真实 compressed INT8 权重，只传全局 `fa` 完成单卡
 `torch_sdpa`，DiT 列出 `fa`。1344×768 H.264 和 AAC 通过 FFmpeg
 完整解码。9 项定向单测、L0、导览快照和桌面及窄屏导航检查通过。
 全局 `fa2` 整模型、多卡以及长步数质量验证待覆盖。
+
+
+## 2026-11-25 Qwen4 BF16 W4A8 启动默认值
+
+基于 release/sglang_v0.5.22@27ddb30，保留本地 QSA HIP guard；adapter
+使用原已验证 4c59b0e，不改其实现。新增 `serve_defaults.py`，在 HCU launcher
+与 plugin 注册入口的 vendor/model imports 前按本地 checkpoint 类型、BF16
+及 SlimQuant W4A8 选择默认配方。23 个模型配置默认值 + 2 个有条件的 P 角色
+配置使用 setdefault；另 4 个配置直接沿用上游默认。SiLU INT8 改用 typed env。
+配置、覆盖与不适用入口见 [配置管理](configuration.md#qwen4-w4a8-启动默认值)。
+
+2026-11-25 在 6 节点 DTK2610 / Python3.12 guide 容器、物理 GPU0–7 实测
+2P1D。完整环境变量与精简组均 HumanEval 8/8、基础视觉算术 4/4、MathVision
+3/4（id=4 原失败保留）。250k/1250、C4、85.0176% 实测前缀命中，p90 TTFT
+6.3401→6.3585s，p90 TPOT 12.1875→11.7593ms。短枚举 MTP 探针 8×1024
+输出，接受率 69.84%→75.77%，平均接受长度 3.0952→3.2732；小样本波动
+不能解释为默认化提升 MTP。decode graph、NUMA bind、原并行与模型参数保留。
+
+当前修改验证：7 项默认值隔离回归、10 项 QSA guard、L0 与导览快照检查；
+容器全量 unittest 219 项，4 个无 GPU 导入错误、16 skipped，4 个错误在
+untouched upstream 相同测试复现。本地缺 torch/numpy 的错误另存，未算通过。
+未执行浏览器渲染、两节点、其它模型 GPU 启动、全量精度、程序化无 argv
+Engine 或长测。SGLang 为镜像自带 0.5.22 wheel，未携带可核验 core Git SHA；
+服务证据绑定其完整文件摘要，不用 Router commit 冒充 Python core 版本。
+
+
+## 2026-11-25 QSA native paged decode
+
+按 `hcu-plugin-dev` 检查真实 QSA backend 和 HCUMHA pool 的读写合同，基于
+release/sglang_v0.5.22@a8310c3，在原 `_forward_paged_attention` Hook 内增加
+可关闭的 native paged reader。adapter 不修改；其平台/JIT 底座继续组合运行。
+仅 Qwen4 BF16 SlimQuant W4A8 launcher 配方默认选择新路径，显式环境值优先。
+运行时限 gfx936 / page64 / CP1；其他架构、页大小和 CP 保留有效基线。
+类型、形状、CP 和布局门控、依赖与有效回退见
+[配置管理](configuration.md#当前-qwen4-运行时配置)。
+
+Graph metadata 的 token-slot table 是一列占位，native reader 改从当前
+row_req_pool_indices 和 req_to_token 的 page 间隔列生成页表；相关 GPU 运算
+进入 Graph，replay 时不会冻结捕获期的请求或物理页。保留 sequence length
+裁剪、重复索引、MTP 行映射、空选择 NaN 与旧 host scalar scale 合同。
+官方 3D NHD 通过 view、HCUMHA 4D BHSD 通过 permute 传给相同 paged reader。
+KV writer 和既有池布局、PD 传输不变。FP8 不经过 BF16 临时张量；BF16 KV
+也可直接读取。新路径遇到缺包、ABI 或 kernel 错误直接报错。
+
+依赖核验：用户提供的 FA `2.8.4+dtk2610.torch2110.2611241746.gebe506`
+在 Torch 2.13 容器导入失败，缺失 c10 materialize_cow_storage 符号。
+本次算子和服务证据使用镜像自带的同提交标签兼容构建
+`2.8.4+dtk2610.torch2130.2611241749.gebe506`；两构建的 Python interface
+SHA256 同为 `3b53d80321536a41209b0f3dcbfe1057531379ef6e2867429c28dc2f89c17c81`。
+未将兼容构建测试冒充为 torch2110 wheel 实测，也未更换全局 Torch 或绕过 ABI。
+
+单卡独占 Graph 微基准，BHSD KV、Q24/KV2/D256、page64、top-k2048：60k 上下文、32
+verify query，compact+Triton 947.2us、packed FP8 含 gather 507.1us、paged
+FP8 112.4us；250k、24 query 为 670.3/355.7/112.8us。非分页纯 attention
+不能省去服务端分页池的 gather，最终选择 paged；微基准页表预先准备，不能
+当作完整服务 Hook 或端到端加速。FP32 对拍误差约 0.2%，覆盖 BF16、E5M2、
+E4M3FN、非单位 scale、padding 和 top-k2052。P 端原有 cold BF16 packed / warm
+FP8 paged 策略保留；37,456 query 的 E5M2 packed/paged 为 76.3/75.0ms。
+
+新增显式 GPU lane `tests/runtime/qwen4_qsa_native_decode.py`，使用真实
+QSATokenToKVPool / 官方 MHA / HCUMHA 构造器、backend 公共 metadata 初始化和 Graph
+capture/replay 入口；覆盖普通 decode、MTP verify、变 query/索引/请求/物理页、
+非单位 scale、空 batch/空选择、CPU original、显式关闭、CP/形状回退和 provider
+错误传播。GPU lane 之外不默认运行设备测试。
+
+本次 6 节点、DTK2610 2203 镜像、GPU0–7 单节点 2P1D 实测，adapter
+固定 4c59b0e、plugin 基线 a8310c3。四个 D rank 日志确认 NHD E5M2 native
+reader 与 decode/MTP Graph 命中。两组均 HumanEval8/8、基础视觉4/4、
+MathVision3/4（原 id4 失败保留）。短输入 C32、64×2048 输出，总吞吐
+1283.28→1551.84 token/s（+20.93%）；加权 draft 接受率72.39%→73.51%。
+C4、8×1024 短探针接受率70.09%→72.47%，不把小样本波动宣称为接受率提升。
+
+长输入每项8个请求、C4、全部4P rank验证85%前缀命中。60k/6k输出吞吐
+336.90→379.11 token/s（+12.53%），p90 TTFT1.7013→1.6998s、TPOT
+11.5683→10.4568ms。250k/1250为220.84→242.58 token/s（+9.84%），
+p90 TTFT8.0656→6.1192s、TPOT12.9259→11.7564ms；全部请求成功。
+TTFT包含P、队列与预热影响，不将单轮TTFT差值独立归因于decode kernel。
+NHD独立算子M32/60k为compact+Triton934.7us、packed FP8含gather503.7us、
+paged112.4us；M24/250k为665.2/349.7/112.4us。候选测试前后8个scheduler
+PID不变，4P/4D与NUMA、并行、模型参数保持原配置。
+
+最终5项GPU测试（包含两布局、三dtype与MTP等子用例）与8项默认值CPU测试
+通过；L0与导览快照通过。容器全量unittest候选220项、upstream219项，均为
+相同4个无GPU导入错误、16 skipped，未称全绿；本机缺Torch的13个错误另存。
+运行时plugin824文件匹配候选源码；adapter230、SGLang5283文件与保留基线
+逐字节相同。未做实际浏览器渲染（无可用浏览器）。
+
+未测全量精度、两节点、其他模型GPU启动、CP>1或其他HCU架构性能；
+P Graph仍disabled。SGLang为镜像自带0.5.22 wheel，无可核验core Git SHA，
+服务文件清单另存，不能以Router SHA替代。
