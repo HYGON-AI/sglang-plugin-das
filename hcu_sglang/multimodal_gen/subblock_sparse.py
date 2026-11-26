@@ -16,13 +16,13 @@ def _sorted_active_indices(index, block_counts, num_blocks):
 
 
 def hcu_sparse_attention(q, k, v, index, topk, softmax_scale, block_counts=None):
-    from dcu_bsa import bsa_attn_blk64_fwd
+    from aiter import bsa_attn_blk64_fwd
     from sglang.multimodal_gen.runtime.layers.attention.backends.subblock_sparse_attn import (
         _cached_block_sizes,
     )
 
     sizes = _cached_block_sizes(k.shape[1], k.device)
-    out, _ = bsa_attn_blk64_fwd(
+    return bsa_attn_blk64_fwd(
         q,
         k,
         v,
@@ -32,7 +32,6 @@ def hcu_sparse_attention(q, k, v, index, topk, softmax_scale, block_counts=None)
         q2k_block_nums=block_counts,
         softmax_scale=softmax_scale,
     )
-    return out
 
 
 @lru_cache(maxsize=None)

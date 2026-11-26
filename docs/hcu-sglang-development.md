@@ -4579,19 +4579,52 @@ LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量�
 从 DAS 的 `52f1e99` 迁移到 diffusion 插件。使用 `SGLANG_PLUGINS=hcu` 入口，
 设置 `--attention-backend subblock_sparse_attn` 和
 `--component-attention-backends text_encoder=torch_sdpa,transformer=subblock_sparse_attn`。
-需安装与目标 Torch、DTK 和 Python 匹配的 `dcu_bsa` wheel。本轮构建使用
-DTK 26.10、Torch 2.13、Python 3.12，并包含 gfx936 和 gfx938。
-稀疏内核使用 BF16、head_dim 128，前 10 步按原生 schedule 执行稠密注意力。
+HCU 稀疏内核由 [AITER SubBlock 算子](https://github.com/HYGON-AI/aiter-das/blob/69b7b0/docs/subblock_sparse_attn.md)
+提供。安装与镜像 Torch、DTK 和 Python ABI 匹配的 AITER 构建，无需单独安装
+`dcu_bsa`。DTK 26.10、Python 3.12 使用以下包版本。
 
-插件在 HCU 上连接原生 SubBlock router 与 DCU 内核。逐行有效块数与局部尾块
+| Torch 版本 | AITER 版本 |
+| --- | --- |
+| 2.11 | `0.1.8+dtk2610.torch2110.2611251954.g69b7b0` |
+| 2.13（SGLang 0.5.22 的 1507 镜像） | `0.1.8+dtk2610.torch2130.2611252032.g69b7b0` |
+
+```bash
+python -m pip install 'aiter==0.1.8+dtk2610.torch2130.2611252032.g69b7b0' \
+  -i https://pypi.sourcefind.cn/nightly/dtk/
+```
+
+插件在 HCU 稀疏路径上按需调用 `aiter.bsa_attn_blk64_fwd`，直接返回 BF16
+输出张量。稀疏内核支持 gfx936/gfx938、head_dim 128。前 10 步按原生
+schedule 执行稠密注意力。
+
+插件在 HCU 上连接原生 SubBlock router 与 AITER 内核。逐行有效块数与局部尾块
 传给内核，仅排序有效前缀。内部稠密实现单独记录后端选择，外层 transformer
 仍校验显式配置是否生效。在 release 使用的 FA2 只继承基础 packed-varlen 方法时，
 HCU 通过原有 flash-attn 的变长入口执行 sBSA 的内部稠密回退。
 
-1507 镜像的初次移植在两个架构各通过 26 项原生数值测试，均通过 SGLang 后端解析和第 9/10 步
-派发检查。gfx938 的 37,736 token、14 heads 测试中，FA2 中位耗时
+切换 AITER 前，1507 镜像的 `dcu_bsa` 方案在两个架构各通过 26 项原生数值测试，
+均通过 SGLang 后端解析和第 9/10 步派发检查。gfx938 的 37,736 token、
+14 heads 测试中，FA2 中位耗时
 45.43 ms，sBSA 含路由、排序和执行为 22.48 ms。固定稀疏计划的四个边界
 Q 行通过 FP32 参考比对。
+
+本次从 `release/sglang_v0.5.22@792f7d4` 切换到 AITER。在 gfx938 上，
+Torch 2.11 和 2.13 构建各通过 4 项针对性测试，覆盖非连续 BF16 Q/K/V、
+非满尾块、逐行块数及空行，与独立 FP32 参考输出比对。精简的 Torch 2.11
+测试镜像需额外提供 `packaging` 和 `PyYAML`。1507 镜像安装匹配的 Torch 2.13
+构建后，实际 SGLang 后端对 4,097 和 32 token 的 packed 请求完成第 9/10 步
+检查，第 9 步走 FA2，第 10 步仅长序列调用 AITER，两步输出均为有限值。
+
+1507 镜像通过 `sgl_kernel.minimax_h3_rotary_embedding` 导出专用 RoPE。
+首次 T2VA 在去噪阶段因 release 插件只查找 `torch.ops.sgl_kernel` 而退出。
+插件恢复了对镜像已有 Python 接口的调用，并优先使用已注册的 Torch 算子。
+gfx938 实测经 Python 接口执行的 BF16 64 维和 128 维 RoPE 均与参考逐元素一致。
+
+1507 镜像在四张 gfx938 上通过 BF16、TP2/SP2 的 MiniMax-H3 T2VA
+12 步冒烟。37,750 token、14 头的稀疏路径中，被选中的 query 块保留
+152/590 个 key 块。生成的 1344×768 MP4 完整解码出 124 个视频帧和
+162 个音频帧。本次验收覆盖 gfx938 功能与数值，49 步性能和 gfx936 实机
+数据沿用各自的历史验证范围。
 
 将插件 [#116](https://github.com/HYGON-AI/sglang-plugin-das/pull/116) 的整页容量和长请求准入覆盖到 GLM-5.3 Channel FP8 的 HiSparse PD Decode。Index-K 与逻辑分配器使用同一个整页容量，MTP draft 继续从 target 分配器取逻辑地址空间。单服务 Prefill 的准入口径仍由设备池决定。Mooncake 的 host KV 注册沿用发布基线的 CPU 张量地址。
 

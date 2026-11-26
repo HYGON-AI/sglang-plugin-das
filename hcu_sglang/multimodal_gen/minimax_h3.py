@@ -54,10 +54,12 @@ def around_apply_rope_qk(original, q, k, cos_sin_cache, positions):
     import torch
     rotary = getattr(torch.ops.sgl_kernel, "minimax_h3_rotary_embedding", None)
     if rotary is None:
-        raise RuntimeError(
-            "MiniMax-H3 on HCU requires its dedicated RoPE operator; "
-            "rebuild sglang-kernel with setup_hip.py"
-        )
+        try:
+            from sgl_kernel import minimax_h3_rotary_embedding as rotary
+        except ImportError as exc:
+            raise RuntimeError(
+                "MiniMax-H3 on HCU requires a sgl_kernel build with its dedicated RoPE operator"
+            ) from exc
     rotary(positions, q.view(q.shape[0], -1), k.view(k.shape[0], -1),
            q.shape[-1], cos_sin_cache, True)
     return q, k
