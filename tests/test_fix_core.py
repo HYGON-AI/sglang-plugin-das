@@ -9,9 +9,10 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_detection(hip, properties):
+def load_detection(hip, properties, available=False):
     torch = SimpleNamespace(version=SimpleNamespace(hip=hip),
-                            cuda=SimpleNamespace(get_device_properties=properties))
+                            cuda=SimpleNamespace(get_device_properties=properties,
+                                                 is_available=Mock(return_value=available)))
     spec = importlib.util.spec_from_file_location(
         'isolated_hcu_detection', ROOT / 'hcu_sglang/utils/detection.py')
     module = importlib.util.module_from_spec(spec)
@@ -49,6 +50,14 @@ class SourceHardwareDecisionTests(unittest.TestCase):
         with self.assertLogs('isolated_hcu_detection', level='WARNING'):
             self.assertFalse(module.is_hcu())
         self.assertFalse(module.is_hcu_native_fp8_supported())
+
+    def test_visible_device_detection_failure_is_not_silently_reclassified(self):
+        for query in (Mock(side_effect=RuntimeError('device query failed')),
+                      Mock(return_value=SimpleNamespace(gcnArchName=''))):
+            with self.subTest(query=query):
+                module = load_detection('6.4', query, available=True)
+                with self.assertRaisesRegex(RuntimeError, 'Cannot determine the architecture'):
+                    module.is_hcu()
 
     def test_native_fp8_query_failure_is_not_silently_reclassified(self):
         query = Mock(side_effect=[SimpleNamespace(gcnArchName='gfx938'),

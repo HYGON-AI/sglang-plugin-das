@@ -93,6 +93,78 @@ class AttentionModelParityTests(unittest.TestCase):
                     self.assertIsNot(cached, previous)
             previous = cached
 
+    def test_hy3_fused_rope_preserves_uniform_cache_storage(self):
+        from hcu_sglang.models import hunyuan_v3 as H
+
+        calls = []
+        qkv = torch.zeros(2, 1280, dtype=torch.bfloat16)
+        q = torch.ones(2, 1024, dtype=torch.bfloat16)
+        k = torch.ones(2, 128, dtype=torch.bfloat16)
+        v = torch.ones(2, 128, dtype=torch.bfloat16)
+
+        def split_fused(*args, **kwargs):
+            calls.append((args, kwargs))
+            return q, k, v
+
+        qkv_proj = Mock(return_value=(qkv, None))
+        qkv_proj.weight = torch.empty(1, dtype=torch.float8_e4m3fn)
+        attn = Mock(side_effect=lambda q, k, v, batch, **kw: q)
+        attn.layer_id = 3
+        model = NS(
+            hy3_sp=False,
+            qkv_proj=qkv_proj,
+            use_hpc_ops_fp8_attn=False,
+            q_size=1024,
+            kv_size=128,
+            use_qk_norm=True,
+            head_dim=128,
+            rotary_emb=NS(
+                rotary_dim=128,
+                cos_sin_cache=torch.zeros(1, 256, dtype=torch.bfloat16),
+            ),
+            q_norm=NS(weight=torch.ones(128), variance_epsilon=1e-5),
+            k_norm=NS(weight=torch.ones(128), variance_epsilon=1e-5),
+            page_size=64,
+            kv_cache_dtype=torch.float8_e4m3fn,
+            attn=attn,
+            o_proj=lambda value: (value, None),
+        )
+        batch = NS(out_cache_loc=torch.tensor([0, 1]))
+        kb = torch.empty(2, 1, 64, 128, dtype=torch.float8_e4m3fn)
+        vb = torch.empty_like(kb)
+        pool = NS(get_kv_buffer=lambda layer: (kb, vb))
+        old_fused = Mock(side_effect=AssertionError("legacy fused op was used"))
+        lightop = NS(
+            split_qkv_rms_rotary_embedding_fuse_with_kv_store_quant=split_fused
+        )
+        with (
+            patch.object(H, "_is_hcu", True),
+            patch.object(H, "_use_fused_hunyuan_rotary", True),
+            patch.object(H, "get_bool_env_var", return_value=True),
+            patch.object(H, "get_token_to_kv_pool", return_value=pool),
+            patch.object(H, "rms_rotary_embedding_fuse_with_kv_store", old_fused),
+            patch.dict(sys.modules, {"lightop": lightop}),
+        ):
+            output = H.HYV3Attention.forward(
+                model, torch.tensor([0, 1]), torch.zeros(2, 4), batch
+            )
+
+        self.assertEqual(tuple(output.shape), (2, 1024))
+        self.assertEqual(len(calls), 1)
+        args, kwargs = calls[0]
+        self.assertTrue(args[1].is_contiguous())
+        self.assertEqual(args[2:4], (1024, 128))
+        self.assertEqual(kwargs["head_dim"], 128)
+        self.assertIs(kwargs["kv_cache_loc"], batch.out_cache_loc)
+        self.assertEqual(kwargs["output_dtype"], qkv.dtype)
+        self.assertEqual(kwargs["kv_cache_dtype"], torch.float8_e4m3fn)
+        self.assertIs(kwargs["k_buffer"], kb)
+        self.assertEqual(tuple(kwargs["v_buffer"].shape), (2, 1, 128, 64))
+        self.assertEqual(kwargs["v_buffer"].data_ptr(), vb.data_ptr())
+        self.assertEqual(kwargs["v_buffer"].stride(), (8192, 8192, 1, 128))
+        self.assertEqual(tuple(vb.shape), (2, 1, 64, 128))
+        self.assertFalse(attn.call_args.kwargs["save_kv_cache"])
+
     def test_qwen2_fusion_leaves_cache_write_to_attention(self):
         calls=[]
         x=torch.zeros(2,8);kv=torch.zeros(4,1,2)
