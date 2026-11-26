@@ -11,6 +11,10 @@ def register() -> None:
 
     hook_guard.install()
 
+    from hcu_sglang.serve_defaults import apply_qwen4_serve_defaults
+
+    apply_qwen4_serve_defaults()
+
     from hcu_sglang.compat.aiter import install_aiter_compat
 
     install_aiter_compat()
@@ -214,6 +218,9 @@ def register() -> None:
     qwen3_moe.register()
     qwen3_5.register()
     silu_int8.register()
+    from hcu_sglang.models.qwen import silu_fp8
+
+    silu_fp8.register()
     from hcu_sglang.models.qwen import qwen4_exp
     qwen4_exp.register_hooks()
     from hcu_sglang import speculative_dspark

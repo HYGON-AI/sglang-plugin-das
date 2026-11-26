@@ -56,6 +56,7 @@ def apply_qwen36_serve_defaults() -> None:
 
 _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_MOE_C_NATIVE_SORT": (EnvBool, False),
+    "SGLANG_HCU_QWEN_SILU_INT8_FUSION": (EnvBool, False),
     "SGLANG_QWEN4_COMPACT_PREFILL": (EnvBool, False),
     "SGLANG_QWEN4_LOCAL_ROUTING": (EnvBool, False),
     "SGLANG_QWEN4_ROUTED_INT8": (EnvBool, False),
@@ -63,6 +64,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_QWEN4_FLAT_STATE_SCATTER": (EnvBool, False),
     "SGLANG_QWEN4_PREFILL_DIAGNOSTICS": (EnvBool, False),
     "SGLANG_QWEN4_PREFILL_QSA_IMPL": (EnvStr, "triton"),
+    "SGLANG_HCU_QSA_DECODE_IMPL": (EnvStr, "triton"),
     "SGLANG_HCU_QSA_PREFILL_LOGITS_MIB": (EnvInt, 0),
     "SGLANG_HCU_QSA_PREFILL_KEY_SPAN": (EnvInt, 0),
     "SGLANG_HCU_QSA_PREFILL_TP_ROWS": (EnvInt, 0),
@@ -91,6 +93,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_HCU_DRAFT_CONCAT": (EnvBool, False),
     "SGLANG_HCU_LIGHTOP_PAGED_MQA_NATIVE_SCHEDULE": (EnvBool, None),
     "SGLANG_HCU_GLM53_FP8_DECODE_NATIVE_OPS": (EnvBool, False),
+    "SGLANG_HCU_GLM53_FP8_MTP_SEED_FROM_EXTEND": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_K1_INDIRECT": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_K1_AUTO_BUILD": (EnvBool, False),
     "SGLANG_HCU_GLM53_FP8_K1_INDIRECT_SO": (EnvStr, None),
@@ -117,6 +120,7 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     'SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT': (EnvBool, False),
     "SGLANG_HCU_QWEN_ATTN_SIGMOID_FP8_FUSION": (EnvBool, False),
     "SGLANG_HCU_QWEN_GDN_RMS_FP8_FUSION": (EnvBool, False),
+    "SGLANG_HCU_QWEN_RMS_FP8_FUSION": (EnvBool, False),
     'SGLANG_AITER_INTREE_GEMM_TUNE': (EnvBool, True),
     'SGLANG_AITER_INTREE_MHC_TILE_M16': (EnvBool, True),
     'SGLANG_DSV4_DECODER_TAIL_GRAPH_MAX_ROWS': (EnvInt, 2048),
