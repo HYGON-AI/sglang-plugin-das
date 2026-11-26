@@ -51,6 +51,7 @@
 - [2026-11-25：MiniMax H3 compressed FP32 AdaLN 融合](#2026-11-25-minimax-h3-compressed-fp32-adaln-融合)
 - [2026-11-25：MiniMax H3 通用 partial RoPE](#2026-11-25-minimax-h3-通用-partial-rope)
 - [2026-11-25：MiniMax H3 上游 Attention 后端选择](#2026-11-25-minimax-h3-上游-attention-后端选择)
+- [2026-11-26：MiniMax H3 有序 Lightop INT8 GEMM](#2026-11-26-minimax-h3-有序-lightop-int8-gemm)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5636,3 +5637,24 @@ PID不变，4P/4D与NUMA、并行、模型参数保持原配置。
 未测全量精度、两节点、其他模型GPU启动、CP>1或其他HCU架构性能；
 P Graph仍disabled。SGLang为镜像自带0.5.22 wheel，无可核验core Git SHA，
 服务文件清单另存，不能以Router SHA替代。
+
+## 2026-11-26 MiniMax H3 有序 Lightop INT8 GEMM
+
+在官方 v0.5.22 `baa9befa` 与 plugin `488e3bc` 基线上迁移 DAS
+`487bb529e4`。H3 INT8 Linear 保留逐行量化、padding 和分块调度。
+设置 `SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM=1` 后，
+适用分块直接调用 Lightop 的 `gemm_w8a8_smooth(input_scale_first=True)`。
+该模式按 `(acc * input_scale) * weight_scale` 计算，再转换到 BF16。
+开关默认关闭，在启动 worker 前设置。需要包含 Lightop #167 及对应代码对象的 wheel。
+
+此路径只用于 `mode="both"` 中带有逐行 FP32 scale 的设备量化结果。
+Lightop 自行判断 gfx936、尺寸与布局是否受支持。旧版 ABI、带 bias、
+编译路径、训练以及 provider 拒绝的输入沿用原 `_int_mm` 和 epilogue。
+原生执行异常保留。没有修改通用 SGLang scaled-MM 入口。
+
+在 `lyl_sglang_0522` 容器的物理 GPU 7 上使用 DTK 26.10、
+PyTorch 2.13.0 和 Lightop `0.6.0+dtk2610.torch2130.2611201654.ge44844`
+运行 `HCU_PLUGIN_RUN_GPU_TESTS=1 python3 -m pytest -q tests/test_minimax_h3_lightop_gemm.py`，
+10 项通过。覆盖真实有序内核、跨块和末尾 padding、BF16 舍入边界、
+旧版 ABI、provider 拒绝与执行错误传播。结果见
+`artifacts/minimax-h3-lightop.Nw3uQV/chunked-pytest.log`。

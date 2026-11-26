@@ -12,6 +12,7 @@ import triton.language as tl
 from torch.nn import Parameter
 from triton.language.extra import libdevice
 
+from hcu_sglang.multimodal_gen import minimax_h3_lightop_gemm
 from hcu_sglang.multimodal_gen import minimax_h3_quant_env as envs
 from sglang.multimodal_gen.runtime.layers.linear import LinearMethodBase
 from sglang.multimodal_gen.runtime.layers.quantization.configs.base_config import (
@@ -443,6 +444,10 @@ def linear(x, qw, sw, bias=None, *, mode="both", chunk=4096):
         part = x[lo : lo + chunk]
         if mode == "both" and _row_quant_block_size(part, "int8") is not None:
             qx, sx = quant_rows(part)
+            result = minimax_h3_lightop_gemm.try_lightop_gemm(qx, qw, sx, sw, bias)
+            if result is not None:
+                out[lo : lo + len(part)].copy_(result[: len(part)])
+                continue
         else:
             r = part.float()
             sx = r.abs().amax(1, keepdim=True).clamp_min(1e-12) / 127.0
