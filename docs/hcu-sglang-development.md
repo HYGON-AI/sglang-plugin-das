@@ -53,6 +53,7 @@
 - [2026-11-25：MiniMax H3 上游 Attention 后端选择](#2026-11-25-minimax-h3-上游-attention-后端选择)
 - [2026-11-26：MiniMax H3 有序 Lightop INT8 GEMM](#2026-11-26-minimax-h3-有序-lightop-int8-gemm)
 - [2026-11-26：MiniMax H3 Lightop 整投影直返](#2026-11-26-minimax-h3-lightop-整投影直返)
+- [2026-11-26：MiniMax H3 AdaLN 与 fc1 INT8 行量化](#2026-11-26-minimax-h3-adaln-与-fc1-int8-行量化)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5677,3 +5678,22 @@ Lightop 拒绝时先释放临时引用，由原有分块路径继续处理。
 `artifacts/minimax-h3-lightop.Nw3uQV/reproduce.sh` 与
 `artifacts/minimax-h3-lightop.Nw3uQV/final-pytest.log`。
 本次验证覆盖 Linear 路径、原生分发及 Graph，整模型生成和端到端收益待测。
+
+## 2026-11-26 MiniMax H3 AdaLN 与 fc1 INT8 行量化
+
+迁移 DAS `f3c40c6e19` 的 `norm2 → indexed FP32 affine → INT8 fc1`
+路径。设置 `SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_AFFINE_QUANT_FUSION=1`
+后，gfx936 上符合条件的 compressed AdaLN 在一个 Triton kernel 内完成 FP32
+affine、BF16 舍入及逐行 INT8 量化。只在上游选择独立 affine 时接入。上游
+RMSNorm + AdaLN 已启用且满足输入条件时仍用上游实现。
+
+在一个 DiT block forward 内按同一输入张量及对应投影配对，将调制参数交给
+已有 INT8 Linear。首版覆盖 TP=1、无 bias、无需 gather 的 H3 fc1。
+带额外投影 Hook、激活或调制布局不匹配、编译和训练路径使用当前实现。
+该开关默认关闭，可独立于 Lightop 使用。
+
+使用 `lyl_sglang_0522`、物理 GPU 7、官方 v0.5.22 `baa9befa` 和
+adapter `9eb2586` 完成 12 项针对性测试和 2 个子测试。对比 fused 与已有
+`affine → quant_rows`，INT8 值和 scale 逐位一致。真实 DiT block 只命中
+fc1，最终输出逐位一致。开了上游融合或额外投影 Hook 时继续走既有路径。
+组合运行日志见 `artifacts/minimax-h3-affine-swiglu.ScAuG9/fc1-combo.log`。

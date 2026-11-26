@@ -50,7 +50,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_diffusion_callback_uses_only_its_owned_registry(self):
         multimodal_gen.register()
         self.assertEqual(self.srt_calls, [])
-        self.assertEqual(len(self.diffusion_calls), 39)
+        self.assertEqual(len(self.diffusion_calls), 40)
         targets = {call[0] for call in self.diffusion_calls}
         self.assertEqual(targets, {
             'sglang.kernels.ops.diffusion.rope.qknorm_rope_jit.can_use_fused_inplace_qknorm_rope',
@@ -82,6 +82,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3FinalLayer.forward',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_gate',
+            'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_rmsnorm_scale_shift',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3._modulate_scale_shift',
             'sglang.multimodal_gen.runtime.models.dits.qwen_image21.QwenImage21Attention.__init__',
             'sglang.multimodal_gen.runtime.models.dits.wanvideo.WanTransformer3DModel.__init__',
@@ -142,7 +143,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_existing_srt_registration_stays_in_the_srt_registry(self):
         minimax_h3.register_hooks()
         qknorm_rope.register_hooks()
-        self.assertEqual(len(self.srt_calls), 15)
+        self.assertEqual(len(self.srt_calls), 16)
         self.assertLessEqual(
             {
                 'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.klvae.AutoencoderKL.setup_forward',
@@ -184,7 +185,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
             targets,
         )
-        self.assertEqual(len(targets), 37)
+        self.assertEqual(len(targets), 38)
         self.assertEqual(self.srt_calls, [])
 
     def test_registry_reset_allows_registration_again(self):
@@ -192,7 +193,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
         self.diffusion.HookRegistry._hooks.clear()
         self.diffusion_calls.clear()
         multimodal_gen.register()
-        self.assertEqual(len(self.diffusion_calls), 39)
+        self.assertEqual(len(self.diffusion_calls), 40)
 
     def test_foreign_hooks_on_the_same_target_are_preserved(self):
         target = 'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm'
