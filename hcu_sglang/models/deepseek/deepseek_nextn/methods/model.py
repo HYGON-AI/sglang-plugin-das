@@ -23,6 +23,10 @@ import hcu_sglang.models.deepseek.current_v4.hcu_backend.hcu_cp_utils as C
 import hcu_sglang.models.deepseek.current_v4.hcu_backend.compat as H
 import sglang.srt.layers.moe.utils as M
 import sglang.srt.layers.cp.utils as P
+from hcu_sglang.models.deepseek.deepseek_nextn.methods.index_share import (
+    localize_initial_ifb_seed,
+    use_native_draft_topk_seed,
+)
 
 
 def enable_cp_v2() -> bool:
@@ -95,6 +99,7 @@ def __init__(
 
     self.vocab_size = config.vocab_size
     self.hcu_glm_ct_native_eh_norm = _use_native_eh_norm(config, quant_config)
+    self.hcu_native_draft_topk_seed = use_native_draft_topk_seed(config)
 
     self.embed_tokens = N.VocabParallelEmbedding(
         config.vocab_size,
@@ -282,6 +287,8 @@ def forward(
                     )
         index_topk_share.update(topk_indices)
         index_topk_share.publish()
+        if self.hcu_native_draft_topk_seed and topk_indices is not None:
+            localize_initial_ifb_seed(forward_batch)
     finally:
         exit_stack.close()
 
