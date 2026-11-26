@@ -45,6 +45,12 @@
 - [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
 
 - [2026-11-24：MiniMax H3 FA 后端透传](#2026-11-24-minimax-h3-fa-后端透传)
+- [2026-11-25：MiniMax H3 DiT 上游 QK Norm + RoPE](#2026-11-25-minimax-h3-dit-上游-qk-norm--rope)
+- [2026-11-25：MiniMax H3 DiT 独立 Q/K RMSNorm](#2026-11-25-minimax-h3-dit-独立-qk-rmsnorm)
+- [2026-11-25：MiniMax H3 DiT BF16 AdaLN 融合](#2026-11-25-minimax-h3-dit-bf16-adaln-融合)
+- [2026-11-25：MiniMax H3 compressed FP32 AdaLN 融合](#2026-11-25-minimax-h3-compressed-fp32-adaln-融合)
+- [2026-11-25：MiniMax H3 通用 partial RoPE](#2026-11-25-minimax-h3-通用-partial-rope)
+- [2026-11-25：MiniMax H3 上游 Attention 后端选择](#2026-11-25-minimax-h3-上游-attention-后端选择)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5337,3 +5343,206 @@ mini T2VA。原始显式组件参数和省略组件参数均得到
 
 本轮组合验证覆盖启动参数校验和后端选路。权重加载、完整服务、请求生成
 和 Graph 仍待验证。
+
+## 2026-11-25 MiniMax H3 DiT 上游 QK Norm + RoPE
+
+以官方 SGLang v0.5.22 `baa9befa`、plugin `a3cd9fa` 和 adapter
+`866ff64` 为基线。此前 diffusion 能力检查在 HCU 上返回 false，
+而 H3 Attention 构造后的 Hook 也关闭融合。绕过 Hook 的探针复现了 DTK
+hipcc 的 `float2` 解构和 shuffle 掩码编译错误。Adapter 在生成的
+JIT 输入中用 `.x/.y` 读向量、使用宽度为 32 的 HIP shuffle，
+并用 `kDLGPU` 匹配 DLPack 设备类型。官方源码继续由固定版本提供。
+
+Plugin 在当前设备为 gfx936 的 H3 Attention 构造期间调用上游能力检查，
+由其 JIT 探测结果决定是否启用。其他 HCU 构造和同一公共探针的其他
+调用方走原有保护，构造退出时恢复探针作用域。对比参考使用当前
+plugin 的 RMSNorm 与 adapter 的 H3 partial RoPE。
+
+DTK 26.10、Torch 2.13.0、GPU 7 上，BF16 head128/rotary96 的原位及
+out-of-place JIT 均编译通过。四组 packed QKV 覆盖 17、1017、4096、
+38848 tokens、7/14/56 heads、int32/int64 positions。Q/K 与分离参考
+逐位一致，两种融合输出逐位一致，V 逐位保持，两次变输入和位置的
+Graph replay 与 eager 一致。原始脚本及日志位于本轮独立的
+`dit_qknorm_restore_20261125.*` 目录。
+
+真实 Diffusion Hook、单卡 TP=1 及 FA 组合通过 H3 Attention 前向回归。
+该用例实际命中上游融合一次，固定输入的输出与分离路径逐位一致。
+Plugin 注册测试预加载 LTX 配置后通过 9 项，L0 和离线导览快照检查通过。
+Adapter JIT 输入测试通过 34 项，16 项远端专用用例按环境跳过。Adapter
+L0 在干净 `866ff64` 和本次改动上报告相同的 `vllm_hisparse` 算子登记
+和 tier matrix 快照两项失败。
+
+复现时在 DTK 26.10 容器中通过 `PYTHONPATH` 加载
+`/workspace/sglang/python:/workspace/sglang-plugin-das:/workspace/adapter-das`。
+用 `HIP_VISIBLE_DEVICES=7 CUDA_VISIBLE_DEVICES=7 GPU_ARCHS=gfx936`
+依次运行证据目录的 `probe.py`、`check.py` 和 `integration.py`。
+
+GPU 7 用交替的 GPU event 计时对比现有分离路径，17 轮去掉前 4 轮，
+取中位数。1017 tokens / 14 heads 为 0.357 → 0.116 ms，
+4096 / 56 为 2.209 → 0.845 ms，38848 / 56 为 20.696 → 7.941 ms。
+这些数字仅计 RMSNorm 和 RoPE 算子段。
+
+GPU 6 使用相同源码组合、单卡 FA 和 normal INT8 权重通过 T2VA 5 步
+生成。服务健康，5 步去噪完成，1344×768 H.264 和 AAC 音视频通过 FFmpeg
+完整解码。证据目录的 `smoke.sh` 记录启动参数和客户端调用。50 步及
+Ulysses 多卡整模型回归待验证。
+
+## 2026-11-25 MiniMax H3 DiT 独立 Q/K RMSNorm
+
+官方 v0.5.22 `baa9befa`、plugin `95f7b9d`、adapter `c9a69da` 的组合
+在 DTK 26.10、Torch 2.13.0 上，`elementwise/qknorm.cuh` 的 BF16
+head128 原位内核可直接编译运行。H3 的 `_apply_qk_norm` Hook 在 gfx936
+的 BF16 eager 路径检查上游 JIT 能力，支持时委托上游判断张量条件并运行
+`fused_inplace_qknorm`。能力检查失败，以及其他 HCU 设备、编译路径和
+不符合此设备适配条件的输入，使用分开的 Q/K RMSNorm。
+
+GPU 7 的 17/1017/4096/38848 tokens、7/14/56 heads packed QKV
+算子用例中，Q/K 与分离参考逐位一致，V 未改变。真实 H3 Attention
+前向在无 RoPE 和拆分 RoPE 两条路径都命中上游融合，与强制 JIT
+能力检查失败时的 FA 输出逐位一致。复现用证据目录
+`dit_h3_upstream_norm_20261125.*` 的 `probe.py` 和 `integration.py`，
+配合 `GPU_ARCHS=gfx936`、`HIP_VISIBLE_DEVICES=7`、
+`CUDA_VISIBLE_DEVICES=7` 并通过 `PYTHONPATH` 加载三仓源码。
+
+## 2026-11-25 MiniMax H3 DiT BF16 AdaLN 融合
+
+沿用官方 v0.5.22 `baa9befa` 和 adapter `c9a69da`。Plugin 原本对
+channel INT8/FP8 的 AdaLN 绕过上游 RMSNorm + indexed scale/shift
+融合。该提交在 scale、shift 和目标 dtype 一致且请求启用融合时，
+将控制权交给上游 `_modulate_rmsnorm_scale_shift`。上游在
+`lossless/high` 模式按张量条件分发。`exact` 继续分步舍入，自定义
+compressed checkpoint 的 FP32 AdaLN 保留原有分离路径及 FP32
+affine/gate 分发。
+
+DTK 26.10、Torch 2.13.0、gfx936 GPU 7 上，四组宽度 5376 的
+BF16 indexed AdaLN 对拍覆盖 17/1017/4096/37760 tokens。
+与 FP32 一次舍入参考最大差值为 0.015625，与原分离 BF16 路径最大
+差值为 0.0625，属于两条路径舍入次序的差异。真实 H3 DiT Block、
+FA 和 channel INT8 前向的质量状态切换 `exact → lossless → exact`
+通过。Normal 在 lossless 的 norm1/norm2 各命中一次上游融合，
+两次 exact 输出逐位一致。Compressed 三次都调用 FP32 affine/gate，
+三次输出逐位一致。复现见 `dit_h3_upstream_norm_20261125.*` 的
+`probe.py` 和 `integration.py`。注册与分发定向单测共 15 项通过。
+
+GPU 7 的 `graph.py` 分别对独立 Q/K RMSNorm 与 indexed BF16 AdaLN
+捕获 Graph。各两次改输入重放与 eager 逐位一致，AdaLN 同时改动索引。
+
+真实权重的单卡 FA T2VA 用 `quality=lossless` 完成两步请求。
+GPU 6 使用 normal INT8，GPU 5 使用 compressed INT8，两组均得到
+1344×768 H.264 和 AAC，且通过 FFmpeg 完整解码。Normal 客户端已
+成功下载后因临时脚本缺少同目录的报告解析器而退出，补上解析器并
+对已保存的 perf JSON 和视频补验通过。复现见证据目录的 `smoke.sh`
+和 `test_lossless.sh`。50 步及多卡整模型回归待验证。
+
+## 2026-11-25 MiniMax H3 compressed FP32 AdaLN 融合
+
+基线为官方 v0.5.22 `baa9befa`、adapter `c9a69da`、plugin `d117bc2`。
+移除 plugin 对 `_modulate_rmsnorm_scale_shift` 的拦截，H3 自定义
+channel INT8/FP8 的 BF16 与 FP32 调制表都由上游质量开关和张量条件
+决定是否融合。`lossless/high` 满足上游条件时执行
+`rmsnorm_indexed_scale_shift`，RMSNorm 与 affine 在 FP32 中完成后
+一次转回 BF16。分离路径在两者之间先将 RMSNorm 输出转回 BF16，
+因此融合会改变舍入结果。
+
+`exact` 或上游拒绝的输入继续走独立 RMSNorm、FP32 affine。
+Compressed 的 FP32 gate 仍由原有 Hook 分发。复现使用 DTK 26.10、
+Torch 2.13.0、gfx936 和三仓源码的 `PYTHONPATH`，脚本与日志见证据
+目录 `dit_h3_fp32_adaln_20261125.*`。
+
+GPU 6 的真实 H3 DiT Block 与 FA、channel INT8 的分发回归中，
+compressed 的 `exact → lossless → exact` 分别记录到 0/2/0 次上游
+RMSNorm + AdaLN 融合，FP32 gate 三次均调用两次。两次 exact 输出
+逐位一致。故意令一对 FP32 scale/shift 的行步长不同后，仅该对回退到
+FP32 affine，另一对保持融合。Normal BF16 的质量开关回归继续通过。
+
+GPU 7 使用实际 H3 宽度 5376、BF16 激活、FP32 调制表和交替 GPU event
+计时，对比 `RMSNorm + plugin FP32 affine` 与上游融合。24 轮去掉
+前 5 轮取中位数，时间单位为毫秒。
+
+| Tokens | 分离 | 融合 |
+| ---: | ---: | ---: |
+| 17 | 0.185 | 0.176 |
+| 1017 | 0.187 | 0.176 |
+| 4096 | 0.281 | 0.244 |
+| 37760 | 2.081 | 1.083 |
+
+四组融合输出通过 FP32 一次舍入参考的容差检查，最大绝对差值
+0.03125。相比分离路径，最大绝对差值 0.0625。改变输入、调制表和
+索引的两次 Graph replay 与融合 eager 路径逐位一致。
+
+GPU 5 使用真实 compressed INT8 权重，单卡 FA 的 `lossless`
+T2VA 请求完成 2 步去噪。1344×768 H.264 和 AAC 输出通过 FFmpeg
+完整解码。14 项定向单测、L0 及导览快照检查通过。算子微基准
+计时与生成的短测分别留证。50 步生成质量对比和多卡整模型回归待验证。
+
+## 2026-11-25 MiniMax H3 通用 partial RoPE
+
+基线为官方 v0.5.22 `baa9befa`、adapter `c9a69da`、plugin `5d28a47`。
+移除 plugin 对 DiT `_apply_rope_qk` 和 VAE `apply_rotary_pos_emb_qk` 的
+专用分发。独立 RoPE 由上游调用 `sgl_kernel.rotary_embedding`，VAE
+仍按上游条件选择融合或独立路径。DiT 在 gfx936 满足条件时继续用
+QK Norm + RoPE 融合。
+
+DTK 26.10、Torch 2.13.0、gfx936 GPU 7 的六组算子对拍中，通用实现
+通过 FP32 参考容差检查，未旋转的通道和 V 保持逐位一致。相对旧专用
+实现，BF16/FP16 最大绝对差分别为 0.03125/0.00390625。Packed QKV
+和 int32 位置索引的两次 Graph 重放更换输入和位置后，均与通用实现
+的 eager 结果逐位一致。
+
+GPU event 交替计时，18 轮去掉前 5 轮取中位数。以下时间以毫秒计。
+
+| 布局 | Tokens / Heads | 专用 | 通用 |
+| --- | ---: | ---: | ---: |
+| DiT BF16 packed | 4096 / 56 | 0.392 | 0.639 |
+| DiT BF16 packed | 38848 / 56 | 3.646 | 5.931 |
+| DiT BF16 contiguous | 4096 / 56 | 0.392 | 0.242 |
+| VAE FP16 contiguous | 8197 / 32 | 0.472 | 0.230 |
+
+DiT 分离路径的 packed QKV 需要通用包装层连续化 Q/K 并将结果写回，
+计时包含连续化和写回的开销。复现见节点证据目录
+`dit_h3_generic_rope_20261125.yrMXU6` 的 `bench.py`、`integration.py`
+和 `smoke.sh`。测试通过 `PYTHONPATH` 加载三仓源码。
+
+GPU 6 的实际 Attention 前向确认 DiT 融合路径调用一次 JIT 融合，
+DiT 分离路径和 VAE 分离路径各调用一次通用 RoPE。DiT 使用 BF16、
+FA、17 tokens、2 heads、head128，VAE 使用 FP16、Torch SDPA、
+2 个 tile、每个 17 tokens、32 heads、head64。相对专用实现，注意力
+输出的最大绝对差分别为 0.001953125 和 0.00048828125。
+
+GPU 5 使用真实 compressed INT8 权重及单卡 FA 完成 `lossless`
+T2VA 两步去噪。1344×768 H.264 和 AAC 通过 FFmpeg 完整解码。
+10 项定向单测、L0、导览快照与桌面及窄屏导航检查通过。
+50 步生成质量和多卡整模型性能待验证。
+
+## 2026-11-25 MiniMax H3 上游 Attention 后端选择
+
+基线为官方 v0.5.22 `baa9befa`、plugin `1865ed4` 和 adapter
+`977c0d0`。删除 H3 的 `ServerArgs._adjust_attention_backend` Hook。
+上游负责解释全局、组件及角色的后端配置。只传 `--attention-backend fa`
+或 `fa2` 时，组件由上游选择后端，plugin 无需补写
+`text_encoder=torch_sdpa` 和 `transformer=<全局后端>`。
+
+HCU 上 adapter 的 `HcuDiffusionPlatform` 负责解析全局或组件请求。
+`fa` 和 `fa2` 各自保留请求的后端标识，满足条件的 DiT packed-varlen
+调用由两种 adapter 后端分别接入 DTK FA2
+`flash_attn_varlen_func`。现有 INT8 性能脚本显式配置
+`text_encoder=torch_sdpa,transformer=fa`，继续按该配置选路。
+
+此前临时停用 Hook 的 BF16 文本 Attention 对照使用 gfx936、64 个 Q
+heads、8 个 KV heads、head128 和 1024 tokens。`torch_sdpa`、
+全局 `fa`、全局 `fa2` 的单层耗时分别约为 0.24–0.25、1.33、0.27 ms，
+结果见 `h3_text_attn_policy_20261125.7Qki7u/compare.log`。
+
+本次在 gfx936 GPU 6 使用实际 diffusion Hook 注册器和上游选择器。
+全局 `fa`、`fa2` 都保持空的组件默认映射，分别选中
+`HcuFlashAttentionBackend` 和 `HcuFlashAttention2Backend`。29 tokens、
+4 heads、head128 的 BF16 packed 用例均命中一次 DTK FA2，输出逐位
+一致。显式组件参数和 `transformer.self` 的解析结果与请求一致。
+复现见节点证据目录 `h3_plugin_upstream_attn_20261125.VsCB8l` 的
+`route_probe.py` 和 `smoke.sh`。
+
+GPU 5 使用真实 compressed INT8 权重，只传全局 `fa` 完成单卡
+`lossless` T2VA 两步生成。文本编码器加载日志列出 `fa` 和
+`torch_sdpa`，DiT 列出 `fa`。1344×768 H.264 和 AAC 通过 FFmpeg
+完整解码。9 项定向单测、L0、导览快照和桌面及窄屏导航检查通过。
+全局 `fa2` 整模型、多卡以及长步数质量验证待覆盖。
