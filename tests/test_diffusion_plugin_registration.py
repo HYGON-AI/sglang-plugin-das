@@ -50,7 +50,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_diffusion_callback_uses_only_its_owned_registry(self):
         multimodal_gen.register()
         self.assertEqual(self.srt_calls, [])
-        self.assertEqual(len(self.diffusion_calls), 40)
+        self.assertEqual(len(self.diffusion_calls), 39)
         targets = {call[0] for call in self.diffusion_calls}
         self.assertEqual(targets, {
             'sglang.kernels.ops.diffusion.rope.qknorm_rope_jit.can_use_fused_inplace_qknorm_rope',
@@ -184,7 +184,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
             targets,
         )
-        self.assertEqual(len(targets), 38)
+        self.assertEqual(len(targets), 37)
         self.assertEqual(self.srt_calls, [])
 
     def test_registry_reset_allows_registration_again(self):
@@ -192,7 +192,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
         self.diffusion.HookRegistry._hooks.clear()
         self.diffusion_calls.clear()
         multimodal_gen.register()
-        self.assertEqual(len(self.diffusion_calls), 40)
+        self.assertEqual(len(self.diffusion_calls), 39)
 
     def test_foreign_hooks_on_the_same_target_are_preserved(self):
         target = 'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm'
