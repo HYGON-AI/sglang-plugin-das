@@ -1102,6 +1102,7 @@ class _KdaMethods:
                     replayssm_rawk=mamba_cache_params.replayssm_rawk,
                     replayssm_g=mamba_cache_params.replayssm_g,
                     replayssm_beta=mamba_cache_params.replayssm_beta,
+                    replayssm_pending=getattr(mamba_pool, "replayssm_pending", None),
                 )
             core_attn_out = self.hcu_kernel.target_verify(
                 A_log=layer.A_log,
@@ -1785,6 +1786,7 @@ class _HybridMethods:
             commit_kda_replayssm_after_verify(
                 spec_state=mamba_caches,
                 use_hcu_kda=mamba_pool.use_hcu_kda,
+                pending=getattr(mamba_pool, "replayssm_pending", None),
                 state_batch_indices=state_indices_tensor,
                 accept_lens=last_correct_step_indices + 1,
                 last_correct_step_indices=last_correct_step_indices,

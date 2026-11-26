@@ -34,6 +34,7 @@
 - [2026-11-20：Qwen-Image 2.1 四卡 Ulysses 直收](#2026-11-20-qwen-image-21-四卡-ulysses-直收)
 - [2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步](#2026-11-23-qwen-image-21-ulysses-直收-pr-同步)
 - [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
+- [2026-11-26：NMZ Channel FP8 适配合入 0.5.22 release](#2026-11-26-nmz-channel-fp8-适配合入-0522-release)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1655,6 +1656,14 @@ n19 Prefill 使用 Torch MLA 路径。2026-11-20 17:27:25 向 P 端直接发送�
 请求进到 W4A8 contiguous HIPC WASP，HIP 启动返回 209。单卡对照中 gfx936 Code
 Object V5 可执行，V6 无法解析 kernel 符号。该版本组合的 DeepEP + DeepGEMM
 端到端生成仍待验证。
+
+## 2026-11-26 NMZ Channel FP8 适配合入 0.5.22 release
+
+- 范围为 GLM-5.3 Flash Channel FP8 的 HCU IFB 与 P/D。基线为插件 release `792f7d4` 和 SGLang v0.5.22 `baa9bef`，以功能分支 `43bb7b8` 为迁移来源。
+- Release 保留现有 DSA 注册、KPool FP8 数据布局、Draft Extend 固定宽度与原生图捕获。NMZ 新增窄范围的 FlashMLA 长度对齐、空 verify 和可选 eager head gate。KPool 的查询量化及 cache 布局遵循 release 实现。
+- 接入 GLM5Next 旧版视觉 processor。视觉 RoPE Hook 调整 0.5.22 现有位置嵌入方法的输出 dtype。Mooncake 接收和单图布局复用 release 的 P/D 注册与调度。
+- 保留现有 W4A8、QSA、HiSparse、MoriDAS 和普通 mHC 分发。NMZ 增量包含 mHC 原生开关、gfx938 masked FP8 MODE 1001、显式 BF16 router、Draft 概率与 KDA ReplaySSM，以及 P/D prefill 的队列与 hidden metadata 调整。
+- 本轮交付范围为冲突解决和本地门禁。八 rank 真实请求、Graph 同址换输入、端到端精度与性能需要用合并后的组合重新验证。
 
 ## 附录：布局、操作方式与汇总
 

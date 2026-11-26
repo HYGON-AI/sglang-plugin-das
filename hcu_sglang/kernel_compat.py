@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import functools
 import importlib
+import logging
 from typing import Any, Callable
 
 import torch
@@ -116,6 +118,56 @@ def around_mhc_post(original: Callable[..., Any], *args: Any, **kwargs: Any):
     return _dispatch_mhc("mhc_post", original, *args, **kwargs)
 
 
+@functools.lru_cache(maxsize=1)
+def _native_mhc_functions():
+    from aiter.ops.tilelang import mhc_post_fwd, mhc_pre_big_fuse
+
+    logging.getLogger(__name__).info(
+        "HCU AITER TileLang mHC enabled; output normalization remains with the caller"
+    )
+    return mhc_pre_big_fuse, mhc_post_fwd
+
+
+def _aiter_tilelang_mhc_enabled(use_tilelang: bool) -> bool:
+    from sglang.srt.environ import envs
+
+    return (
+        use_tilelang
+        and is_hcu()
+        and envs.SGLANG_ROCM_USE_AITER_TILELANG_MHC.get()
+    )
+
+
+def around_native_mhc_pre(
+    original, residual, fn, hc_scale, hc_base, rms_eps, hc_pre_eps,
+    hc_sinkhorn_eps, hc_post_mult_value, sinkhorn_repeat,
+    norm_weight=None, norm_eps=None,
+):
+    from sglang.srt.environ import envs
+
+    if not _aiter_tilelang_mhc_enabled(envs.SGLANG_OPT_USE_TILELANG_MHC_PRE.get()):
+        return original(
+            residual, fn, hc_scale, hc_base, rms_eps, hc_pre_eps,
+            hc_sinkhorn_eps, hc_post_mult_value, sinkhorn_repeat,
+            norm_weight, norm_eps,
+        )
+    pre, _ = _native_mhc_functions()
+    post, comb, output = pre(
+        residual, fn, hc_scale, hc_base, rms_eps, hc_pre_eps,
+        hc_sinkhorn_eps, hc_post_mult_value, sinkhorn_repeat, n_splits=16,
+    )
+    return post, comb, output, False
+
+
+def around_native_mhc_post(original, x, residual, post_layer_mix, comb_res_mix):
+    from sglang.srt.environ import envs
+
+    if not _aiter_tilelang_mhc_enabled(envs.SGLANG_OPT_USE_TILELANG_MHC_POST.get()):
+        return original(x, residual, post_layer_mix, comb_res_mix)
+    _, post = _native_mhc_functions()
+    return post(x, residual, post_layer_mix.squeeze(-1), comb_res_mix)
+
+
 def around_mhc_fused_post_pre(
     original: Callable[..., Any], *args: Any, **kwargs: Any
 ):
@@ -157,6 +209,8 @@ def register_hooks() -> None:
     )
     mhc_target = "sglang.kernels.ops.layernorm.mhc"
     for name, hook in (
+        ("_mhc_pre_dispatch", around_native_mhc_pre),
+        ("_mhc_post_dispatch", around_native_mhc_post),
         ("hc_split_sinkhorn", around_hc_split_sinkhorn),
         ("prewarm_mhc_pre", around_prewarm_mhc_pre),
         ("mhc_pre", around_mhc_pre),

@@ -24,7 +24,7 @@ from hcu_sglang.layers.moe.deepep_current import (
     DeepEPLLDispatchOutput,
     DeepEPNormalDispatchOutput,
 )
-from hcu_sglang.utils.detection import is_hcu
+from hcu_sglang.utils.detection import get_gcn_arch, is_hcu
 from hcu_sglang.layers.moe import deepep_current as D
 from sglang.srt.runtime_context import get_disagg
 from hcu_sglang.layers.moe.deepep_ep_kernels import ep_scatter, ep_gather, build_m_indices_triton
@@ -566,6 +566,12 @@ def forward_groupgemm_w8a8_fp8_masked(
     # base shapes
     num_groups, m, k = hidden_states.size()
     expected_m = min(m, expected_m)
+    gemm_config = None
+    if (
+        expected_m <= 128
+        and get_gcn_arch(hidden_states.device.index).split(":", 1)[0] == "gfx938"
+    ):
+        gemm_config = {"MODE": 1001}
 
     # ---- weights & scales ----
     # w13_weight = self.w13_weight
@@ -588,6 +594,7 @@ def forward_groupgemm_w8a8_fp8_masked(
         gateup_output,
         masked_m,
         expected_m,
+        config=gemm_config,
     )
 
     q_a2_all, q_a2_scale = fuse_silu_mul_fp8_quant_ep(
@@ -619,6 +626,7 @@ def forward_groupgemm_w8a8_fp8_masked(
         expected_m,
         enable_overlap=enable_overlap,
         signal=down_gemm_overlap_args.signal if enable_overlap else None,
+        config=gemm_config,
     )
 
     if meta_overlap_args is not None:

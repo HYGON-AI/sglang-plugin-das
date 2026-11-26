@@ -18,6 +18,7 @@ import re
 import torch
 from torch import nn
 from sglang.srt.models import deepseek_v2 as N
+from hcu_sglang.glm5_next_policy import is_glm5_flash_channel_fp8
 from hcu_sglang.utils.detection import is_hcu as is_hcu
 from hcu_sglang.utils.detection import is_hcu_native_fp8_supported
 from hcu_sglang.models.deepseek.deepseek_nextn.methods.model import enable_cp_v2
@@ -92,7 +93,7 @@ def __init__(
     )
     self._hcu_bf16_router = (
         N.envs.SGLANG_HCU_GLM_CT_BF16_ROUTER.get()
-        and N.is_glm_moe_dsa(config)
+        and (N.is_glm_moe_dsa(config) or is_glm5_flash_channel_fp8(config, quant_config))
         and quant_config is not None
         and quant_config.get_name() in ("compressed_tensors", "slimquant_w4a8", "slimquant_w4a8_marlin")
         and not is_hash_moe

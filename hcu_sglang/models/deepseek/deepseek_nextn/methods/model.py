@@ -35,8 +35,11 @@ def enable_cp_v2() -> bool:
 
 
 def _use_native_eh_norm(config, quant_config) -> bool:
+    from hcu_sglang.glm5_next_policy import is_glm5_next_hcu
     from sglang.srt.configs.model_config import is_glm_moe_dsa
 
+    if is_glm5_next_hcu(config) and getattr(config, "index_kpool", 1) == 4:
+        return True
     return (
         H.is_hcu()
         and is_glm_moe_dsa(config)

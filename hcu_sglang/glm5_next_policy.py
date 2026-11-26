@@ -24,6 +24,37 @@ def get_glm5_next_runtime_args():
     return resolved_view(get_server_args())
 
 
+def is_glm5_flash_channel_fp8(config, quant_config) -> bool:
+    config = getattr(config, "text_config", None) or config
+    if (
+        not is_hcu()
+        or getattr(config, "model_type", None) != "glm5_next_text"
+        or getattr(config, "hidden_size", None) != 4096
+        or getattr(config, "n_routed_experts", None) != 288
+        or get_dsa_index_kpool(config) != 4
+        or getattr(config, "qk_rope_head_dim", None) != 0
+        or quant_config is None
+        or quant_config.get_name() != "compressed_tensors"
+    ):
+        return False
+
+    from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
+
+    scheme = getattr(quant_config, "target_scheme_map", {}).get("Linear", {})
+    weight = scheme.get("weights")
+    activation = scheme.get("input_activations")
+    return (
+        weight is not None
+        and activation is not None
+        and weight.type == activation.type == QuantizationType.FLOAT
+        and weight.num_bits == activation.num_bits == 8
+        and weight.strategy == QuantizationStrategy.CHANNEL
+        and activation.strategy == QuantizationStrategy.TOKEN
+        and not weight.dynamic
+        and activation.dynamic
+    )
+
+
 def should_remap_pd_dsa_seed_to_local_slots(
     server_args: "ServerArgs", model_config=None
 ) -> bool:

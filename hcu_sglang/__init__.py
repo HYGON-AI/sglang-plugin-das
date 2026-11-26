@@ -129,6 +129,8 @@ def register() -> None:
     prefill_output.register_hooks()
     from hcu_sglang import speculative_vp
     speculative_vp.register_hooks()
+    from hcu_sglang import draft_probability
+    draft_probability.register_hooks()
     prefill_graph_runner.register_hooks()
     from hcu_sglang import prefill_graph_vote
     prefill_graph_vote.register_hooks()

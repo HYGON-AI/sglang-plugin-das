@@ -513,7 +513,10 @@ def around_init(original, pool, *args, **kwargs):
     from hcu_sglang.utils.detection import is_hcu
     if not is_hcu():
         return original(pool, *args, **kwargs)
-    return _METHODS['__init__'](pool, *args, **kwargs)
+    from hcu_sglang.layers.attention.linear.kda_deferred import initialize_pool
+
+    _METHODS['__init__'](pool, *args, **kwargs)
+    initialize_pool(pool)
 
 
 def around_should_fuse_slot_ops(original, pool):
@@ -547,3 +550,6 @@ def register_hooks():
     HookRegistry.register('sglang.srt.mem_cache.memory_pool.MambaPool._should_fuse_slot_ops', around_should_fuse_slot_ops, HookType.AROUND)
 
     HookRegistry.register('sglang.srt.mem_cache.memory_pool.conv_window_dedup_enabled', around_conv_window_dedup, HookType.AROUND)
+    from hcu_sglang.layers.attention.linear.kda_deferred import register_hooks as register_deferred
+
+    register_deferred()

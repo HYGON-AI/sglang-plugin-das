@@ -55,6 +55,9 @@ def apply_qwen36_serve_defaults() -> None:
 
 
 _ENV_SPECS: dict[str, tuple[type, Any]] = {
+    "SGLANG_KDA_USE_TILELANG_VERIFY": (EnvBool, False),
+    "SGLANG_KDA_REPLAYSSM_DEFER_COMMIT": (EnvBool, False),
+    "SGLANG_HCU_GLM5_FLASH_DRAFT_PROBABILITIES": (EnvBool, False),
     "SGLANG_MOE_C_NATIVE_SORT": (EnvBool, False),
     "SGLANG_HCU_QWEN_SILU_INT8_FUSION": (EnvBool, False),
     "SGLANG_QWEN4_COMPACT_PREFILL": (EnvBool, False),
@@ -70,6 +73,9 @@ _ENV_SPECS: dict[str, tuple[type, Any]] = {
     "SGLANG_HCU_QSA_PREFILL_TP_ROWS": (EnvInt, 0),
     "SGLANG_HCU_PD_PREFILL_DRAIN_MODE": (EnvStr, "off"),
     "SGLANG_HCU_PREFILL_MIXED_TIMEOUT": (EnvBool, False),
+    "SGLANG_HCU_NMZ_EPD_IMAGE_LAYOUT": (EnvBool, False),
+    "SGLANG_HCU_KPOOL_EAGER_HEAD_GATE": (EnvBool, False),
+    "SGLANG_HCU_DEEPEP_HIP_PAD_MASK": (EnvBool, False),
     "SGLANG_QWEN4_PLE_PREFILL_INPLACE_SILU": (EnvBool, False),
     "SGLANG_ENABLE_DP_GATHER_INT8": (EnvBool, False),
     "SGLANG_PLE_ETP_REDUCE_SCATTER": (EnvBool, True),

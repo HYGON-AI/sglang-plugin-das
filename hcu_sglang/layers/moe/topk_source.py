@@ -143,6 +143,7 @@ _is_xpu = is_xpu()
 _is_npu = is_npu()
 _use_aiter = get_bool_env_var("SGLANG_USE_AITER") and _is_hip
 _use_deepgemm_moe = get_bool_env_var("SGLANG_USE_DEEPGEMM_MOE")
+_use_deepep_hip_pad_mask = get_bool_env_var("SGLANG_HCU_DEEPEP_HIP_PAD_MASK", "false")
 _is_musa = is_musa()
 _use_lightop = get_bool_env_var("SGLANG_USE_LIGHTOP")
 _use_lightop_topk_ids_postprocess = get_bool_env_var(
@@ -2667,14 +2668,15 @@ def _post_process_topk_ids(
     skip_mori_das_padded_tokens = (
         _is_hcu and _is_mori_das_backend(moe_a2a_backend) and use_deep_gemm_moe
     )
-    skip_deepep_padded_tokens = (
+    hcu_deepep_deepgemm = (
         _is_hcu
         and not skip_mori_das_padded_tokens
         and moe_a2a_backend.is_deepep()
         and use_deep_gemm_moe
     )
     skip_negative_id_padding = (
-        skip_deepep_padded_tokens or skip_mori_das_padded_tokens
+        (hcu_deepep_deepgemm and not _use_deepep_hip_pad_mask)
+        or skip_mori_das_padded_tokens
     )
     hip_negative_padding_postprocessed = False
     _fold_pad_weights_into_append = False
@@ -2700,7 +2702,7 @@ def _post_process_topk_ids(
                 if dispatch_algorithm == "load_aware"
                 else lplb_solver.solve(lp_routed_ids)
             )
-    if _is_cuda and not skip_deepep_padded_tokens:
+    if _is_cuda and not hcu_deepep_deepgemm:
         # LP path: solve LP outside torch.compile (the solver contains an
         # EP all-reduce that can't run inside compiled regions).
         if log2phy_prob is not None:
@@ -2738,7 +2740,7 @@ def _post_process_topk_ids(
                     else num_token_non_padded
                 ),
             )
-    elif _is_hip or skip_deepep_padded_tokens:
+    elif _is_hip or hcu_deepep_deepgemm:
         # On AMD HIP the aiter MoE kernels do not handle topk_ids=-1 safely
         # (negative indices cause illegal memory access). Keep their padded IDs
         # in range and zero their weights below. HCU DeepEP/MoriDAS + DeepGEMM
@@ -2778,7 +2780,7 @@ def _post_process_topk_ids(
                 topk_ids,
                 remap_info,
                 num_token_non_padded,
-                output_int64=skip_deepep_padded_tokens,
+                output_int64=hcu_deepep_deepgemm,
             )
             hip_negative_padding_postprocessed = True
         else:
@@ -2934,7 +2936,7 @@ def _post_process_topk_ids(
         # including appended shared slots, is omitted by DeepEP/MoriDAS.
         _mask_topk_ids_padded_region(topk_ids, num_token_non_padded, fill_value=-1)
     elif (
-        _is_hip
+        (_is_hip or hcu_deepep_deepgemm)
         and not skip_negative_id_padding
         and not _skip_hip_pad_mask
         and not _fold_pad_weights_into_append

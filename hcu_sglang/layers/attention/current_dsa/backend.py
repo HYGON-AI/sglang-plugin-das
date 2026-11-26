@@ -243,9 +243,28 @@ class DeepseekSparseAttnBackend(
     # the D2H sync. The eager fallback derives lengths from GPU seq_lens, and the
     # KPool indexer reads the host mirror only for extend, which always has it.
     needs_cpu_seq_lens: bool = False
+    align_nmz_draft_extend_flashmla: bool = False
     # init_cuda_graph_state sizes this for every backend, but only the TRT-LLM
     # branch of __init__ allocates one.
     _multi_ctas_kv_counter_buffer: Optional[torch.Tensor] = None
+
+    def _should_align_draft_extend_flashmla(self):
+        return (
+            self.align_nmz_draft_extend_flashmla
+            and self.dsa_decode_impl == "flashmla_kv"
+            and not self.use_mha
+            and self.dsa_index_kpool > 1
+        )
+
+    def _is_empty_kpool_verify(self, forward_batch):
+        return (
+            _is_hcu
+            and self.dsa_index_kpool > 1
+            and self.dsa_decode_impl == "flashmla_kv"
+            and self.dsa_kv_cache_store_fp8
+            and effective_forward_mode(forward_batch).is_target_verify()
+            and forward_batch.batch_size == 0
+        )
 
     def _translate_main_kv_loc_to_compact(self, loc: torch.Tensor) -> torch.Tensor:
         translate = getattr(
@@ -1112,6 +1131,33 @@ class DeepseekSparseAttnBackend(
     def init_forward_metadata(self, forward_batch: ForwardBatch):
         """Init the metadata for a forward pass."""
         self._clear_physical_kv_compact_plan()
+        if self._is_empty_kpool_verify(forward_batch):
+            empty = forward_batch.seq_lens.to(torch.int32)
+            if empty.numel():
+                raise ValueError("Empty KPool verification batch contains sequence lengths")
+            forward_batch.extend_seq_lens_cpu = []
+            zero = torch.zeros(1, dtype=torch.int32, device=empty.device)
+            table = self.req_to_token_pool.req_to_token[:0, :0]
+            self.forward_metadata = DSAMetadata(
+                page_size=self.physical_page_size,
+                cache_seqlens_int32=empty,
+                max_seq_len_q=1,
+                max_seq_len_k=0,
+                cu_seqlens_q=zero,
+                cu_seqlens_k=zero,
+                page_table_1=table,
+                real_page_table=table,
+                dsa_cache_seqlens_int32=empty,
+                dsa_cu_seqlens_q=zero,
+                dsa_cu_seqlens_k=zero,
+                dsa_extend_seq_lens_list=[],
+                dsa_seqlens_expanded=empty,
+                seq_lens_sum=0,
+                indexer_seq_lens_cpu=forward_batch.seq_lens_cpu,
+                indexer_seq_lens=forward_batch.seq_lens,
+            )
+            return
+
         batch_size = forward_batch.batch_size
         device = forward_batch.seq_lens.device
         forward_mode = effective_forward_mode(forward_batch)
@@ -1757,6 +1803,8 @@ class DeepseekSparseAttnBackend(
                 dsa_index_topk=self.dsa_index_topk,
                 index_kpool=self.dsa_index_kpool,
             )
+            if forward_mode.is_draft_extend_v2() and self._should_align_draft_extend_flashmla():
+                dsa_cache_seqlens_int32 = (dsa_cache_seqlens_int32 + 63) // 64 * 64
             dsa_extend_seq_lens_list = [1] * bs * self.speculative_num_draft_tokens
 
             if self.dsa_decode_impl == "flashmla_kv":
@@ -2132,7 +2180,13 @@ class DeepseekSparseAttnBackend(
             and self.dsa_index_topk is not None
         )
 
-        if not used_fused_metadata_generation:
+        align_draft_extend_flashmla = (
+            forward_mode.is_draft_extend_v2() and self._should_align_draft_extend_flashmla()
+        )
+        if align_draft_extend_flashmla:
+            dsa_cache_seqlens = (dsa_cache_seqlens + 63) // 64 * 64
+            metadata.dsa_cache_seqlens_int32[:seqlens_expanded_size].copy_(dsa_cache_seqlens)
+        if not used_fused_metadata_generation or align_draft_extend_flashmla:
             metadata.dsa_cu_seqlens_k[1 : 1 + seqlens_expanded_size].copy_(
                 torch.cumsum(dsa_cache_seqlens, dim=0, dtype=torch.int32)
             )
@@ -2266,6 +2320,8 @@ class DeepseekSparseAttnBackend(
         attn_sink: Optional[torch.Tensor] = None,
         lightop_fused_q: bool = False,
     ) -> torch.Tensor:
+        if self._is_empty_kpool_verify(forward_batch):
+            return q.new_zeros((q.shape[0], 1, layer.tp_q_head_num, layer.v_head_dim))
 
         causal = not layer.is_cross_attention
         metadata = self.forward_metadata
