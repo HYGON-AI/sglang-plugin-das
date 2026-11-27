@@ -1678,6 +1678,7 @@ Object V5 可执行，V6 无法解析 kernel 符号。该版本组合的 DeepEP 
 - 在 Plugin `7165a1f`、Adapter `7ea3a71` 和 SGLang `baa9bef` 的组合上，CP Prefill 在分离启动检查退出。关闭 CP 后，模型构造又因旧 GLM indexer 模块路径退出。旧冻结组合在同机 E1/P8/D4 上完成过真图请求，P 使用 CP8。
 - 恢复 GLM5Next HCU Prefill 的 CP-TP 组共享解析和 Mooncake 状态传输 Hook。沿用历史约束，包括 `interleave`、Mooncake、同一 TP/CP 组、单 PP/DP/DCP、原生 MTP top-k 1 和 Decode attention TP1。每个 Prefill CP rank 发送自己的线性状态，KV 及可复制状态由负责的 rank 发送。
 - Attention 构造沿用宿主已绑定的 `Indexer` 与 `IndexerKPool`。普通与 KPool 路径继续使用模型的 `index_kpool` 选择。
+- 分离实跑中 P 的 CP8 已就绪，D 在 Verify 图捕获时因 KPool 写计划为空退出。针对 4:1 KPool 的 Flash FP8 P/D 保留 256 的逻辑页和 64 的索引页，P 与 D 使用一致的布局。528 字节无 RoPE FP8 KV 写入沿用宿主分块量化和 Triton 写入。
 - 新组合的实际 E/P/D 真图、跨 rank 状态迁移、Graph、性能和数据集精度需分别复验。
 
 ## 附录：布局、操作方式与汇总
