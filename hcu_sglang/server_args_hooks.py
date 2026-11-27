@@ -97,46 +97,13 @@ def after_deepseek_family_overrides(
 ) -> dict[str, Any]:
     if not is_hcu():
         return result
-    from hcu_sglang.glm5_next_policy import is_glm5_next_hcu
-    from sglang.srt.configs.model_config import get_dsa_index_kpool, is_deepseek_dsa
+    from hcu_sglang.glm5_next_policy import uses_glm5_flash_fp8_pd_kpool
+    from sglang.srt.configs.model_config import is_deepseek_dsa
 
     if not is_deepseek_dsa(hf_config):
         return result
 
-    result["page_size"] = 64
-    config = getattr(hf_config, "text_config", None) or hf_config
-    kpool = get_dsa_index_kpool(config)
-    if not (
-        is_glm5_next_hcu(config)
-        and getattr(config, "hidden_size", None) == 4096
-        and getattr(config, "n_routed_experts", None) == 288
-        and getattr(config, "qk_rope_head_dim", None) == 0
-        and kpool == 4
-        and server_args.disaggregation_mode in ("prefill", "decode")
-        and server_args.dcp_size == 1
-        and server_args.kv_cache_dtype == "fp8_e4m3"
-    ):
-        return result
-
-    quant = getattr(hf_config, "quantization_config", None) or getattr(
-        config, "quantization_config", None
-    )
-    if not isinstance(quant, dict) or quant.get("quant_method") != "compressed-tensors":
-        return result
-    groups = quant.get("config_groups") or {}
-    group = groups.get("FP8_DYNAMIC") or {}
-    weights = group.get("weights") or {}
-    activations = group.get("input_activations") or {}
-    if (
-        len(groups) == 1
-        and weights.get("type") == activations.get("type") == "float"
-        and weights.get("num_bits") == activations.get("num_bits") == 8
-        and weights.get("strategy") == "channel"
-        and weights.get("dynamic") is False
-        and activations.get("strategy") == "token"
-        and activations.get("dynamic") is True
-    ):
-        result["page_size"] = 64 * kpool
+    result["page_size"] = 256 if uses_glm5_flash_fp8_pd_kpool(server_args, hf_config) else 64
     return result
 
 
