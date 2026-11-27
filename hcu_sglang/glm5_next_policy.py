@@ -55,7 +55,7 @@ def is_glm5_flash_channel_fp8(config, quant_config) -> bool:
     )
 
 
-def uses_glm5_flash_fp8_pd_kpool(server_args, hf_config) -> bool:
+def uses_glm5_flash_fp8_kpool(server_args, hf_config) -> bool:
     config = getattr(hf_config, "text_config", None) or hf_config
     kpool = get_dsa_index_kpool(config)
     if not (
@@ -64,7 +64,10 @@ def uses_glm5_flash_fp8_pd_kpool(server_args, hf_config) -> bool:
         and getattr(config, "n_routed_experts", None) == 288
         and getattr(config, "qk_rope_head_dim", None) == 0
         and kpool == 4
-        and server_args.disaggregation_mode in ("prefill", "decode")
+        and (
+            server_args.disaggregation_mode in ("prefill", "decode")
+            or (server_args.disaggregation_mode == "null" and server_args.attn_cp_size == 1)
+        )
         and server_args.dcp_size == 1
         and server_args.kv_cache_dtype == "fp8_e4m3"
     ):

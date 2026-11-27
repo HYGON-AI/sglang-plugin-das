@@ -543,12 +543,12 @@ class DeepseekSparseAttnBackend(
         self.enable_auto_select_prefill_impl = self.dsa_prefill_impl == "flashmla_auto"
         self._hcu_kpool_decode_gather = None
         self._hcu_kpool_gather_workspace = None
-        from hcu_sglang.glm5_next_policy import uses_glm5_flash_fp8_pd_kpool
+        from hcu_sglang.glm5_next_policy import uses_glm5_flash_fp8_kpool
 
         if (
-            model_runner.server_args.disaggregation_mode == "decode"
+            model_runner.server_args.disaggregation_mode in ("null", "decode")
             and model_runner.server_args.attn_cp_size == 1
-            and uses_glm5_flash_fp8_pd_kpool(model_runner.server_args, hf_config)
+            and uses_glm5_flash_fp8_kpool(model_runner.server_args, hf_config)
             and self.dsa_decode_impl == "flashmla_kv"
             and self.dsa_kv_cache_store_fp8
             and self.kv_cache_dim == 528

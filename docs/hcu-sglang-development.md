@@ -1683,6 +1683,11 @@ Object V5 可执行，V6 无法解析 kernel 符号。该版本组合的 DeepEP 
 - 该组合完成 E1/P CP8/D4 启动及 D 的三类 MTP Graph 捕获，首张真图完成编码。P 原先在 HCU 自有 KDA 路径读取了未创建的通用 dispatcher。仅通用 dispatcher 负责初始化 checkpoint 元数据；实装 LightOp 未导出 v2 ragged TopK 时沿用现有 ragged 实现。
 - 完整 E/P/D 真图、跨 rank 状态迁移、Graph 同址换输入、性能和数据集精度仍待分别复验。
 
+## 2026-11-27 GLM Flash Channel FP8 IFB KPool
+
+- 原样 Plugin `1947346`、Adapter `7ea3a71`、宿主 `baa9bef` 在八卡 IFB 启动时将逻辑页设为 64。八个 rank 开始捕获 Target Verify Graph，rank 2 在 `_forward_cuda_target_verify` 因缺少 KPool 写计划退出。
+- 对 CP1、DCP1 的 Flash Channel FP8 IFB 复用已接入的 256 逻辑页、64 索引页和 528 字节 KV 的 FlashMLA gather。使用原有 Channel FP8 权重、动态 per-token FP8 激活以及 FP8 KV 读写。调用、同址换输入重放、性能与端到端精度分别复验。
+
 ## 附录：布局、操作方式与汇总
 
 以下为布局说明、使用方法、维护规范及跨阶段验证汇总，不作为单独时间事件排序；表内版本和历史结果保留原有含义。
