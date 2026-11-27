@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Optional, Union
 
 if TYPE_CHECKING:
@@ -159,6 +160,10 @@ class ForwardBatchMethods:
         if (
             model_runner.server_args.disaggregation_mode == "prefill"
             and N.get_parallel().attn_cp_size > 1
+            and (
+                model_runner.server_args.nnodes != 1
+                or os.getenv("SGLANG_PD_HIDDEN_POOL_TOKENS") is not None
+            )
         ):
             gathered_capture_layers = [None] * N.get_parallel().attn_cp_size
             N.torch.distributed.all_gather_object(
@@ -540,18 +545,29 @@ class ForwardBatchMethods:
         from sglang.srt.layers.layer_boundary import batch_gathers_over_moe_cp
         from sglang.srt.layers.moe.utils import is_moe_input_scattered_across_dp_ranks
 
+        metadata = self.attn_cp_metadata
         if (
             is_moe_input_scattered_across_dp_ranks()
-            and self.attn_cp_metadata is not None
+            and metadata is not None
             and self.forward_mode.is_context_parallel_extend()
         ):
-            from sglang.srt.layers.cp.base import get_cp_strategy
-
             if enable_cp_v2():
+                from sglang.srt.layers.cp.base import get_cp_strategy
+
                 strategy = get_cp_strategy()
                 if strategy is not None:
                     return strategy.moe_num_token_non_padded(self)
             elif _is_hcu:
+                from hcu_sglang.models.deepseek.current_v4.hcu_backend.hcu_cp_utils import (
+                    ContextParallelMetadata,
+                )
+
+                if (
+                    isinstance(metadata, ContextParallelMetadata)
+                    and metadata.moe_local_token_count is not None
+                ):
+                    return metadata.moe_local_token_count
+
                 from sglang.srt.layers.attention.dsa.utils import (
                     dsa_use_prefill_cp,
                     is_dsa_prefill_cp_round_robin_split,
@@ -560,7 +576,6 @@ class ForwardBatchMethods:
                 if dsa_use_prefill_cp(self) and is_dsa_prefill_cp_round_robin_split():
                     # Legacy HCU metadata is not InterleaveCPStrategy metadata.
                     # Its real rows still form a prefix of each strided shard.
-                    metadata = self.attn_cp_metadata
                     if metadata.moe_local_token_count is None:
                         total = self.global_num_token_non_padded_cpu
                         if total is None:

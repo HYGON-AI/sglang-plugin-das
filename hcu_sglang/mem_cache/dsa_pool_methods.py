@@ -86,10 +86,11 @@ def __init__(
     assert self.page_size % index_kpool == 0, (
         f"page_size {self.page_size} must be a multiple of index_kpool {index_kpool}"
     )
+    use_hcu_legacy_index_page = _is_hcu and self.page_size == K.INDEX_K_PAGE_SIZE
     self.index_page_size = (
         self.page_size // dcp_size
         if hcu_sharded_draft
-        else self.page_size if _is_hcu else self.page_size // index_kpool
+        else self.page_size if use_hcu_legacy_index_page else self.page_size // index_kpool
     )
     layer_range = range(self.start_layer, self.start_layer + self.layer_num)
     if skip_topk_layers is not None and len(skip_topk_layers) != self.layer_num:

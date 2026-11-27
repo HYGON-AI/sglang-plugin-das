@@ -105,6 +105,32 @@ class HcuKDAKernel(LinearAttnKernelBase):
         beta_scale: float = 1.0,
         **kwargs,
     ) -> torch.Tensor:
+        pending = kwargs.get("replayssm_pending")
+        if pending is not None:
+            from hcu_sglang.layers.attention.linear.kda_kernels.kda_tilelang_verify import (
+                tilelang_target_verify_or_none,
+            )
+
+            out = tilelang_target_verify_or_none(
+                A_log=A_log,
+                dt_bias=dt_bias,
+                q=q,
+                k=k,
+                v=v,
+                a=a,
+                b=b,
+                initial_state_source=ssm_states,
+                initial_state_indices=cache_indices,
+                cu_seqlens=query_start_loc,
+                lower_bound=lower_bound,
+                beta_scale=beta_scale,
+                cache_steps=cache_steps,
+                retrieve_parent_token=retrieve_parent_token,
+                **kwargs,
+            )
+            if out is None:
+                raise RuntimeError("Deferred KDA ReplaySSM requires a TileLang Verify launch")
+            return out
         return fused_sigmoid_gating_delta_rule_update(
             A_log=A_log,
             dt_bias=dt_bias,

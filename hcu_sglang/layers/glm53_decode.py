@@ -116,10 +116,10 @@ def o_proj_scope(attn, batch):
 
 
 def try_o_proj_quant(x, output, scale):
-    if not envs.SGLANG_GLM_OPT_DECODE.get() or torch.compiler.is_compiling():
+    if torch.compiler.is_compiling():
         return False
     phase = _o_proj_phase.get()
-    if phase is None:
+    if phase is None or not envs.SGLANG_GLM_OPT_DECODE.get():
         return False
     if phase.is_decode():
         rows = (1, 2, 3, 4, 5)
@@ -176,15 +176,18 @@ def try_o_proj_quant(x, output, scale):
 
 
 def fp8_gemm(qinput, x_scale, weight, weight_scale, output):
-    from sglang.srt.model_executor.forward_context import (
-        get_attn_backend,
-        has_forward_context,
-    )
-
-    backend = get_attn_backend() if has_forward_context() else None
     gemm = hcu_gemm()
-    if gemm is not None and getattr(backend, "_glm53_model", False):
-        if gemm.try_skinny_fp8(qinput, x_scale, weight, weight_scale, output):
+    if gemm is not None:
+        from sglang.srt.model_executor.forward_context import (
+            get_attn_backend,
+            has_forward_context,
+        )
+
+        if (
+            has_forward_context()
+            and getattr(get_attn_backend(), "_glm53_model", False)
+            and gemm.try_skinny_fp8(qinput, x_scale, weight, weight_scale, output)
+        ):
             return
     import deepgemm
 

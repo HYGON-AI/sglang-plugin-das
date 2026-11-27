@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 import torch
+import zmq
 from sglang.srt.disaggregation.base import KVPoll
 from sglang.srt.disaggregation.base.conn import StateType
 from sglang.srt.disaggregation.checksum import (
@@ -133,6 +134,25 @@ PREFILL_INPUT_POLL_INTERVAL_S = 0.0001
 DAS_PREFETCH_TRACE_ENABLED = os.environ.get(
     "SGLANG_DAS_PREFETCH_TRACE", ""
 ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _prefill_frontend_input_queued(scheduler: Scheduler) -> bool:
+    parallel = get_parallel()
+    if parallel.attn_tp_rank != 0 or parallel.attn_cp_rank != 0:
+        return False
+    receiver = scheduler.request_receiver
+    socket = receiver.recv_from_tokenizer
+    if (
+        not isinstance(socket, zmq.Socket)
+        or receiver.recv_skipper is not None
+        or receiver.input_blocker is not None
+        or receiver.scripted_scheduler_hook is not None
+    ):
+        return False
+    try:
+        return bool(socket.poll(timeout=0, flags=zmq.POLLIN))
+    except zmq.ZMQError:
+        return False
 
 
 def trace_disagg_prefill(event: str, rid, bootstrap_room, rank, **state) -> None:
@@ -784,7 +804,7 @@ class PrefillBootstrapQueue:
         return required_rows <= pool.size and required_rows > hidden_row_credits
 
     def _get_consensus_bootstrap_resource_ready(
-        self, polls: List[KVPoll]
+        self, polls: List[KVPoll], *, check_frontend_input: bool = False
     ) -> List[bool]:
         """Agree on bootstrap resource admission across attention TP/CP ranks.
 
@@ -847,17 +867,13 @@ class PrefillBootstrapQueue:
         # same collectives as the readiness vote above, and backfill the manager
         # dict so every rank's finalize_bootstrap resolves -- and pops -- the
         # same value. A genuine 0 stays absent and keeps the default path.
-        prefix_tensor = torch.tensor(
-            [
-                int(
-                    self.kv_manager.req_to_decode_prefix_len.get(req.bootstrap_room, 0)
-                    or 0
-                )
-                for req in self.queue
-            ],
-            dtype=torch.int64,
-            device="cpu",
-        )
+        prefix_values = [
+            int(self.kv_manager.req_to_decode_prefix_len.get(req.bootstrap_room, 0) or 0)
+            for req in self.queue
+        ]
+        if check_frontend_input:
+            prefix_values.append(int(_prefill_frontend_input_queued(self.scheduler)))
+        prefix_tensor = torch.tensor(prefix_values, dtype=torch.int64, device="cpu")
         torch.distributed.all_reduce(
             prefix_tensor,
             op=torch.distributed.ReduceOp.MAX,
@@ -868,7 +884,10 @@ class PrefillBootstrapQueue:
             op=torch.distributed.ReduceOp.MAX,
             group=self.scheduler.attn_cp_cpu_group,
         )
-        for req, value in zip(self.queue, prefix_tensor.tolist()):
+        agreed_prefix_values = prefix_tensor.tolist()
+        if check_frontend_input:
+            self.prefill_frontend_input_queued = bool(agreed_prefix_values.pop())
+        for req, value in zip(self.queue, agreed_prefix_values):
             if value > 0:
                 self.kv_manager.req_to_decode_prefix_len[req.bootstrap_room] = int(
                     value
@@ -1007,6 +1026,8 @@ class PrefillBootstrapQueue:
         return_failed_reqs: bool = False,
         pp_good_rids: Optional[List[str]] = None,
         pp_bad_rids: Optional[List[str]] = None,
+        *,
+        check_frontend_input: bool = False,
     ) -> List[Req] | tuple[List[Req], List[Req]]:
         """Pop bootstrapped requests, retaining HCU PP hidden-resource consensus."""
         if _is_hcu and self.pp_size > 1:
@@ -1017,6 +1038,8 @@ class PrefillBootstrapQueue:
         bootstrapped_reqs = []
         indices_to_remove = set()
 
+        if check_frontend_input:
+            self.prefill_frontend_input_queued = False
         if len(self.queue) == 0:
             return []
 
@@ -1037,7 +1060,9 @@ class PrefillBootstrapQueue:
                 self.scheduler.attn_tp_cpu_group,
             )
 
-        resource_ready = self._get_consensus_bootstrap_resource_ready(polls)
+        resource_ready = self._get_consensus_bootstrap_resource_ready(
+            polls, check_frontend_input=check_frontend_input
+        )
 
         for i, (req, poll) in enumerate(zip(self.queue, polls)):
             if poll == KVPoll.Failed:
@@ -1283,10 +1308,16 @@ class SchedulerDisaggregationPrefillMixin:
             if room is not None and room in kv_mgr.transfer_infos:
                 prefetch(room)
 
-    def _admit_prefill_bootstrapped_reqs(self: Scheduler) -> List[Req]:
+    def _admit_prefill_bootstrapped_reqs(
+        self: Scheduler, *, check_frontend_input: bool = False
+    ) -> List[Req]:
         """Move requests whose bootstrap is ready into the waiting queue."""
         bootstrap_queue = self.disagg_prefill_bootstrap_queue
-        bootstrapped_reqs = bootstrap_queue.pop_bootstrapped()
+        bootstrapped_reqs = (
+            bootstrap_queue.pop_bootstrapped(check_frontend_input=True)
+            if check_frontend_input
+            else bootstrap_queue.pop_bootstrapped()
+        )
         if DAS_PREFETCH_TRACE_ENABLED:
             for req in bootstrapped_reqs:
                 trace_disagg_prefill(
@@ -1578,6 +1609,12 @@ class SchedulerDisaggregationPrefillMixin:
         """
         from hcu_sglang.disagg.prefill_drain import drain_mode, drain_previous_result
         early_drain_mode = drain_mode()
+        parallel = get_parallel()
+        coalesce_frontend_input = (
+            _is_hcu
+            and parallel.pp_size == parallel.attn_dp_size == 1
+            and parallel.attn_cp_size == parallel.tp_size > 1
+        )
         self.enable_continuous_input_polling = (
             self._is_continuous_input_polling_enabled()
         )
@@ -1603,7 +1640,25 @@ class SchedulerDisaggregationPrefillMixin:
                 self._record_scheduler_state_for_paused_engine()
                 self._yield_gil_if_needed()
                 continue
-            bootstrapped_reqs = self._admit_prefill_bootstrapped_reqs()
+            check_frontend_input = (
+                coalesce_frontend_input
+                and not self.result_queue
+                and not self._deferred_input_requests
+                and not self.gracefully_exit
+            )
+            bootstrapped_reqs = self._admit_prefill_bootstrapped_reqs(
+                check_frontend_input=check_frontend_input
+            )
+            if (
+                check_frontend_input
+                and bootstrapped_reqs
+                and self.disagg_prefill_bootstrap_queue.prefill_frontend_input_queued
+            ):
+                additional_inputs = self.ingest_requests(stop_at_pause=True)
+                if self._engine_paused:
+                    continue
+                if additional_inputs:
+                    bootstrapped_reqs.extend(self._admit_prefill_bootstrapped_reqs())
             # Resume batch creation on completion, new/ready requests, or an idle step.
             if not waiting_for_batch_result or received_inputs or bootstrapped_reqs:
                 skip_batch_creation = False

@@ -243,9 +243,28 @@ class DeepseekSparseAttnBackend(
     # the D2H sync. The eager fallback derives lengths from GPU seq_lens, and the
     # KPool indexer reads the host mirror only for extend, which always has it.
     needs_cpu_seq_lens: bool = False
+    align_nmz_draft_extend_flashmla: bool = False
     # init_cuda_graph_state sizes this for every backend, but only the TRT-LLM
     # branch of __init__ allocates one.
     _multi_ctas_kv_counter_buffer: Optional[torch.Tensor] = None
+
+    def _should_align_draft_extend_flashmla(self):
+        return (
+            self.align_nmz_draft_extend_flashmla
+            and self.dsa_decode_impl == "flashmla_kv"
+            and not self.use_mha
+            and self.dsa_index_kpool > 1
+        )
+
+    def _is_empty_kpool_verify(self, forward_batch):
+        return (
+            _is_hcu
+            and self.dsa_index_kpool > 1
+            and self.dsa_decode_impl == "flashmla_kv"
+            and self.dsa_kv_cache_store_fp8
+            and effective_forward_mode(forward_batch).is_target_verify()
+            and forward_batch.batch_size == 0
+        )
 
     def _translate_main_kv_loc_to_compact(self, loc: torch.Tensor) -> torch.Tensor:
         translate = getattr(
@@ -522,6 +541,25 @@ class DeepseekSparseAttnBackend(
             # Keep original head count if it exceeds current padded variants.
             self.flashmla_kv_num_q_heads = self.num_dcp_q_heads
         self.enable_auto_select_prefill_impl = self.dsa_prefill_impl == "flashmla_auto"
+        self._hcu_kpool_decode_gather = None
+        self._hcu_kpool_gather_workspace = None
+        from hcu_sglang.glm5_next_policy import uses_glm5_flash_fp8_kpool
+
+        if (
+            model_runner.server_args.disaggregation_mode in ("null", "decode")
+            and model_runner.server_args.attn_cp_size == 1
+            and uses_glm5_flash_fp8_kpool(model_runner.server_args, hf_config)
+            and self.dsa_decode_impl == "flashmla_kv"
+            and self.dsa_kv_cache_store_fp8
+            and self.kv_cache_dim == 528
+            and self.kv_lora_rank == 512
+            and self.physical_page_size == 64
+        ):
+            from lightop import op as lightop_op
+
+            self._hcu_kpool_decode_gather = lightop_op.decode_gather_and_up_convert_with_indices
+            self._hcu_kpool_index_width = self.dsa_index_topk + self.dsa_index_kpool - 1
+            logger.info("HCU FlashMLA decode uses LightOp gather for 528-byte FP8 KV rows")
         self._sink_pad_cache: dict[tuple[int, int], torch.Tensor] = {}
         # Keep graph-captured buffers alive per stream.
         self._triton_sparse_mla_workspaces: dict[
@@ -1112,6 +1150,33 @@ class DeepseekSparseAttnBackend(
     def init_forward_metadata(self, forward_batch: ForwardBatch):
         """Init the metadata for a forward pass."""
         self._clear_physical_kv_compact_plan()
+        if self._is_empty_kpool_verify(forward_batch):
+            empty = forward_batch.seq_lens.to(torch.int32)
+            if empty.numel():
+                raise ValueError("Empty KPool verification batch contains sequence lengths")
+            forward_batch.extend_seq_lens_cpu = []
+            zero = torch.zeros(1, dtype=torch.int32, device=empty.device)
+            table = self.req_to_token_pool.req_to_token[:0, :0]
+            self.forward_metadata = DSAMetadata(
+                page_size=self.physical_page_size,
+                cache_seqlens_int32=empty,
+                max_seq_len_q=1,
+                max_seq_len_k=0,
+                cu_seqlens_q=zero,
+                cu_seqlens_k=zero,
+                page_table_1=table,
+                real_page_table=table,
+                dsa_cache_seqlens_int32=empty,
+                dsa_cu_seqlens_q=zero,
+                dsa_cu_seqlens_k=zero,
+                dsa_extend_seq_lens_list=[],
+                dsa_seqlens_expanded=empty,
+                seq_lens_sum=0,
+                indexer_seq_lens_cpu=forward_batch.seq_lens_cpu,
+                indexer_seq_lens=forward_batch.seq_lens,
+            )
+            return
+
         batch_size = forward_batch.batch_size
         device = forward_batch.seq_lens.device
         forward_mode = effective_forward_mode(forward_batch)
@@ -1620,6 +1685,11 @@ class DeepseekSparseAttnBackend(
         # Sized by query rows, not requests: target verify captures
         # speculative_num_draft_tokens rows per request.
         self._ensure_multi_ctas_kv_counter_capacity(max(max_bs, max_num_tokens))
+        if self._hcu_kpool_decode_gather is not None:
+            if self._hcu_kpool_gather_workspace is None:
+                self._hcu_kpool_gather_workspace = self._allocate_hcu_kpool_gather(max_num_tokens)
+            elif self._hcu_kpool_gather_workspace[0].shape[0] < max_num_tokens:
+                raise RuntimeError("HCU FlashMLA graph workspace cannot grow")
 
     def _multi_ctas_kv_counter_for(self, num_query_rows: int) -> Optional[torch.Tensor]:
         # A prefill batch wider than TRTLLM_MLA_MAX_BATCH_SIZE takes a temporary;
@@ -1757,6 +1827,8 @@ class DeepseekSparseAttnBackend(
                 dsa_index_topk=self.dsa_index_topk,
                 index_kpool=self.dsa_index_kpool,
             )
+            if forward_mode.is_draft_extend_v2() and self._should_align_draft_extend_flashmla():
+                dsa_cache_seqlens_int32 = (dsa_cache_seqlens_int32 + 63) // 64 * 64
             dsa_extend_seq_lens_list = [1] * bs * self.speculative_num_draft_tokens
 
             if self.dsa_decode_impl == "flashmla_kv":
@@ -2132,7 +2204,13 @@ class DeepseekSparseAttnBackend(
             and self.dsa_index_topk is not None
         )
 
-        if not used_fused_metadata_generation:
+        align_draft_extend_flashmla = (
+            forward_mode.is_draft_extend_v2() and self._should_align_draft_extend_flashmla()
+        )
+        if align_draft_extend_flashmla:
+            dsa_cache_seqlens = (dsa_cache_seqlens + 63) // 64 * 64
+            metadata.dsa_cache_seqlens_int32[:seqlens_expanded_size].copy_(dsa_cache_seqlens)
+        if not used_fused_metadata_generation or align_draft_extend_flashmla:
             metadata.dsa_cu_seqlens_k[1 : 1 + seqlens_expanded_size].copy_(
                 torch.cumsum(dsa_cache_seqlens, dim=0, dtype=torch.int32)
             )
@@ -2266,6 +2344,8 @@ class DeepseekSparseAttnBackend(
         attn_sink: Optional[torch.Tensor] = None,
         lightop_fused_q: bool = False,
     ) -> torch.Tensor:
+        if self._is_empty_kpool_verify(forward_batch):
+            return q.new_zeros((q.shape[0], 1, layer.tp_q_head_num, layer.v_head_dim))
 
         causal = not layer.is_cross_attention
         metadata = self.forward_metadata
@@ -2982,6 +3062,51 @@ class DeepseekSparseAttnBackend(
         )
         return o  # type: ignore
 
+    def _resolve_kpool_tail_backend(self, topk_indices, dsa_impl):
+        if self._hcu_kpool_decode_gather is not None and dsa_impl == "flashmla_sparse":
+            return dsa_impl
+        return super()._resolve_kpool_tail_backend(topk_indices, dsa_impl)
+
+    def _check_kpool_tail_backend(self, topk_indices, dsa_impl, phase):
+        if self._hcu_kpool_decode_gather is not None and dsa_impl in (
+            "flashmla_kv",
+            "flashmla_sparse",
+        ):
+            return
+        super()._check_kpool_tail_backend(topk_indices, dsa_impl, phase)
+
+    def _pad_hcu_kpool_indices(self, indices):
+        width = indices.shape[-1]
+        if width != self._hcu_kpool_index_width:
+            raise ValueError(
+                f"HCU KPool produced {width} indices, expected {self._hcu_kpool_index_width}"
+            )
+        return torch.nn.functional.pad(indices, (0, (-width) % 64), value=-1)
+
+    def _allocate_hcu_kpool_gather(self, rows):
+        width = (self._hcu_kpool_index_width + 63) // 64 * 64
+        return (
+            torch.empty((rows, width, 512), dtype=torch.bfloat16, device=self.device),
+            torch.empty((rows, width), dtype=torch.int32, device=self.device),
+        )
+
+    def _gather_hcu_kpool_kv(self, packed_cache, indices, cache_seqlens):
+        if packed_cache.dtype == torch.float8_e4m3fn:
+            packed_cache = packed_cache.view(torch.uint8)
+        if packed_cache.dtype != torch.uint8 or not packed_cache.is_contiguous():
+            raise ValueError("HCU FlashMLA needs contiguous packed FP8 KV rows")
+        rows = indices.shape[0]
+        workspace = self._hcu_kpool_gather_workspace
+        if workspace is None or workspace[0].shape[0] < rows:
+            if torch.cuda.is_current_stream_capturing():
+                raise RuntimeError("HCU FlashMLA graph workspace is too small")
+            workspace = self._allocate_hcu_kpool_gather(rows)
+        gathered, compact = (buf[:rows] for buf in workspace)
+        self._hcu_kpool_decode_gather(
+            packed_cache, indices[:, 0], gathered, cache_seqlens, compact
+        )
+        return gathered.view(-1, 64, 1, 512), compact.unsqueeze(1)
+
     def _forward_flashmla_sparse(
         self,
         q_all: torch.Tensor,
@@ -3033,6 +3158,9 @@ class DeepseekSparseAttnBackend(
             sink_input[:num_heads].copy_(attn_sink)
 
         # indices shape must be (s_q, h_kv=1, topk), keep h_kv=1 unchanged
+        if self._hcu_kpool_decode_gather is not None:
+            page_table_1 = self._pad_hcu_kpool_indices(page_table_1)
+            topk_length = None
         indices_input = page_table_1.unsqueeze(1)
 
         # topk_length is the per-row count of valid indices
@@ -3567,17 +3695,16 @@ class DeepseekSparseAttnBackend(
         else:
             q_input = q_all
 
-        kv_cache = kv_cache.view(-1, self.physical_page_size, 1, self.kv_cache_dim)
         assert self.physical_page_size == 64, "only page size 64 is supported"
-
-        if not self.dsa_kv_cache_store_fp8:
-            # inefficiently quantize the whole cache
-            kv_cache = quantize_k_cache(kv_cache)
-
-        indices = page_table_1.unsqueeze(1)
-        assert (
-            indices.shape[-1] == self.dsa_index_topk
-        )  # requirement of FlashMLA decode kernel
+        use_hcu_gather = self._hcu_kpool_decode_gather is not None
+        if use_hcu_gather:
+            indices = self._pad_hcu_kpool_indices(page_table_1).unsqueeze(1)
+        else:
+            kv_cache = kv_cache.view(-1, self.physical_page_size, 1, self.kv_cache_dim)
+            if not self.dsa_kv_cache_store_fp8:
+                kv_cache = quantize_k_cache(kv_cache)
+            indices = page_table_1.unsqueeze(1)
+            assert indices.shape[-1] == self.dsa_index_topk
 
         # MLP-sync can append synthetic speculative rows. HCU FlashMLA must
         # only see the real prefix; downstream MLP-sync still needs the padded
@@ -3603,6 +3730,8 @@ class DeepseekSparseAttnBackend(
                 (0, target_q_heads, 1), dtype=torch.float32, device=q_input.device
             )
         else:
+            if use_hcu_gather:
+                kv_cache, indices = self._gather_hcu_kpool_kv(kv_cache, indices, cache_seqlens)
             attn_sink_kv = attn_sink
             if attn_sink_kv is not None and target_q_heads != num_q_heads:
                 # Match the padded q-head count; the padded heads' output is
@@ -3623,7 +3752,7 @@ class DeepseekSparseAttnBackend(
                 block_table=torch.empty(
                     (q_input.shape[0], 0), dtype=torch.int32, device=q_input.device
                 ),
-                is_fp8_kvcache=True,
+                is_fp8_kvcache=not use_hcu_gather,
                 **(
                     {"attn_sink": attn_sink_kv}
                     if _is_hcu
@@ -4451,7 +4580,7 @@ class DeepseekSparseAttnBackend(
                 num_q_tokens_per_head_k=seq_len_q * num_heads_q // 1,
                 num_heads_k=1,
                 num_heads_q=num_heads_q,
-                is_fp8_kvcache=True,
+                is_fp8_kvcache=self._hcu_kpool_decode_gather is None,
                 topk=self.dsa_index_topk,
             ),
             is_hcu=_is_hcu,

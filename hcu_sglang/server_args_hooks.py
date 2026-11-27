@@ -97,10 +97,13 @@ def after_deepseek_family_overrides(
 ) -> dict[str, Any]:
     if not is_hcu():
         return result
+    from hcu_sglang.glm5_next_policy import uses_glm5_flash_fp8_kpool
     from sglang.srt.configs.model_config import is_deepseek_dsa
 
-    if is_deepseek_dsa(hf_config):
-        result["page_size"] = 64
+    if not is_deepseek_dsa(hf_config):
+        return result
+
+    result["page_size"] = 256 if uses_glm5_flash_fp8_kpool(server_args, hf_config) else 64
     return result
 
 

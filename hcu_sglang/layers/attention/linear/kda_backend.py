@@ -387,7 +387,8 @@ class _KdaMethods:
                 ]
             )
             if (
-                self.kernel_dispatcher.extend_kernel.uses_state_checkpoints
+                self.kernel_dispatcher is not None
+                and self.kernel_dispatcher.extend_kernel.uses_state_checkpoints
                 and forward_batch.forward_mode.is_extend_without_speculative()
                 and self.forward_metadata.track_ssm_h_src is not None
                 and self.forward_metadata.track_ssm_h_src.numel() > 0
@@ -1102,6 +1103,7 @@ class _KdaMethods:
                     replayssm_rawk=mamba_cache_params.replayssm_rawk,
                     replayssm_g=mamba_cache_params.replayssm_g,
                     replayssm_beta=mamba_cache_params.replayssm_beta,
+                    replayssm_pending=getattr(mamba_pool, "replayssm_pending", None),
                 )
             core_attn_out = self.hcu_kernel.target_verify(
                 A_log=layer.A_log,
@@ -1785,6 +1787,7 @@ class _HybridMethods:
             commit_kda_replayssm_after_verify(
                 spec_state=mamba_caches,
                 use_hcu_kda=mamba_pool.use_hcu_kda,
+                pending=getattr(mamba_pool, "replayssm_pending", None),
                 state_batch_indices=state_indices_tensor,
                 accept_lens=last_correct_step_indices + 1,
                 last_correct_step_indices=last_correct_step_indices,

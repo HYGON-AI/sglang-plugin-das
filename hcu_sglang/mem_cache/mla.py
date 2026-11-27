@@ -175,6 +175,21 @@ def around_write_mla_kv_buffer(
         )
         if loc.numel() == 0:
             return None
+        if (
+            pool.qk_rope_head_dim == 0
+            and cache_k_nope.shape[-1] == 512
+            and dst_buffer.shape[-1] == 528
+            and (cache_k_rope is None or cache_k_rope.numel() == 0)
+        ):
+            from sglang.kernels.ops.attention.dsa.quant_k_cache import (
+                quantize_k_cache_separate,
+            )
+
+            nope_bytes, rope_bytes = quantize_k_cache_separate(
+                cache_k_nope, cache_k_rope
+            )
+            _write_triton(dst_buffer, loc, nope_bytes, rope_bytes)
+            return None
         _write_lightop(cache_k_nope, cache_k_rope, dst_buffer, loc)
         return None
 

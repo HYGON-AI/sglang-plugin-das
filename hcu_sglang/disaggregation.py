@@ -43,6 +43,29 @@ def after_prefill_bootstrap_queue_init(result: Any, queue: Any, *args, **kwargs)
     return result
 
 
+def after_mm_receiver_init(result: Any, receiver: Any, *args, **kwargs) -> Any:
+    if (
+        receiver.scheduler is None
+        or receiver.encoder_transfer_backend != "mooncake"
+        or not is_hcu()
+    ):
+        return result
+
+    from sglang.srt.runtime_context import get_disagg, get_parallel
+
+    disagg = get_disagg()
+    parallel = get_parallel()
+    if (
+        disagg.language_only
+        and disagg.disaggregation_mode == "decode"
+        and parallel.attn_dp_enabled
+        and parallel.attn_tp_size == parallel.attn_cp_size == 1
+    ):
+        receiver.tp_size = parallel.attn_tp_size
+        receiver.tp_group = parallel.attn_tp_group
+    return result
+
+
 def hcu_get_mha_kv_ptrs_with_pp(
     self, src_kv_ptrs: List[int], dst_kv_ptrs: List[int]
 ) -> Tuple[List[int], List[int], List[int], List[int], int]:
@@ -332,9 +355,18 @@ def around_get_mha_kv_ptrs_with_pp(
 
 def register_hooks() -> None:
     from hcu_sglang.disagg.integration import register_hooks as register_pd
-    register_pd()
+    from hcu_sglang.disagg.nmz_image_layout import register_hooks as register_nmz_image_layout
+    from hcu_sglang.disaggregation_glm5 import register_hooks as register_glm5_pd
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    register_pd()
+    register_glm5_pd()
+    register_nmz_image_layout()
+    HookRegistry.register(
+        "sglang.srt.disaggregation.encoder.receiver.MMReceiverBase.__init__",
+        after_mm_receiver_init,
+        HookType.AFTER,
+    )
     HookRegistry.register(
         "sglang.srt.disaggregation.prefill.PrefillBootstrapQueue.__init__",
         after_prefill_bootstrap_queue_init,

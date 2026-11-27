@@ -162,21 +162,6 @@ def __init__(
             indexer_cls = (
                 N0.IndexerKPool if N0.get_dsa_index_kpool(config) > 1 else N0.Indexer
             )
-            from hcu_sglang.models.deepseek.deepseek_common.model_types import is_glm5_next_hcu
-
-            if is_glm5_next_hcu(config):
-                from sglang.srt.layers.attention.glm5_next.indexer import (
-                    Indexer as GlmIndexer,
-                )
-                from sglang.srt.layers.attention.glm5_next.kpool.indexer import (
-                    IndexerKPool as GlmIndexerKPool,
-                )
-
-                indexer_cls = (
-                    GlmIndexerKPool
-                    if N0.get_dsa_index_kpool(config) > 1
-                    else GlmIndexer
-                )
             indexer_kwargs = dict(
                 hidden_size=hidden_size,
                 index_n_heads=N0.get_dsa_index_n_heads(config),

@@ -35,6 +35,8 @@
 - [2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步](#2026-11-23-qwen-image-21-ulysses-直收-pr-同步)
 - [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
 - [2026-11-24：Diffusion FP8 W8A16 回退](#2026-11-24-diffusion-fp8-w8a16-回退)
+- [2026-11-26：NMZ Channel FP8 适配合入 0.5.22 release](#2026-11-26-nmz-channel-fp8-适配合入-0522-release)
+- [2026-11-27：GLM Flash CP Prefill 与 Mooncake 分离接入](#2026-11-27-glm-flash-cp-prefill-与-mooncake-分离接入)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1662,6 +1664,29 @@ n19 Prefill 使用 Torch MLA 路径。2026-11-20 17:27:25 向 P 端直接发送�
 请求进到 W4A8 contiguous HIPC WASP，HIP 启动返回 209。单卡对照中 gfx936 Code
 Object V5 可执行，V6 无法解析 kernel 符号。该版本组合的 DeepEP + DeepGEMM
 端到端生成仍待验证。
+
+## 2026-11-26 NMZ Channel FP8 适配合入 0.5.22 release
+
+- 范围为 GLM-5.3 Flash Channel FP8 的 HCU IFB 与 P/D。基线为插件 release `792f7d4` 和 SGLang v0.5.22 `baa9bef`，以功能分支 `43bb7b8` 为迁移来源。
+- Release 保留现有 DSA 注册、KPool FP8 数据布局、Draft Extend 固定宽度与原生图捕获。NMZ 新增窄范围的 FlashMLA 长度对齐、空 verify 和可选 eager head gate。KPool 的查询量化及 cache 布局遵循 release 实现。
+- 接入 GLM5Next 旧版视觉 processor。视觉 RoPE Hook 调整 0.5.22 现有位置嵌入方法的输出 dtype。Mooncake 接收和单图布局复用 release 的 P/D 注册与调度。
+- 保留现有 W4A8、QSA、HiSparse、MoriDAS 和普通 mHC 分发。NMZ 增量包含 mHC 原生开关、gfx938 masked FP8 MODE 1001、显式 BF16 router、Draft 概率与 KDA ReplaySSM，以及 P/D prefill 的队列与 hidden metadata 调整。
+- 本轮交付范围为冲突解决和本地门禁。八 rank 真实请求、Graph 同址换输入、端到端精度与性能需要用合并后的组合重新验证。
+
+## 2026-11-27 GLM Flash CP Prefill 与 Mooncake 分离接入
+
+- 在 Plugin `7165a1f`、Adapter `7ea3a71` 和 SGLang `baa9bef` 的组合上，CP Prefill 在分离启动检查退出。关闭 CP 后，模型构造又因旧 GLM indexer 模块路径退出。旧冻结组合在同机 E1/P8/D4 上完成过真图请求，P 使用 CP8。
+- 恢复 GLM5Next HCU Prefill 的 CP-TP 组共享解析和 Mooncake 状态传输 Hook。沿用历史约束，包括 `interleave`、Mooncake、同一 TP/CP 组、单 PP/DP/DCP、原生 MTP top-k 1 和 Decode attention TP1。每个 Prefill CP rank 发送自己的线性状态，KV 及可复制状态由负责的 rank 发送。
+- Attention 构造沿用宿主已绑定的 `Indexer` 与 `IndexerKPool`。普通与 KPool 路径继续使用模型的 `index_kpool` 选择。
+- 分离实跑中 P 的 CP8 已就绪，D 在 Verify 图捕获时因 KPool 写计划为空退出。针对 4:1 KPool 的 Flash FP8 P/D 保留 256 的逻辑页和 64 的索引页，P 与 D 使用一致的布局。528 字节无 RoPE FP8 KV 写入沿用宿主分块量化和 Triton 写入。
+- D 的 KPool 写计划生成后，Verify 将原始 TopK 与尾部 token 一起交给 FlashMLA。对于 attention CP1 与 528 字节缓存，复用 LightOp 从 FP8 缓存 gather 并解量化到 BF16，保留尾部索引并以 `-1` 填齐 64 列边界。Graph 捕获使用预分配的 gather 输出。
+- 该组合完成 E1/P CP8/D4 启动及 D 的三类 MTP Graph 捕获，首张真图完成编码。P 原先在 HCU 自有 KDA 路径读取了未创建的通用 dispatcher。仅通用 dispatcher 负责初始化 checkpoint 元数据；实装 LightOp 未导出 v2 ragged TopK 时沿用现有 ragged 实现。
+- 完整 E/P/D 真图、跨 rank 状态迁移、Graph 同址换输入、性能和数据集精度仍待分别复验。
+
+## 2026-11-27 GLM Flash Channel FP8 IFB KPool
+
+- 原样 Plugin `1947346`、Adapter `7ea3a71`、宿主 `baa9bef` 在八卡 IFB 启动时将逻辑页设为 64。八个 rank 开始捕获 Target Verify Graph，rank 2 在 `_forward_cuda_target_verify` 因缺少 KPool 写计划退出。
+- 对 CP1、DCP1 的 Flash Channel FP8 IFB 复用已接入的 256 逻辑页、64 索引页和 528 字节 KV 的 FlashMLA gather。使用原有 Channel FP8 权重、动态 per-token FP8 激活以及 FP8 KV 读写。调用、同址换输入重放、性能与端到端精度分别复验。
 
 ## 附录：布局、操作方式与汇总
 

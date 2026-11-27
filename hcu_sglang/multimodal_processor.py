@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from hcu_sglang.utils.detection import is_hcu
+
 
 def after_build_mm_items(
     items: list[Any], processor: Any, processor_output: dict, input_ids: Any
@@ -39,9 +41,26 @@ async def around_process_mm_data_async(
     return output
 
 
+def after_glm5next_rot_pos_emb(result, vision_model, *args, **kwargs):
+    from sglang.srt.environ import envs
+
+    if not is_hcu() or envs.SGLANG_ROPE_CACHE_FP32.get():
+        return result
+    cos, sin, pos_ids = result
+    dtype = vision_model.rotary_pos_emb.dtype
+    return cos.to(dtype=dtype), sin.to(dtype=dtype), pos_ids
+
+
 def register_hooks() -> None:
+    from hcu_sglang.multimodal import glm5next_processor
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
+    glm5next_processor.register_hooks()
+    HookRegistry.register(
+        "sglang.srt.models.glm5_next.Glm5NextVisionModel.rot_pos_emb",
+        after_glm5next_rot_pos_emb,
+        HookType.AFTER,
+    )
     target = (
         "sglang.srt.multimodal.processors.transformers_auto."
         "TransformersAutoMultimodalProcessor"

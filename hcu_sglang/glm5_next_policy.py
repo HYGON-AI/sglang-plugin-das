@@ -24,6 +24,75 @@ def get_glm5_next_runtime_args():
     return resolved_view(get_server_args())
 
 
+def is_glm5_flash_channel_fp8(config, quant_config) -> bool:
+    config = getattr(config, "text_config", None) or config
+    if (
+        not is_hcu()
+        or getattr(config, "model_type", None) != "glm5_next_text"
+        or getattr(config, "hidden_size", None) != 4096
+        or getattr(config, "n_routed_experts", None) != 288
+        or get_dsa_index_kpool(config) != 4
+        or getattr(config, "qk_rope_head_dim", None) != 0
+        or quant_config is None
+        or quant_config.get_name() != "compressed_tensors"
+    ):
+        return False
+
+    from compressed_tensors.quantization import QuantizationStrategy, QuantizationType
+
+    scheme = getattr(quant_config, "target_scheme_map", {}).get("Linear", {})
+    weight = scheme.get("weights")
+    activation = scheme.get("input_activations")
+    return (
+        weight is not None
+        and activation is not None
+        and weight.type == activation.type == QuantizationType.FLOAT
+        and weight.num_bits == activation.num_bits == 8
+        and weight.strategy == QuantizationStrategy.CHANNEL
+        and activation.strategy == QuantizationStrategy.TOKEN
+        and not weight.dynamic
+        and activation.dynamic
+    )
+
+
+def uses_glm5_flash_fp8_kpool(server_args, hf_config) -> bool:
+    config = getattr(hf_config, "text_config", None) or hf_config
+    kpool = get_dsa_index_kpool(config)
+    if not (
+        is_glm5_next_hcu(config)
+        and getattr(config, "hidden_size", None) == 4096
+        and getattr(config, "n_routed_experts", None) == 288
+        and getattr(config, "qk_rope_head_dim", None) == 0
+        and kpool == 4
+        and (
+            server_args.disaggregation_mode in ("prefill", "decode")
+            or (server_args.disaggregation_mode == "null" and server_args.attn_cp_size == 1)
+        )
+        and server_args.dcp_size == 1
+        and server_args.kv_cache_dtype == "fp8_e4m3"
+    ):
+        return False
+
+    quant = getattr(hf_config, "quantization_config", None) or getattr(
+        config, "quantization_config", None
+    )
+    if not isinstance(quant, dict) or quant.get("quant_method") != "compressed-tensors":
+        return False
+    groups = quant.get("config_groups") or {}
+    group = groups.get("FP8_DYNAMIC") or {}
+    weights = group.get("weights") or {}
+    activations = group.get("input_activations") or {}
+    return (
+        len(groups) == 1
+        and weights.get("type") == activations.get("type") == "float"
+        and weights.get("num_bits") == activations.get("num_bits") == 8
+        and weights.get("strategy") == "channel"
+        and weights.get("dynamic") is False
+        and activations.get("strategy") == "token"
+        and activations.get("dynamic") is True
+    )
+
+
 def should_remap_pd_dsa_seed_to_local_slots(
     server_args: "ServerArgs", model_config=None
 ) -> bool:
