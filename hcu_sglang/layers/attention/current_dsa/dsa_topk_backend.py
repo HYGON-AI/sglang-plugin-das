@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum, IntEnum, auto
+from functools import lru_cache
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import torch
@@ -23,6 +24,15 @@ _FLASHINFER_TIE_BREAK_VALUES = {
     "small": 1,
     "large": 2,
 }
+
+
+@lru_cache(maxsize=1)
+def _has_topk_v2_ragged() -> bool:
+    if not _is_hcu:
+        return True
+    import lightop
+
+    return callable(getattr(lightop, "topk_transform_ragged_v2", None))
 
 
 def _supports_topk_v2_ragged_layout(logits: torch.Tensor) -> bool:
@@ -190,6 +200,7 @@ class DSATopKBackend(Enum):
             and 0 < topk <= 2048
             and lengths.shape[0] == logits.shape[0] == topk_indices_offset.shape[0]
             and _supports_topk_v2_ragged_layout(logits)
+            and _has_topk_v2_ragged()
         ):
             return _topk_transform_v2_ragged(
                 logits, lengths, topk, topk_indices_offset, row_starts

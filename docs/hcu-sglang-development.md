@@ -1680,7 +1680,8 @@ Object V5 可执行，V6 无法解析 kernel 符号。该版本组合的 DeepEP 
 - Attention 构造沿用宿主已绑定的 `Indexer` 与 `IndexerKPool`。普通与 KPool 路径继续使用模型的 `index_kpool` 选择。
 - 分离实跑中 P 的 CP8 已就绪，D 在 Verify 图捕获时因 KPool 写计划为空退出。针对 4:1 KPool 的 Flash FP8 P/D 保留 256 的逻辑页和 64 的索引页，P 与 D 使用一致的布局。528 字节无 RoPE FP8 KV 写入沿用宿主分块量化和 Triton 写入。
 - D 的 KPool 写计划生成后，Verify 将原始 TopK 与尾部 token 一起交给 FlashMLA。对于 attention CP1 与 528 字节缓存，复用 LightOp 从 FP8 缓存 gather 并解量化到 BF16，保留尾部索引并以 `-1` 填齐 64 列边界。Graph 捕获使用预分配的 gather 输出。
-- 新组合的实际 E/P/D 真图、跨 rank 状态迁移、Graph、性能和数据集精度需分别复验。
+- 该组合完成 E1/P CP8/D4 启动及 D 的三类 MTP Graph 捕获，首张真图完成编码。P 原先在 HCU 自有 KDA 路径读取了未创建的通用 dispatcher。仅通用 dispatcher 负责初始化 checkpoint 元数据；实装 LightOp 未导出 v2 ragged TopK 时沿用现有 ragged 实现。
+- 完整 E/P/D 真图、跨 rank 状态迁移、Graph 同址换输入、性能和数据集精度仍待分别复验。
 
 ## 附录：布局、操作方式与汇总
 
