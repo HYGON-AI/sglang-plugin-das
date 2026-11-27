@@ -5735,3 +5735,27 @@ Triton kernel，再调用有序 Lightop 整投影。SiLU 表用当前 H3 的 BF1
 端到端延迟和融合后的完整 DiT Graph 重放待测。复现命令和日志见
 `artifacts/minimax-h3-affine-swiglu.ScAuG9/reproduce.sh` 与
 `artifacts/minimax-h3-affine-swiglu.ScAuG9/final-combo.log`。
+
+## 2026-11-27 MiniMax H3 DiT 四头 Q/K RMSNorm 与 RoPE
+
+从 DAS `52843d658fab3475280a33ce0b8f93789509456c` 迁入四头 Triton
+kernel。基线为 SGLang v0.5.22 `baa9befa`、adapter `9eb2586` 和
+plugin `6874118`。四头 kernel 及归一化 helper 与来源的 Python AST 一致。
+每个 Triton program 用同一份位置缓存处理四个 head，原地写回 Q/K，
+接受 packed QKV 的真实 row/head stride。对 BF16 head128、partial NeoX
+RoPE 96 维保留 norm 后的 BF16 舍入。
+
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_DIT_QKNORM_ROPE_4HEADS` 默认关闭，
+节点的 `int8.1127.0522.opt` profile 显式开启。Plugin 在
+`MiniMaxH3Attention._attend` 内限定替换范围，只在既有原地融合分支的
+gfx936 BF16 推理调用上尝试四头 kernel。开关关闭或输入合同不匹配时，
+现有的 AROUND Hook 继续调用由 SGLang 与 adapter 提供的有效实现。
+Ulysses 流水使用的 out-of-place 融合仍由上游分发。
+
+在 `sglang0522_1126` 镜像中挂载当前插件源码并隐藏 GPU 后，运行
+`python3 -m pytest -p no:cacheprovider -q tests/test_minimax_h3_qknorm_dispatch.py tests/test_diffusion_plugin_registration.py`。
+11 项测试与 2 个子测试通过，覆盖注册、开关、回退和 packed 视图的
+launch 参数。使用真实 diffusion registry 执行从 v0.5.22 提取的
+`_attend` 方法体，模拟 kernel launch 后验证了导入别名同步、启停及
+不匹配回退。L0、导览快照与临时 wheel 包含性检查通过。GPU 实际命中、
+数值对拍、Graph 重放及性能待验证。

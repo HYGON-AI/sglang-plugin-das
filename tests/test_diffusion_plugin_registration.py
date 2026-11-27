@@ -50,10 +50,11 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_diffusion_callback_uses_only_its_owned_registry(self):
         multimodal_gen.register()
         self.assertEqual(self.srt_calls, [])
-        self.assertEqual(len(self.diffusion_calls), 41)
+        self.assertEqual(len(self.diffusion_calls), 43)
         targets = {call[0] for call in self.diffusion_calls}
         self.assertEqual(targets, {
             'sglang.kernels.ops.diffusion.rope.qknorm_rope_jit.can_use_fused_inplace_qknorm_rope',
+            'sglang.kernels.ops.diffusion.rope.qknorm_rope_jit.fused_inplace_qknorm_rope',
             'sglang.multimodal_gen.configs.pipeline_configs.ltx_2.LTX2PipelineConfig.supports_dynamic_batching',
             'sglang.multimodal_gen.configs.pipeline_configs.wan.Wan2_2_T2V_A14B_Config.__post_init__',
             'sglang.multimodal_gen.configs.pipeline_configs.wan.Wan2_2_TI2V_5B_Config.__post_init__',
@@ -75,6 +76,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.loader.fsdp_load.load_model_from_full_model_state_dict',
             'sglang.multimodal_gen.runtime.models.dits.ltx_2.LTX2Attention.forward',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3Attention.__init__',
+            'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3Attention._attend',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTBlock.__init__',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTBlock.forward',
             'sglang.multimodal_gen.runtime.models.dits.minimax_h3.MiniMaxH3DiTModel.post_load_weights',
@@ -99,9 +101,9 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
 
     def test_h3_qknorm_probe_is_scoped_to_gfx936_constructor(self):
         qknorm_rope.register_hooks(self.diffusion.HookRegistry)
-        probe, attention_init = (
-            hook for _, hook, _ in self.diffusion_calls
-        )
+        hooks = {target.rsplit(".", 1)[1]: hook for target, hook, _ in self.diffusion_calls}
+        probe = hooks["can_use_fused_inplace_qknorm_rope"]
+        attention_init = hooks["__init__"]
 
         def construct(attention):
             attention._use_fused_qknorm_rope = probe(lambda: True)
@@ -144,7 +146,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_existing_srt_registration_stays_in_the_srt_registry(self):
         minimax_h3.register_hooks()
         qknorm_rope.register_hooks()
-        self.assertEqual(len(self.srt_calls), 17)
+        self.assertEqual(len(self.srt_calls), 19)
         self.assertLessEqual(
             {
                 'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.klvae.AutoencoderKL.setup_forward',
@@ -186,7 +188,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
             targets,
         )
-        self.assertEqual(len(targets), 39)
+        self.assertEqual(len(targets), 41)
         self.assertEqual(self.srt_calls, [])
 
     def test_registry_reset_allows_registration_again(self):
@@ -194,7 +196,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
         self.diffusion.HookRegistry._hooks.clear()
         self.diffusion_calls.clear()
         multimodal_gen.register()
-        self.assertEqual(len(self.diffusion_calls), 41)
+        self.assertEqual(len(self.diffusion_calls), 43)
 
     def test_foreign_hooks_on_the_same_target_are_preserved(self):
         target = 'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm'
