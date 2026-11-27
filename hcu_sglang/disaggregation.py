@@ -356,9 +356,11 @@ def around_get_mha_kv_ptrs_with_pp(
 def register_hooks() -> None:
     from hcu_sglang.disagg.integration import register_hooks as register_pd
     from hcu_sglang.disagg.nmz_image_layout import register_hooks as register_nmz_image_layout
+    from hcu_sglang.disaggregation_glm5 import register_hooks as register_glm5_pd
     from sglang.srt.plugins.hook_registry import HookRegistry, HookType
 
     register_pd()
+    register_glm5_pd()
     register_nmz_image_layout()
     HookRegistry.register(
         "sglang.srt.disaggregation.encoder.receiver.MMReceiverBase.__init__",

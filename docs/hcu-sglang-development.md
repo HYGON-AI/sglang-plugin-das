@@ -35,6 +35,7 @@
 - [2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步](#2026-11-23-qwen-image-21-ulysses-直收-pr-同步)
 - [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
 - [2026-11-26：NMZ Channel FP8 适配合入 0.5.22 release](#2026-11-26-nmz-channel-fp8-适配合入-0522-release)
+- [2026-11-27：GLM Flash CP Prefill 与 Mooncake 分离接入](#2026-11-27-glm-flash-cp-prefill-与-mooncake-分离接入)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -1664,6 +1665,13 @@ Object V5 可执行，V6 无法解析 kernel 符号。该版本组合的 DeepEP 
 - 接入 GLM5Next 旧版视觉 processor。视觉 RoPE Hook 调整 0.5.22 现有位置嵌入方法的输出 dtype。Mooncake 接收和单图布局复用 release 的 P/D 注册与调度。
 - 保留现有 W4A8、QSA、HiSparse、MoriDAS 和普通 mHC 分发。NMZ 增量包含 mHC 原生开关、gfx938 masked FP8 MODE 1001、显式 BF16 router、Draft 概率与 KDA ReplaySSM，以及 P/D prefill 的队列与 hidden metadata 调整。
 - 本轮交付范围为冲突解决和本地门禁。八 rank 真实请求、Graph 同址换输入、端到端精度与性能需要用合并后的组合重新验证。
+
+## 2026-11-27 GLM Flash CP Prefill 与 Mooncake 分离接入
+
+- 在 Plugin `7165a1f`、Adapter `7ea3a71` 和 SGLang `baa9bef` 的组合上，CP Prefill 在分离启动检查退出。关闭 CP 后，模型构造又因旧 GLM indexer 模块路径退出。旧冻结组合在同机 E1/P8/D4 上完成过真图请求，P 使用 CP8。
+- 恢复 GLM5Next HCU Prefill 的 CP-TP 组共享解析和 Mooncake 状态传输 Hook。沿用历史约束，包括 `interleave`、Mooncake、同一 TP/CP 组、单 PP/DP/DCP、原生 MTP top-k 1 和 Decode attention TP1。每个 Prefill CP rank 发送自己的线性状态，KV 及可复制状态由负责的 rank 发送。
+- Attention 构造沿用宿主已绑定的 `Indexer` 与 `IndexerKPool`。普通与 KPool 路径继续使用模型的 `index_kpool` 选择。
+- 新组合的实际 E/P/D 真图、跨 rank 状态迁移、Graph、性能和数据集精度需分别复验。
 
 ## 附录：布局、操作方式与汇总
 
