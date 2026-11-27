@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from hcu_sglang.layers.quantization import channelwise_int8
+from hcu_sglang.layers.quantization import channelwise_fp8, channelwise_int8
 from sglang.srt.models.deepseek_v4 import (
     Aligner,
     Backend,
@@ -1862,7 +1862,11 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
         self.config = config
         self.tp_size = get_parallel().tp_size
         self.quant_config = quant_config
-        self.wo_a_fp8 = wo_a_fp8_gemm_enabled(quant_config)
+        channelwise_fp8.configure_checkpoint(quant_config, config)
+        self.channelwise_fp8 = (
+            config.model_type == "deepseek_v41" and channelwise_fp8.enabled(quant_config)
+        )
+        self.wo_a_fp8 = not self.channelwise_fp8 and wo_a_fp8_gemm_enabled(quant_config)
         self.determine_num_fused_shared_experts()
         self.vision = None
         if (
@@ -1907,7 +1911,11 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
                 )
         else:
             self.lm_head = PPMissingLayer()
-        if (self.pp_group.is_last_rank
+        if self.pp_group.is_last_rank and self.channelwise_fp8:
+            if config.tie_word_embeddings:
+                raise ValueError("Channelwise FP8 LM head does not support tied embeddings")
+            channelwise_fp8.install(self.lm_head)
+        elif (self.pp_group.is_last_rank
             and getattr(config, "model_type", None) == "deepseek_v41"
             and channelwise_int8.enabled(self.lm_head, quant_config, add_prefix("lm_head", prefix))):
             channelwise_int8.install(self.lm_head)
@@ -2564,7 +2572,7 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
         # Must mirror MQALayer.__init__'s `quantize_wo_a`: dequantizing wo_a here
         # while the layer allocated an FP8 parameter (or vice versa) fails the
         # weight loader's dtype check.
-        if not (self.wo_a_fp8 or use_npu_arch35_mxfp8_wo_a(self.quant_config)):
+        if not (self.channelwise_fp8 or self.wo_a_fp8 or use_npu_arch35_mxfp8_wo_a(self.quant_config)):
             weights = _prepare_deepseek_v4_weights(weights, self.quant_config)
 
         stacked_params_mapping = DEEPSEEK_V4_STACKED_PARAMS_MAPPING
@@ -2598,6 +2606,11 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
             # materialized layer parameter is named *_scale. The generic
             # DeepSeek-V4 config alias does not expose this mapping itself.
             candidate_names = []
+            if self.channelwise_fp8:
+                for suffix in (".wo_a", "lm_head"):
+                    for scale in (".scale", ".weight_scale"):
+                        if param_name.endswith(suffix + scale):
+                            candidate_names.append(param_name.removesuffix(scale) + ".weight_scale_inv")
             if param_name.endswith(".weight_scale_inv"):
                 candidate_names.append(
                     param_name.replace(".weight_scale_inv", ".weight_scale")

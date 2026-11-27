@@ -1,5 +1,6 @@
 # Modifications Copyright 2026 Hygon Information Technology Co., Ltd.
 from __future__ import annotations
+from hcu_sglang.models.deepseek.current_v4.flat_kv_dequant import dequantize_sparse_prefill_rows
 from .candidate_carrier import aligned_candidate_scores
 import enum
 import functools
@@ -2794,15 +2795,17 @@ class DeepseekV4AttnBackend(AttentionBackend, C4IndexerBackendMixin, CompressorB
             if flat_token_ids is not None:
                 flat_token_ids = token_to_kv_pool.remap_flat_token_ids_for_read(layer_id, flat_token_ids, family='extra')
         swa_k_layout = token_to_kv_pool.get_swa_key_layout()
-        if _is_hcu and envs.SGLANG_LIGHTOP_DEQUANTIZE_K_CACHE_PAGED.get() and (compressed_slice is None or extra_k_layout is KVLayout.V4) and (swa_k_layout is KVLayout.V4):
-            from lightop.kvcache import dsv4_dequantize_k_cache_paged_out
-            if compressed_slice is not None:
-                dsv4_dequantize_k_cache_paged_out(extra_k_cache.view(torch.uint8), flat_token_ids, compressed_slice, extra_page_size)
-            dsv4_dequantize_k_cache_paged_out(token_to_kv_pool.get_swa_key_buffer_radix(layer_id).view(torch.uint8), swa_token_ids, swa_slice, cache.swa_page_size)
-        else:
-            if compressed_slice is not None:
-                dequantize_k_cache_paged(extra_k_cache, flat_token_ids, page_size=extra_page_size, out=compressed_slice, layout=extra_k_layout)
-            dequantize_k_cache_paged(token_to_kv_pool.get_swa_key_buffer_radix(layer_id), swa_token_ids, page_size=cache.swa_page_size, out=swa_slice, layout=swa_k_layout)
+        use_lightop = _is_hcu and envs.SGLANG_LIGHTOP_DEQUANTIZE_K_CACHE_PAGED.get()
+        if compressed_slice is not None:
+            dequantize_sparse_prefill_rows(
+                extra_k_cache, flat_token_ids, compressed_slice, extra_page_size,
+                extra_k_layout, lightop=use_lightop, fallback=dequantize_k_cache_paged,
+            )
+        dequantize_sparse_prefill_rows(
+            token_to_kv_pool.get_swa_key_buffer_radix(layer_id), swa_token_ids,
+            swa_slice, cache.swa_page_size, swa_k_layout,
+            lightop=use_lightop, fallback=dequantize_k_cache_paged,
+        )
         kv = workspace
         if cos_sin_cache is not None:
             return self._forward_mega_prefill(q=q_flat, kv=kv, indices=combined_indices.unsqueeze(1), positions=core_attn_metadata.positions[:q_flat.shape[0]], cos_sin_cache=cos_sin_cache, attn_sink=attn_sink, topk_length=combined_lens)

@@ -2422,3 +2422,15 @@ HCU CP 容量断言改用已有 CPU 长度/interleave 元数据；原生 produce
 本次实际结果：L0、导览 build/check 和差异检查通过；CI v2.0.13 同版本原生五项扫描在隔离 Git tree 上均为 0 blocker，原合规阻断 2→0，保留第三方归属/生成 catalog 的 38 项非阻断提示供人工复核。未创建提交、修改分支引用或暂存区；线上 Actions 要在后续提交推送后才能给出最终状态。
 
 两个现有 runtime 文件实际运行共 14 项：13 个 CPU 用例通过，1 个 GPU 用例保持原 opt-in 跳过。另 4 项缺模型挂载/包路径迁移回归执行完整原/新测试方法，确认原版失败、修复版通过；fixture 与真实 quantization_config 逐值同、运行时两文件 AST 同。该 DTK 环境的 provider 导入需要真实设备元数据；隐藏设备的两次入口都在用例前失败并完整保留，不能称为 GPU-free 导入通过。成功入口显式关闭 GPU 数值测试，路径回归结束 torch.cuda.is_initialized=False。已有 torch/library.py 退出 weakref 清理告警保留，实际测试断言与子进程退出码均成功，不归于本次 SPDX/路径修复。没有新增模型、精度、性能或 profiler 任务。
+
+## 2026-11-26 DeepSeek V4.1 特殊投影 FP8
+
+将 DAS PR #616 的 checkpoint 判定、权重及逐行 scale 加载、逐 token 激活量化和 DeepGEMM 投影接入当前官方 v0.5.22 的 plugin。主模型和 DSpark 复用 wo_a 分组投影，Markov 按本 rank 的词表范围切分输出权重和 scale。LM head 共用已有 gather/crop 和 TP 所有权。官方 v0.5.22 的 DSpark greedy 与采样消费同一个 step_bias。插件在要求 FP32 logits 的主、草稿调用点保留输出精度。配置与兼容范围见 [配置管理](configuration.md)。
+
+原始实现参照 [HYGON-AI/sglang-das PR 616](https://github.com/HYGON-AI/sglang-das/pull/616)。当前官方基线为 `baa9befa38`，adapter 基线为 `692a210`，plugin 改动基于 `5f285d0`。这里的决策属于新增 checkpoint 格式和 HCU 计算策略，复用既有 adapter 平台适配。关闭功能时 Hook 将原调用交还当前有效的实现。
+
+专项验证覆盖 safetensors 元数据、target/draft 路径独立性、scale 装载、INT8 回退、Markov 非零 rank 行切片，以及 FP32 logits。大词表的 rank 内分块与 wo_a 共用 DeepGEMM 分派：FP32 逐组计算，BF16 批量计算。分块测试覆盖两种输出类型和拼接后的词表顺序。HCU 数值测试以独立 PyTorch 逐 token 量化和 FP32 matmul 对照 LM、Markov、分组 wo_a 三类输出。
+
+原 TP 配方还启用了 LightOp paged KV 反量化。该版本 flat 接口只支持页大小 2、64、256。插件的两个 sparse-prefill 调用点分别按 SWA 与压缩 KV 的布局、物理页大小选择算子；其余页大小复用各入口已有的反量化实现并写入原 workspace 切片。对应路由回归见 `tests/runtime/test_flat_kv_dequant.py`。
+
+2026-11-26 实机验收使用 DTK 26.10、Torch 2.13 和单节点 TP8，目标为 `DeepSeek-V4.1-Flash-1017-Channel-FP8-w8a8-wo_a-markov_head-lm_head`。原配方保留 DSPARK block size 5 和 decode Graph。8 个 rank 均完成 wo_a、lm_head 与 Markov FP8 权重和逐行 scale 加载，生成请求和 Graph 回放通过。EvalScope 1.14.1 全量 HumanEval pass@1 为 161/164（98.17%），GSM8K 为 1286/1319（97.50%），两个数据集各覆盖全部题目且请求错误为 0。L0 和导览快照检查通过。固定官方 loader 检查中 662/662 个 Hook 已应用，目标清单仍有此前已知的 `DecodePreallocQueue._send_kv_metadata` 额外项；此次三个新增目标均在册。

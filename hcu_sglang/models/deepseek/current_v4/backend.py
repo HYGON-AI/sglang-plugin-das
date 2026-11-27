@@ -1,5 +1,6 @@
 """Current CP cache lifetime and read indices at official backend boundaries."""
 from __future__ import annotations
+from hcu_sglang.models.deepseek.current_v4.flat_kv_dequant import dequantize_sparse_prefill_rows
 import sglang.srt.layers.attention.deepseek_v4_backend as upstream
 globals().update({name:value for name,value in vars(upstream).items() if not name.startswith('__')})
 from hcu_sglang.utils.detection import is_hcu
@@ -424,46 +425,17 @@ def _forward_prefill_sparse(
             )
 
     swa_k_layout = token_to_kv_pool.get_swa_key_layout()
-    # HCU LightOp reads the packed V4 page bytes directly; the V4.1 layouts
-    # keep the generic dequantizer.
-    if (
-        _is_hcu
-        and envs.SGLANG_LIGHTOP_DEQUANTIZE_K_CACHE_PAGED.get()
-        and (compressed_slice is None or extra_k_layout is KVLayout.V4)
-        and swa_k_layout is KVLayout.V4
-    ):
-        from lightop.kvcache import dsv4_dequantize_k_cache_paged_out
-
-        # Match the original wrapper's byte view; keep the caller's slices.
-        if compressed_slice is not None:
-            dsv4_dequantize_k_cache_paged_out(
-                extra_k_cache.view(torch.uint8),
-                flat_token_ids,
-                compressed_slice,
-                extra_page_size,
-            )
-        dsv4_dequantize_k_cache_paged_out(
-            token_to_kv_pool.get_swa_key_buffer_radix(layer_id).view(torch.uint8),
-            swa_token_ids,
-            swa_slice,
-            cache.swa_page_size,
+    use_lightop = _is_hcu and envs.SGLANG_LIGHTOP_DEQUANTIZE_K_CACHE_PAGED.get()
+    if compressed_slice is not None:
+        dequantize_sparse_prefill_rows(
+            extra_k_cache, flat_token_ids, compressed_slice, extra_page_size,
+            extra_k_layout, lightop=use_lightop, fallback=dequantize_k_cache_paged,
         )
-    else:
-        if compressed_slice is not None:
-            dequantize_k_cache_paged(
-                extra_k_cache,
-                flat_token_ids,
-                page_size=extra_page_size,
-                out=compressed_slice,
-                layout=extra_k_layout,
-            )
-        dequantize_k_cache_paged(
-            token_to_kv_pool.get_swa_key_buffer_radix(layer_id),
-            swa_token_ids,
-            page_size=cache.swa_page_size,
-            out=swa_slice,
-            layout=swa_k_layout,
-        )
+    dequantize_sparse_prefill_rows(
+        token_to_kv_pool.get_swa_key_buffer_radix(layer_id), swa_token_ids,
+        swa_slice, cache.swa_page_size, swa_k_layout,
+        lightop=use_lightop, fallback=dequantize_k_cache_paged,
+    )
     kv = workspace
 
     if cos_sin_cache is not None:
