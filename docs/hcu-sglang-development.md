@@ -4987,6 +4987,12 @@ audio Q、video Q、video MLP up 三种权重形状和合成 FP8 数据从空缓
 独立反量化调用的 `torch.compile(fullgraph=True)` 三组尺寸对拍通过。
 本轮验证覆盖算子数值、JIT 复用和编译冒烟，整模型冷启动与端到端性能沿用此前各自的测量记录。
 
+
+## 2026-11-27 Qwen3.5 MTP 输入投影 INT8 加载
+
+SGLang v0.5.22 基线为 `baa9bef`，adapter 为 `692a210`，plugin 基线为 `320be36`。在 HCU 的 Qwen3.5 MTP 构造后，已命中 CompressedTensors INT8 权重和激活配置的 `mtp.fc` 使用复制 Linear，沿用原来的参数名称与 loader，保留旧版 forward 的张量返回约定。排除、未匹配的层由原构造保留，上游已经使用其他 Linear 类型时跳过替换。
+
+在 gfx936 双卡 TP2、NEXTN 3/1/4、FP8 E5M2 KV 与 Decode Graph 下，用 Qwen3.6-27B Channel-INT8 checkpoint 验证。两 rank 的 INT8 权重为 `[5120, 10240]`，加载后 FP32 scale 与磁盘 BF16 scale 的 5120 个值逐元素相同。重放 16 条 4096 输入、10 输出的历史文档请求，草稿接受率为 **128/156（82.05%）**，历史未修复为 33/342（9.65%），历史加载时反量化修复为 124/162（76.54%）。三个文本生成冒烟用例均通过。定向构造回归覆盖 BF16 排除、未命中、非 HCU 与空输入。本次覆盖这批请求的实际生成，未做吞吐基准或其他 checkpoint 的完整服务测试。
 ## 2026-11-27 GDN 与 KDA VERIFY 掩码延迟求值
 
 在 `release/sglang_v0.5.22` 上回移 SGLang 的 VERIFY 掩码延迟求值。
