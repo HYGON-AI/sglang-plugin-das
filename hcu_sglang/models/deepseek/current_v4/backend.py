@@ -1,6 +1,7 @@
 """Current CP cache lifetime and read indices at official backend boundaries."""
 from __future__ import annotations
-from hcu_sglang.models.deepseek.current_v4.flat_kv_dequant import dequantize_sparse_prefill_rows
+from hcu_sglang.models.deepseek.current_v4.flat_kv_dequant import configure_bf16_decode_gather, get_bf16_gather_workspace, use_bf16_decode_gather
+from hcu_sglang.models.deepseek.current_v4.flat_kv_dequant import dequantize_sparse_prefill_rows, compact_sparse_prefill_enabled, plan_topk_rows, dequantize_selected_rows
 import sglang.srt.layers.attention.deepseek_v4_backend as upstream
 globals().update({name:value for name,value in vars(upstream).items() if not name.startswith('__')})
 from hcu_sglang.utils.detection import is_hcu
@@ -381,7 +382,10 @@ def _forward_prefill_sparse(
     # q is (b, 1, h_q, d_qk); flash_mla_sparse_fwd takes (s_q, h_q, d_qk).
     q_flat = q.squeeze(1)
 
+    compact = self.is_dsv41 and core_attn_metadata.request_window_layout is None and compact_sparse_prefill_enabled(forward_batch)
     cache = self.forward_metadata.sparse_prefill_cache
+    if cache is not None and (getattr(cache, "compact_seq_lens_cpu", None) is not None) != compact:
+        cache = None
     if cache is None:
         cache = self._build_sparse_prefill_chunk_cache(
             forward_batch, core_attn_metadata, num_qo_tokens=q_flat.shape[0]
@@ -395,8 +399,12 @@ def _forward_prefill_sparse(
     extra_k_layout = None
     extra_page_size = None
     flat_token_ids = None
+    compact = getattr(cache, "compact_seq_lens_cpu", None) is not None
+    workspace_kwargs = {"release_before_grow": True} if compact else {}
+    count = None
+    selected = False
     if compress_ratio == 0:
-        workspace = self.sparse_prefill_workspace.get(cache.swa_token_ids.shape[0])
+        workspace = self.sparse_prefill_workspace.get(cache.swa_token_ids.shape[0], **workspace_kwargs)
         combined_indices = cache.c0_combined_indices
         combined_lens = cache.c0_combined_lens
         swa_slice = workspace
@@ -407,9 +415,14 @@ def _forward_prefill_sparse(
         flat_token_ids, combined_indices, combined_lens = cache.layer_inputs(
             compress_ratio, core_attn_metadata, extra_page_size
         )
+        if compact and compress_ratio in (1, 2) and q_flat.shape[0] and envs.SGLANG_DSV41_PREFILL_TOPK_KV_WORKSPACE.get():
+            topk = core_attn_metadata.sparse_raw_indices(compress_ratio).shape[-1]
+            flat_token_ids, combined_indices, count, selected = plan_topk_rows(
+                cache, flat_token_ids, combined_indices, combined_lens, topk, extra_k_layout,
+            )
         n_compressed = flat_token_ids.shape[0]
         workspace = self.sparse_prefill_workspace.get(
-            n_compressed + cache.swa_token_ids.shape[0]
+            n_compressed + cache.swa_token_ids.shape[0], **workspace_kwargs
         )
         compressed_slice = workspace[:n_compressed]
         swa_slice = workspace[n_compressed:]
@@ -426,10 +439,13 @@ def _forward_prefill_sparse(
 
     swa_k_layout = token_to_kv_pool.get_swa_key_layout()
     use_lightop = _is_hcu and envs.SGLANG_LIGHTOP_DEQUANTIZE_K_CACHE_PAGED.get()
-    if compressed_slice is not None:
+    if selected:
+        dequantize_selected_rows(extra_k_cache, flat_token_ids, combined_indices, combined_lens,
+                                 compressed_slice, topk, extra_page_size)
+    elif compressed_slice is not None:
         dequantize_sparse_prefill_rows(
             extra_k_cache, flat_token_ids, compressed_slice, extra_page_size,
-            extra_k_layout, lightop=use_lightop, fallback=dequantize_k_cache_paged,
+            extra_k_layout, lightop=use_lightop, fallback=dequantize_k_cache_paged, valid_count=count,
         )
     dequantize_sparse_prefill_rows(
         token_to_kv_pool.get_swa_key_buffer_radix(layer_id), swa_token_ids,
@@ -757,14 +773,7 @@ def _forward_flash_mla_decode(
         extra_indices = extra_indices.unsqueeze(1)
 
     logical_forward_mode = _get_logical_forward_mode(forward_batch)
-    # With the unified HCU MLA path (SPLIT_PREFILL_DECODE_MLA=0), ordinary
-    # prefill also reaches this entrypoint with logical mode EXTEND.  Apply
-    # the same FP8 KV gather/upconvert there so FlashMLA receives BF16 KV on
-    # both P and D.  IDLE has no real queries and must not allocate a gather
-    # workspace.
-    use_bf16_gather = (
-        self._dsv4_bf16_flashmla_decode and not logical_forward_mode.is_idle()
-    )
+    use_bf16_gather = use_bf16_decode_gather(self, logical_forward_mode)
     if use_bf16_gather and swa_k_cache.dtype != torch.bfloat16:
         (
             swa_k_cache,
@@ -842,48 +851,11 @@ def _forward_flash_mla_prefill(
 
 
 
-def init_hcu_decode_options(self):
-    self._dsv4_bf16_flashmla_decode = envs.SGLANG_DSV4_HCU_USE_BF16_FLASH_MLA.get()
-    self._dsv4_lightop_bf16_gather = envs.SGLANG_DSV4_HCU_USE_LIGHTOP_BF16_GATHER.get()
-    self._dsv4_lightop_kvcache_op = None
-    self._dsv4_bf16_flashmla_workspaces: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
-    if self._dsv4_lightop_bf16_gather and (not self._dsv4_bf16_flashmla_decode):
-        raise RuntimeError('SGLANG_DSV4_HCU_USE_LIGHTOP_BF16_GATHER requires SGLANG_DSV4_HCU_USE_BF16_FLASH_MLA=1')
-    if self._dsv4_bf16_flashmla_decode:
-        if not _is_hcu:
-            raise RuntimeError('SGLANG_DSV4_HCU_USE_BF16_FLASH_MLA is only supported on HCU')
-        if self.token_to_kv_pool.is_bf16_attention_kv_cache:
-            logger.warning('SGLANG_DSV4_HCU_USE_BF16_FLASH_MLA is redundant because the DSV4 attention KV cache is already BF16')
-        gather_backend = 'Triton'
-        if self._dsv4_lightop_bf16_gather:
-            try:
-                from lightop import op as lightop_kvcache
-            except ImportError as exc:
-                raise RuntimeError('SGLANG_DSV4_HCU_USE_LIGHTOP_BF16_GATHER=1 requires a LightOp package with the DPSKV4 gather/upconvert ops') from exc
-            required_ops = ('dsv4_gather_upconvert_k_cache_paged', 'dsv4_gather_upconvert_dual_k_cache_paged')
-            missing_ops = [name for name in required_ops if not hasattr(lightop_kvcache, name)]
-            if missing_ops:
-                raise RuntimeError(f"The installed LightOp package is missing required DPSKV4 gather/upconvert ops: {', '.join(missing_ops)}")
-            self._dsv4_lightop_kvcache_op = lightop_kvcache
-            gather_backend = 'LightOp'
-        logger.info('Enabled DSV4 %s FP8 KV gather/upconvert for BF16 FlashMLA prefill/decode forwards', gather_backend)
-
 def around_backend_init(original, backend, *args, **kwargs):
     result = original(backend, *args, **kwargs)
-    init_hcu_decode_options(backend)
+    configure_bf16_decode_gather(backend, _is_hcu)
     return result
 
 
-def _get_dsv4_bf16_flashmla_workspace(
-    self,
-    slot: str,
-    num_queries: int,
-    topk: int,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    self._allocate_dsv4_bf16_flashmla_workspace(slot, num_queries, topk)
-    workspace = self._dsv4_bf16_flashmla_workspaces.get(slot)
-    if workspace is None:
-        raise RuntimeError("DSV4 BF16 FlashMLA gather workspace is unavailable")
-    gathered_kv, compact_indices = workspace
-    return gathered_kv[:num_queries], compact_indices[:num_queries]
+_get_dsv4_bf16_flashmla_workspace = get_bf16_gather_workspace
 

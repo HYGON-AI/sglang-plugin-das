@@ -4,6 +4,7 @@ Only kv_source layers own compressed latents; later layers of the same ratio
 share that storage.
 """
 from __future__ import annotations
+from functools import lru_cache
 import logging
 from typing import Optional, Tuple
 import torch
@@ -13,6 +14,7 @@ from hcu_sglang.models.deepseek.current_v4.hcu_backend.torch_quant import fake_q
 from hcu_sglang.models.deepseek.current_v4.hcu_backend.bf16_fp32 import linear_bf16_fp32
 from sglang.kernels.ops.gemm.router_gemv_hip import rocm_gemv_split_k_max_tokens
 from sglang.kernels.ops.layernorm.rmsnorm_fp32 import rmsnorm_fp32
+from sglang.srt.environ import envs
 from sglang.srt.layers.linear import ReplicatedLinear
 from sglang.srt.layers.quantization.base_config import QuantizationConfig
 from sglang.srt.utils import add_prefix, is_gfx95_supported
@@ -22,12 +24,33 @@ _is_hcu = is_hcu()
 def _fused_dsv41_kernels(x: torch.Tensor) -> bool:
     return x.is_cuda and (torch.version.cuda is not None or is_gfx95_supported())
 
+@lru_cache(maxsize=1)
+def _indexer_prep_op():
+    try:
+        from lightop.attention import dsv41_indexer_rope_fake_quant
+    except ImportError:
+        return None
+    return dsv41_indexer_rope_fake_quant
+
 def _rope_fq4(x, freqs, rope_dim, *, compressed_kv=False, positions=None):
     """RoPE plus fake FP4 quantization, fused for bf16 inputs on CUDA and ROCm. With
     positions, freqs is the whole table and the fused kernel gathers freqs[positions]."""
     if not _is_hcu and _fused_dsv41_kernels(x) and (x.dtype == torch.bfloat16):
         from sglang.kernels.ops.attention.dsv4.fp4_rope_fake_quant import rope_tail_fake_quant_fp4
         return rope_tail_fake_quant_fp4(x, freqs, rope_dim, compressed_kv=compressed_kv, positions=positions)
+    if (
+        _is_hcu and envs.SGLANG_HCU_OPT_INDEXER_PREP.get() and not compressed_kv
+        and positions is not None and x.is_cuda and x.dtype == torch.bfloat16
+        and x.ndim == 3 and x.shape[1] > 0 and x.shape[-1] == 128 and rope_dim == 64
+        and x.is_contiguous() and freqs.dtype == torch.complex64 and freqs.ndim == 2
+        and freqs.shape[1] == 32 and freqs.is_contiguous()
+        and positions.dtype in (torch.int32, torch.int64)
+        and positions.shape == (x.shape[0],) and positions.is_contiguous()
+        and freqs.device == x.device and positions.device == x.device
+    ):
+        op = _indexer_prep_op()
+        if op is not None:
+            return op(x, freqs, positions)
     if positions is not None:
         freqs = freqs[positions]
     if _is_hcu and x.is_cuda and (x.dtype == torch.bfloat16):
@@ -132,6 +155,19 @@ class DeepseekV41Compressor(nn.Module):
         kv = linear_bf16_fp32(x, self.wkv.weight)
         score = linear_bf16_fp32(x, self.wgate.weight)
         return (kv, score)
+
+    def project_packed(self, x: torch.Tensor) -> torch.Tensor:
+        """Project local CP rows into one contiguous collective payload.
+
+        Reuse the loaded fused gate layout without splitting and concatenating
+        it again. The separate-weight layout keeps its existing two GEMMs.
+        """
+        if self.compress_ratio == 1:
+            return self.wkv(x)
+        if self.use_fused_gate:
+            return self.project_fused(x)
+        kv, score = self.project(x)
+        return torch.cat((kv, score), dim=-1)
 
     def project_fused(self, x: torch.Tensor) -> torch.Tensor:
         """`[n, 2D]` fp32, `| kv | score |`."""

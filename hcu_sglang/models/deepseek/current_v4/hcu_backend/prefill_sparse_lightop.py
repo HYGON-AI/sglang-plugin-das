@@ -4,6 +4,8 @@ The source layer and decode keep their existing paths.  This adapter only turns
 an existing candidate mask/table into sorted logical blocks, scores those blocks
 with FP32 head weights and logits, and restores the backend's sorted selections.
 """
+import os
+from hcu_sglang.utils.detection import is_hcu
 from typing import Callable, Optional
 import torch
 from sglang.srt.environ import envs
@@ -18,8 +20,17 @@ INVALID_BLOCK = torch.iinfo(torch.int32).max
 FP4_AMAX_FLOOR = 6 * 2.0 ** (-126)
 
 def prefill_paged_sparse_enabled() -> bool:
-    """Enable the HCU Prefill paged sparse consumer by default."""
-    return envs.SGLANG_HCU_PREFILL_PAGED_SPARSE.get()
+    """Use the HCU Prefill paged sparse consumer unless explicitly overridden or slower on gfx938."""
+    name = envs.SGLANG_HCU_PREFILL_PAGED_SPARSE.name
+    if name in os.environ:
+        return envs.SGLANG_HCU_PREFILL_PAGED_SPARSE.get()
+    if not envs.SGLANG_HCU_PREFILL_PAGED_SPARSE.get():
+        return False
+    if is_hcu() and torch.cuda.is_available():
+        arch = torch.cuda.get_device_properties(0).gcnArchName.split(":")[0]
+        if arch == "gfx938":
+            return False
+    return True
 if triton is not None:
 
     @triton.jit
@@ -267,6 +278,18 @@ def consume_prefill_candidate_sparse(*, pool, indexer, layer_id: int, x: torch.T
     page_size = pool.get_index_k_page_size(compress_ratio)
     if page_size <= 0 or page_size % 8:
         return False
+    if positions.is_cuda:
+        from hcu_sglang.models.deepseek.current_v4.hcu_backend.mqa_logits_utils import (
+            dsv41_mqa_logits_rows_per_chunk,
+        )
+
+        budget_rows = dsv41_mqa_logits_rows_per_chunk(
+            num_rows=positions.numel(),
+            num_cols=width * SPARSE_BLOCK_KV,
+            device_index=positions.device.index,
+        )
+        if budget_rows is not None:
+            budget_bytes = min(budget_bytes, budget_rows * width * SPARSE_BLOCK_KV * 4)
     k_cache = pool.get_index_k_with_scale_buffer(layer_id)
     if k_cache is None:
         return False

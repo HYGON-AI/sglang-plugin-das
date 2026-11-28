@@ -611,4 +611,7 @@ def register_hooks():
     for name in ('c1_decode_norm_rope_store','c2_decode_norm_rope_store','c2_prefill_norm_rope_store'):
         HookRegistry.register('sglang.kernels.ops.attention.dsv4.low_ratio_compress.'+name,
             getattr(low_ratio,name),HookType.REPLACE)
-    return len(_FORMAL)+5
+    from .bf16_fp32 import around_unquantized_linear
+    HookRegistry.register("sglang.srt.layers.quantization.unquant.UnquantizedLinearMethod.apply",
+                          around_unquantized_linear, HookType.AROUND)
+    return len(_FORMAL)+6

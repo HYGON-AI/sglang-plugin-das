@@ -195,7 +195,10 @@ def late_layer_tail_layout(*, extend_lens_cpu: list[int], seq_lens_cpu: list[int
         (n, t, s) = (extend_lens_cpu[0], tail_lens_cpu[0], seq_lens_cpu[0])
         floor = torch.full((t,), max(0, s - tail_len), dtype=torch.int32, device=device)
         return (torch.arange(n - t, n, device=device), tail_lens_cpu, floor)
-    lens = torch.tensor([extend_lens_cpu, tail_lens_cpu, seq_lens_cpu], device=device)
+    lens = torch.tensor(
+        [extend_lens_cpu, tail_lens_cpu, seq_lens_cpu],
+        dtype=torch.int64, device="cpu", pin_memory=device.type == "cuda",
+    ).to(device, non_blocking=True)
     (extend_lens, tail_lens, seq_lens) = (lens[0], lens[1], lens[2])
     total = sum(tail_lens_cpu)
     req = torch.repeat_interleave(torch.arange(len(tail_lens_cpu), device=device), tail_lens, output_size=total)

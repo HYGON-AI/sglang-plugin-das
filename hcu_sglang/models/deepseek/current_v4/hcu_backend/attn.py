@@ -53,6 +53,11 @@ def fused_store_cache(input: torch.Tensor, cache: torch.Tensor, indices: torch.T
         RoPE tail in-kernel, so ``input`` must then be the un-rotated latent.
     """
     layout = KVLayout.parse(layout)
+    if _is_hcu and layout is KVLayout.V4 and freqs_cis is not None:
+        if type != "flashmla":
+            raise ValueError("V4 compressed KV RoPE fusion requires a FlashMLA cache")
+        from lightop import dsv41_rope_fake_quant_store
+        return dsv41_rope_fake_quant_store(input, freqs_cis, cache, indices, page_size)
     if is_hip_runtime() and layout is KVLayout.V4:
         assert freqs_cis is None, 'the V4 store receives already-rotated inputs'
     if is_hip_runtime() and layout is KVLayout.V4 and (not _is_hcu):

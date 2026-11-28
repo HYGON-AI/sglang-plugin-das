@@ -96,11 +96,58 @@ def _hip_bf16_out_dtype_error(exc: BaseException) -> bool:
     message = str(exc).lower()
     return 'out_dtype' in message or 'not implemented' in message
 
+def prepare_hcu_nn_weights(model):
+    """Prepare readonly NN operands locally after model loading or IPC attach."""
+    import os
+    from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
+
+    if not _is_hcu or not envs.SGLANG_HCU_ROCBLAS_NN.get() or os.getenv("WEIGHT_CACHE") == "daemon":
+        return
+    for module in model.modules():
+        if type(module).__name__ != "MoEGate" and not (
+            isinstance(getattr(module, "quant_method", None), UnquantizedLinearMethod)
+            and getattr(module, "bias", None) is None
+        ):
+            continue
+        weight = getattr(module, "weight", None)
+        if (isinstance(weight, torch.Tensor) and weight.is_cuda
+                and weight.dtype == torch.bfloat16 and weight.ndim == 2
+                and weight.shape[0] >= 128 and weight.is_contiguous() and not weight.requires_grad):
+            # post_load_weights also runs after a reload. Rebuild even if an
+            # in-place loader kept the old pointer.
+            version = None if weight.is_inference() else weight._version
+            weight._hcu_nn = (weight.data_ptr(), version, weight.t().contiguous())
+
+
+def _nn_operand(weight):
+    entry = getattr(weight, "_hcu_nn", None)
+    if entry is None:
+        return None
+    ptr, version, packed = entry
+    if weight.data_ptr() == ptr and (version is None or version == weight._version):
+        return packed
+    return None
+
+
+def around_unquantized_linear(original, method, layer, x, bias=None):
+    if torch.compiler.is_compiling():
+        return original(method, layer, x, bias)
+    rhs = _nn_operand(layer.weight)
+    if rhs is not None and bias is None and x.dtype == torch.bfloat16 and x.is_contiguous():
+        # Preserve upstream explicit backend selection and compilation paths.
+        from sglang.srt.layers.quantization import unquant
+        if not unquant._use_aiter and not unquant.get_bf16_gemm_backend().is_cutedsl():
+            y = torch.mm(x.reshape(-1, x.shape[-1]), rhs, out_dtype=x.dtype)
+            return y.view(*x.shape[:-1], rhs.shape[1])
+    return original(method, layer, x, bias)
+
+
 def _linear_bf16_fp32_cublas(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     global _HIP_BF16_OUT_DTYPE_SUPPORTED
     if x.is_cuda and x.dtype == torch.bfloat16 and (y.dtype == torch.bfloat16):
         if _is_hcu:
-            return torch.mm(x, y.t(), out_dtype=x.dtype).float()
+            rhs = _nn_operand(y)
+            return torch.mm(x, rhs if rhs is not None else y.t(), out_dtype=x.dtype).float()
         if not _is_hip:
             return torch.mm(x, y.t(), out_dtype=torch.float32)
         if _HIP_BF16_OUT_DTYPE_SUPPORTED is not False:

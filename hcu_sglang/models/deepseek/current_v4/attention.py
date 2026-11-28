@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 from hcu_sglang.layers.quantization import channelwise_fp8, channelwise_int8
+from hcu_sglang.layers.fused_rms_quant import dsv41_qnorm_fp8_operand
 import functools
 import sglang.srt.models.deepseek_v4 as upstream
-from hcu_sglang.utils.detection import is_hcu
+from hcu_sglang.utils.detection import is_hcu, is_hcu_native_fp8_supported
 from hcu_sglang.mem_cache.cp_cache_layer_split.deepseek_v4_helpers import (
     is_cp_cache_layer_split_deepseek_v4_pool, maybe_prefetch_cp_kv_extra,
     maybe_prefetch_cp_kv_swa, maybe_wait_cp_kv_swa_prefetch,
@@ -347,7 +348,13 @@ class MqaAttentionBase(nn.Module):
             beta_fast=scaling.get("beta_fast", 32),
             beta_slow=scaling.get("beta_slow", 1),
         )
-        freqs_cis = precompute_freqs_cis(**self.rope_kwargs)
+        if torch.empty(0).is_meta:
+            freqs_cis = torch.empty(
+                (config.max_position_embeddings, self.qk_rope_head_dim // 2),
+                dtype=torch.complex64, device="meta",
+            )
+        else:
+            freqs_cis = precompute_freqs_cis(**self.rope_kwargs)
         self.register_buffer("freqs_cis", freqs_cis, persistent=False)
         self.freqs_cis: torch.Tensor
 
@@ -650,6 +657,21 @@ class MQALayer(MqaAttentionBase):
             and self.wo_a.weight.shape == (self.n_local_groups * self.o_lora_rank, 4096)
             and (self.n_local_groups, self.o_lora_rank) == (2, 1024)
         )
+        self._hcu_qnorm_fp8 = (
+            _is_hcu
+            and self.is_dsv41
+            and is_hcu_native_fp8_supported()
+            and getattr(
+                getattr(self.wq_b, "scheme", None), "supports_fp8_prequantized_input", False
+            )
+            and (
+                not envs.SGLANG_USE_FUSED_RMS_QUANT.is_set()
+                or envs.SGLANG_USE_FUSED_RMS_QUANT.get()
+            )
+        )
+        self._hcu_qnorm_strided = (
+            self._hcu_qnorm_fp8 and envs.SGLANG_HCU_OPT_QNORM_STRIDED.get()
+        )
         if _is_hip:
             _hip.init_mqa_layer(self, quant_config)
 
@@ -813,6 +835,10 @@ class MQALayer(MqaAttentionBase):
         self, q: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor | Mxfp8SwizzledInput]:
         # The indexer needs the BF16 normalized row; wq_b needs the quantized one.
+        if self._hcu_qnorm_fp8 and not get_forward().sp_active:
+            result = dsv41_qnorm_fp8_operand(q, self.q_norm, self._hcu_qnorm_strided)
+            if result is not None:
+                return result
         if _is_hip:
             return _hip.q_norm_for_wq_b(self, q)
         method = self.wq_b.quant_method
