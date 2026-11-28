@@ -8,6 +8,8 @@ from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
+from hcu_sglang.environ import register_envs
+register_envs()
 
 ROOT = Path(__file__).resolve().parents[2]
 
