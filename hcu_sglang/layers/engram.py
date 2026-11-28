@@ -41,3 +41,26 @@ def register_hooks():
         around_registered_device_ptr,
         HookType.AROUND,
     )
+
+    if is_hcu():
+        from .engram_hash import around_gate, around_hash_ids, around_torch_hash_ids
+        from .engram_host import HcuEngramEmbedding
+
+        HookRegistry.register(
+            "sglang.srt.layers.engram.EngramEmbedding", HcuEngramEmbedding, HookType.REPLACE
+        )
+        HookRegistry.register(
+            "sglang.srt.layers.engram.engram_hash_ids",
+            around_hash_ids,
+            HookType.AROUND,
+        )
+        HookRegistry.register(
+            "sglang.srt.layers.engram.EngramHasher._torch_hash_ids",
+            around_torch_hash_ids,
+            HookType.AROUND,
+        )
+        HookRegistry.register(
+            "sglang.srt.layers.engram.engram_gate",
+            around_gate,
+            HookType.AROUND,
+        )
