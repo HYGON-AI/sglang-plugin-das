@@ -52,6 +52,11 @@
 - [2026-11-25：MiniMax H3 compressed FP32 AdaLN 融合](#2026-11-25-minimax-h3-compressed-fp32-adaln-融合)
 - [2026-11-25：MiniMax H3 通用 partial RoPE](#2026-11-25-minimax-h3-通用-partial-rope)
 - [2026-11-25：MiniMax H3 上游 Attention 后端选择](#2026-11-25-minimax-h3-上游-attention-后端选择)
+- [2026-11-26：MiniMax H3 有序 Lightop INT8 GEMM](#2026-11-26-minimax-h3-有序-lightop-int8-gemm)
+- [2026-11-26：MiniMax H3 Lightop 整投影直返](#2026-11-26-minimax-h3-lightop-整投影直返)
+- [2026-11-26：MiniMax H3 AdaLN 与 fc1 INT8 行量化](#2026-11-26-minimax-h3-adaln-与-fc1-int8-行量化)
+- [2026-11-26：MiniMax H3 AdaLN 与 dense QKV INT8 行量化](#2026-11-26-minimax-h3-adaln-与-dense-qkv-int8-行量化)
+- [2026-11-26：MiniMax H3 SwiGLU 与 fc2 INT8 行量化](#2026-11-26-minimax-h3-swiglu-与-fc2-int8-行量化)
 
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
@@ -5644,6 +5649,123 @@ PID不变，4P/4D与NUMA、并行、模型参数保持原配置。
 P Graph仍disabled。SGLang为镜像自带0.5.22 wheel，无可核验core Git SHA，
 服务文件清单另存，不能以Router SHA替代。
 
+## 2026-11-26 MiniMax H3 有序 Lightop INT8 GEMM
+
+在官方 v0.5.22 `baa9befa` 与 plugin `488e3bc` 基线上迁移 DAS
+`487bb529e4`。H3 INT8 Linear 保留逐行量化、padding 和分块调度。
+设置 `SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM=1` 后，
+适用分块直接调用 Lightop 的 `gemm_w8a8_smooth(input_scale_first=True)`。
+该模式按 `(acc * input_scale) * weight_scale` 计算，再转换到 BF16。
+开关默认关闭，在启动 worker 前设置。需要包含 Lightop #167 及对应代码对象的 wheel。
+
+此路径只用于 `mode="both"` 中带有逐行 FP32 scale 的设备量化结果。
+Lightop 自行判断 gfx936、尺寸与布局是否受支持。旧版 ABI、带 bias、
+编译路径、训练以及 provider 拒绝的输入沿用原 `_int_mm` 和 epilogue。
+原生执行异常保留。没有修改通用 SGLang scaled-MM 入口。
+
+在 `lyl_sglang_0522` 容器的物理 GPU 7 上使用 DTK 26.10、
+PyTorch 2.13.0 和 Lightop `0.6.0+dtk2610.torch2130.2611201654.ge44844`
+运行 `HCU_PLUGIN_RUN_GPU_TESTS=1 python3 -m pytest -q tests/test_minimax_h3_lightop_gemm.py`，
+10 项通过。覆盖真实有序内核、跨块和末尾 padding、BF16 舍入边界、
+旧版 ABI、provider 拒绝与执行错误传播。结果见
+`artifacts/minimax-h3-lightop.Nw3uQV/chunked-pytest.log`。
+
+## 2026-11-26 MiniMax H3 Lightop 整投影直返
+
+迁移 DAS `e515d2c312`。在有序 Lightop 开关的基础上，
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM_WHOLE=1` 可让符合条件的
+投影一次量化全部输入行、调用一次 Lightop，并返回实际行数对应的连续视图。
+该视图与 Lightop 输出共享存储，省掉预先分配的目的张量和分块写回。
+开关默认关闭。在分配整投影的量化缓冲前检查 gfx936、权重对齐和 ordered API。
+Lightop 拒绝时先释放临时引用，由原有分块路径继续处理。
+
+在 `lyl_sglang_0522` 容器的物理 GPU 7 上，17 项针对性测试通过。
+实际 H3 INT8 Linear 对 1 行和 65 行的输入各命中一次 Lightop，
+去掉 padding 后与原路径逐位一致，并与 Lightop 返回值共享存储。
+整投影拒绝时验证分块行数为 32、32、1。预热后的 Graph 首次重放以及
+改变输入和行量化 scale 后的重放均与原路径逐位一致。复现命令和日志见
+`artifacts/minimax-h3-lightop.Nw3uQV/reproduce.sh` 与
+`artifacts/minimax-h3-lightop.Nw3uQV/final-pytest.log`。
+本次验证覆盖 Linear 路径、原生分发及 Graph，整模型生成和端到端收益待测。
+
+## 2026-11-26 MiniMax H3 AdaLN 与 fc1 INT8 行量化
+
+迁移 DAS `f3c40c6e19` 的 `norm2 → indexed FP32 affine → INT8 fc1`
+路径。设置 `SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_AFFINE_QUANT_FUSION=1`
+后，gfx936 上符合条件的 compressed AdaLN 在一个 Triton kernel 内完成 FP32
+affine、BF16 舍入及逐行 INT8 量化。只在上游选择独立 affine 时接入。上游
+RMSNorm + AdaLN 已启用且满足输入条件时仍用上游实现。
+
+在一个 DiT block forward 内按同一输入张量及对应投影配对，将调制参数交给
+已有 INT8 Linear。首版覆盖 TP=1、无 bias、无需 gather 的 H3 fc1。
+带额外投影 Hook、激活或调制布局不匹配、编译和训练路径使用当前实现。
+该开关默认关闭，可独立于 Lightop 使用。
+
+使用 `lyl_sglang_0522`、物理 GPU 7、官方 v0.5.22 `baa9befa` 和
+adapter `9eb2586` 完成 12 项针对性测试和 2 个子测试。对比 fused 与已有
+`affine → quant_rows`，INT8 值和 scale 逐位一致。真实 DiT block 只命中
+fc1，最终输出逐位一致。开了上游融合或额外投影 Hook 时继续走既有路径。
+组合运行日志见 `artifacts/minimax-h3-affine-swiglu.ScAuG9/fc1-combo.log`。
+
+## 2026-11-26 MiniMax H3 AdaLN 与 dense QKV INT8 行量化
+
+将 DAS `f3c40c6e19` 的 Attention 路径接入同一个 affine 量化开关。
+`norm1` 的独立 FP32 affine 只在真实 H3 dense FA/FA2 的本地 INT8 QKV
+投影处合并。该选择要求 TP=1、无附加投影 Hook 和无 hybrid 分支。
+VDN、其他后端、Ulysses 和 Ring 保留原 BF16 激活，供各自的 Attention
+消费者使用。沿用 upstream 的 `forward` 和 INT8 Linear，不增加新的注册目标。
+
+`lyl_sglang_0522` 的 gfx936 GPU 7 上通过 6 项 affine 用例。真实 DTK FA2
+DiT block 在 dense 路径上先后命中 QKV 和 fc1，输出与关闭开关的参考逐位
+一致。带 hybrid 模块的对照仍只命中 fc1。结果见
+`artifacts/minimax-h3-affine-swiglu.ScAuG9/qkv-combo.log`。
+
+## 2026-11-26 MiniMax H3 SwiGLU 与 fc2 INT8 行量化
+
+迁移 DAS `4d54971360`，沿用 `3394c9844d` 的按设备缓存和跨 stream 就绪事件。
+gfx936 上的本地 H3 INT8 MLP 将 SwiGLU 和 fc2 输入逐行量化合并到一个
+Triton kernel，再调用有序 Lightop 整投影。SiLU 表用当前 H3 的 BF16
+激活实现生成，量化前保留 SiLU 与乘法各自的 BF16 舍入。
+
+设置 `SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_SWIGLU_QUANT_FUSION=1`，同时开启
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM` 和
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_LIGHTOP_GEMM_WHOLE`。新开关默认关闭。
+当前覆盖 `mode="both"`、TP=1、无 bias 且由 Lightop 支持的本地 fc2。
+冷启动 Graph capture、无法量化的输入或 Lightop 拒绝时，复用已算出的 fc1
+输出执行原 SwiGLU 和 fc2。
+
+在 `lyl_sglang_0522` 的 gfx936 GPU 7 上，量化、Lightop 和注册组合通过
+35 项测试和 2 个子测试。SwiGLU 后的 INT8 值和 scale 与现有路径逐位一致。
+真实 DiT block 同时启用 affine 量化和 SwiGLU，命中原生有序 Lightop，
+输出与分别执行 activation 和量化时逐位一致。验证了冷 cache 的 capture
+保护、provider 拒绝回退和既有 Lightop 整投影 Graph 重放。整模型生成、
+端到端延迟和融合后的完整 DiT Graph 重放待测。复现命令和日志见
+`artifacts/minimax-h3-affine-swiglu.ScAuG9/reproduce.sh` 与
+`artifacts/minimax-h3-affine-swiglu.ScAuG9/final-combo.log`。
+
+## 2026-11-27 MiniMax H3 DiT 四头 Q/K RMSNorm 与 RoPE
+
+从 DAS `52843d658fab3475280a33ce0b8f93789509456c` 迁入四头 Triton
+kernel。基线为 SGLang v0.5.22 `baa9befa`、adapter `9eb2586` 和
+plugin `6874118`。四头 kernel 及归一化 helper 与来源的 Python AST 一致。
+每个 Triton program 用同一份位置缓存处理四个 head，原地写回 Q/K，
+接受 packed QKV 的真实 row/head stride。对 BF16 head128、partial NeoX
+RoPE 96 维保留 norm 后的 BF16 舍入。
+
+`SGLANG_ENABLE_DIFFUSION_MINIMAX_H3_DIT_QKNORM_ROPE_4HEADS` 默认关闭，
+节点的 `int8.1127.0522.opt` profile 显式开启。Plugin 在
+`MiniMaxH3Attention._attend` 内限定替换范围，只在既有原地融合分支的
+gfx936 BF16 推理调用上尝试四头 kernel。开关关闭或输入合同不匹配时，
+现有的 AROUND Hook 继续调用由 SGLang 与 adapter 提供的有效实现。
+Ulysses 流水使用的 out-of-place 融合仍由上游分发。
+
+在 `sglang0522_1126` 镜像中挂载当前插件源码并隐藏 GPU 后，运行
+`python3 -m pytest -p no:cacheprovider -q tests/test_minimax_h3_qknorm_dispatch.py tests/test_diffusion_plugin_registration.py`。
+11 项测试与 2 个子测试通过，覆盖注册、开关、回退和 packed 视图的
+launch 参数。使用真实 diffusion registry 执行从 v0.5.22 提取的
+`_attend` 方法体，模拟 kernel launch 后验证了导入别名同步、启停及
+不匹配回退。L0、导览快照与临时 wheel 包含性检查通过。GPU 实际命中、
+数值对拍、Graph 重放及性能待验证。
 ## 2026-11-24：Diffusion FP8 W8A16 回退
 
 用途：将 LTX-2.5 Distilled 试验环境的外部 W8A16 替换收进正式 diffusion
