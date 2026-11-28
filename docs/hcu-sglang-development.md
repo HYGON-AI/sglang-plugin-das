@@ -35,6 +35,7 @@
 - [2026-11-23：Qwen-Image 2.1 Ulysses 直收 PR 同步](#2026-11-23-qwen-image-21-ulysses-直收-pr-同步)
 - [2026-11-24：Qwen-Image 2.1 Ulysses 直收 release 更新](#2026-11-24-qwen-image-21-ulysses-直收-release-更新)
 - [2026-11-24：Diffusion FP8 W8A16 回退](#2026-11-24-diffusion-fp8-w8a16-回退)
+- [2026-11-27：GDN 与 KDA VERIFY 掩码延迟求值](#2026-11-27-gdn-与-kda-verify-掩码延迟求值)
 - [附录：布局、操作方式与汇总](#附录布局操作方式与汇总)
 
 两份早期独立开发记录已全文收录。历史结果不代表当前代码已重新验证。
@@ -5037,3 +5038,25 @@ audio Q、video Q、video MLP up 三种权重形状和合成 FP8 数据从空缓
 一致，NaN 位置一致。`2**31` 元素的最后一块也通过同一参考检查。
 独立反量化调用的 `torch.compile(fullgraph=True)` 三组尺寸对拍通过。
 本轮验证覆盖算子数值、JIT 复用和编译冒烟，整模型冷启动与端到端性能沿用此前各自的测量记录。
+
+
+## 2026-11-27 Qwen3.5 MTP 输入投影 INT8 加载
+
+SGLang v0.5.22 基线为 `baa9bef`，adapter 为 `692a210`，plugin 基线为 `320be36`。在 HCU 的 Qwen3.5 MTP 构造后，已命中 CompressedTensors INT8 权重和激活配置的 `mtp.fc` 使用复制 Linear，沿用原来的参数名称与 loader，保留旧版 forward 的张量返回约定。排除、未匹配的层由原构造保留，上游已经使用其他 Linear 类型时跳过替换。
+
+在 gfx936 双卡 TP2、NEXTN 3/1/4、FP8 E5M2 KV 与 Decode Graph 下，用 Qwen3.6-27B Channel-INT8 checkpoint 验证。两 rank 的 INT8 权重为 `[5120, 10240]`，加载后 FP32 scale 与磁盘 BF16 scale 的 5120 个值逐元素相同。重放 16 条 4096 输入、10 输出的历史文档请求，草稿接受率为 **128/156（82.05%）**，历史未修复为 33/342（9.65%），历史加载时反量化修复为 124/162（76.54%）。三个文本生成冒烟用例均通过。定向构造回归覆盖 BF16 排除、未命中、非 HCU 与空输入。本次覆盖这批请求的实际生成，未做吞吐基准或其他 checkpoint 的完整服务测试。
+## 2026-11-27 GDN 与 KDA VERIFY 掩码延迟求值
+
+在 `release/sglang_v0.5.22` 上回移 SGLang 的 VERIFY 掩码延迟求值。
+插件在 GDN `forward_extend` 和 KDA 回退到社区实现的 `_forward_target_verify`
+调用点将 `cache_indices >= 0` 包装成 callable。PP Spec 关闭时直接返回默认索引。
+开启时计算掩码，沿用社区实现的请求槽位、填充行和 `int32` 输出。已延迟求值的
+社区方法直接透传。KDA 的 HCU 专用实现沿用自己的索引路径。
+[官方 PR #48414](https://github.com/sgl-project/sglang/pull/48414) ·
+[官方合并提交 6321f714](https://github.com/sgl-project/sglang/commit/6321f714ddd9c5da511b0cfefa0ebabc4277cf36)
+
+三个 CPU 单测覆盖比较次数、填充行和已修复方法透传。针对社区版本 `baa9befa`
+的实际 GDN、KDA 方法及索引 helper，使用 CPU 替身在下游消费点比较修复前后：
+关闭 PP Spec 时每次 VERIFY 的掩码比较从 1 次降到 0 次，默认索引保持一致。
+开启时两版均比较 1 次，请求槽位、填充行和输出 dtype 一致。
+整模型 HCU Graph、重抓 trace 和端到端性能尚未验证。
