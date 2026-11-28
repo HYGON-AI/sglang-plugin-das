@@ -13,6 +13,9 @@ globals().update({name: value for name, value in vars(H).items() if not name.sta
 from hcu_sglang.utils.detection import is_hcu
 from sglang.srt.utils import get_bool_env_var
 from hcu_sglang.layers.attention.linear.kda_state_indices import prepare_fused_replay_state_indices
+from hcu_sglang.layers.attention.linear.verify_state_indices import (
+    defer_verify_valid_mask,
+)
 
 _hcu_causal_conv1d_fn = None
 _hcu_causal_conv1d_update = None
@@ -1990,6 +1993,8 @@ def register_hooks():
         from hcu_sglang import speculative_kda
         speculative_kda.register_hooks()
         return
+    backend = K.KDAAttnBackend
+    backend._forward_target_verify = defer_verify_valid_mask(backend._forward_target_verify)
     K._hcu_causal_conv1d_fn = _hcu_causal_conv1d_fn
     K._hcu_causal_conv1d_update = _hcu_causal_conv1d_update
     K._run_causal_conv1d_fn = _run_causal_conv1d_fn
