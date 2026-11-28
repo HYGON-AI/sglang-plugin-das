@@ -70,6 +70,7 @@ def isolated_runtime():
     previous = {name: sys.modules.get(name) for name in modules}
     sys.modules.update(modules)
     try:
+        load('hcu_sglang.models.deepseek.deepseek_nextn.methods.index_share', root / 'hcu_sglang/models/deepseek/deepseek_nextn/methods/index_share.py')
         nextn = load('hcu_sglang.models.deepseek.deepseek_nextn.methods.model', root / 'hcu_sglang/models/deepseek/deepseek_nextn/methods/model.py')
         gate = load('hcu_sglang.layers.moe.deepseek_gate', root / 'hcu_sglang/layers/moe/deepseek_gate.py')
         Gate.__init__ = gate.__init__
