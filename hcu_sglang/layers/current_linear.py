@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Literal
 from sglang.srt.layers import linear as N
 from hcu_sglang.utils.detection import is_hcu
+
+_IS_HCU = is_hcu()
 from hcu_sglang.layers.fused_rms_quant import (
     fused_rms_norm_per_token_quant as lm_faster_rmsquant,
 )
@@ -354,7 +356,7 @@ def merged_forward(
 
 def _around(method):
     def call(original, *args, **kwargs):
-        if not is_hcu():
+        if not _IS_HCU:
             return original(*args, **kwargs)
         return method(*args, **kwargs)
     return call

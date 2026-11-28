@@ -9,6 +9,8 @@ def register_hooks():
     from hcu_sglang.models.deepseek.current_v4.execution import core
     if not hasattr(DeepseekV4ForCausalLM, "logits_from_body_output"):
         DeepseekV4ForCausalLM.logits_from_body_output = core.DeepseekV4ForCausalLM.logits_from_body_output
+    if not hasattr(DeepseekV4ForCausalLM, "post_ipc_weight_load"):
+        DeepseekV4ForCausalLM.post_ipc_weight_load = core.DeepseekV4ForCausalLM.post_ipc_weight_load
     return register_method_replaces_from_path(
         "sglang.srt.models.deepseek_v4", "DeepseekV4ForCausalLM", ('__init__', 'pad_input_ids', 'set_dspark_layers_to_capture', 'prepare_language_model_inputs', 'forward', 'post_load_weights', '_prewarm_mhc_kernels', 'load_weights'),
         "hcu_sglang.models.deepseek.deepseek_v4.methods.causal_lm",

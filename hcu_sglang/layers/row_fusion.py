@@ -2,8 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+
+import inspect
+import logging
+from functools import lru_cache
 import sglang.srt.layers.linear as N
 from hcu_sglang.utils.detection import is_hcu
+
+logger = logging.getLogger(__name__)
+_IS_HCU = is_hcu()
 
 _use_fused_silu_mul_quant = N.get_bool_env_var("SGLANG_USE_FUSED_SILU_MUL_QUANT")
 _use_fused_silu_mul_fp8_quant = N.envs.SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT.get() or _use_fused_silu_mul_quant
@@ -13,7 +20,7 @@ if _use_fused_silu_mul_quant:
     try:
         from lightop.activation import lm_fuse_silu_mul_quant
     except Exception as e:
-        print(f"Error: Import fused silu_mul_quant error: {e}")
+        logger.warning("Import fused silu_mul_quant error: %s", e)
 
 _lightop_fuse_silu_mul_clamp_quant = None
 if _use_fused_silu_mul_quant:
@@ -44,6 +51,49 @@ if (
             pass
 
 
+@lru_cache(maxsize=1)
+def _shared_fp8_silu_provider():
+    try:
+        from lightop import op
+        from lightop.activation import fuse_silu_mul_fp8_quant
+    except ImportError:
+        try:
+            from lightop import op, fuse_silu_mul_fp8_quant
+        except (ImportError, OSError):
+            return None
+    except OSError:
+        return None
+    native_op = getattr(op, "fuse_silu_mul_fp8_quant", None)
+    if native_op is None or "limit:" not in (native_op.__doc__ or ""):
+        return None
+    try:
+        inspect.signature(fuse_silu_mul_fp8_quant).bind(
+            None, fp8type=0, output=None, scales=None, limit=10.0
+        )
+    except (TypeError, ValueError):
+        return None
+    return fuse_silu_mul_fp8_quant
+
+
+def configure_dsv41_shared_fp8(mlp):
+    shared = getattr(mlp, "shared_experts", None)
+    if (
+        shared is None
+        or not mlp._shared_expert_tp1
+        or shared.swiglu_limit is None
+        or shared.swiglu_limit <= 0
+    ):
+        return
+    down = shared.down_proj
+    if down.params_dtype != N.torch.bfloat16 or not down.input_is_parallel:
+        return
+    enabled = N.envs.SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT
+    if enabled.is_set() and not enabled.get():
+        return
+    if getattr(getattr(down, "scheme", None), "supports_fp8_prequantized_input", False):
+        down._dsv41_shared_fp8_silu = _shared_fp8_silu_provider()
+
+
 def supports_fused_silu_mul_quant_input(self) -> bool:
     return bool(
         _use_fused_silu_mul_quant
@@ -57,8 +107,10 @@ def supports_fused_silu_mul_quant_input(self) -> bool:
 
 def supports_fused_silu_mul_fp8_quant_input(self) -> bool:
     return bool(
-        _use_fused_silu_mul_fp8_quant
-        and _lightop_fuse_silu_mul_fp8_quant is not None
+        (
+            getattr(self, "_dsv41_shared_fp8_silu", None) is not None
+            or (_use_fused_silu_mul_fp8_quant and _lightop_fuse_silu_mul_fp8_quant is not None)
+        )
         and getattr(
             getattr(self, "scheme", None),
             "supports_fp8_prequantized_input",
@@ -180,7 +232,8 @@ def forward(
         x_scale = N.torch.empty(
             (num_tokens, 1), device=input_parallel.device, dtype=N.torch.float32
         )
-        _lightop_fuse_silu_mul_fp8_quant(
+        quantize = getattr(self, "_dsv41_shared_fp8_silu", None) or _lightop_fuse_silu_mul_fp8_quant
+        quantize(
             input_parallel,
             fp8type=0,
             output=input_x,
@@ -245,9 +298,14 @@ def forward(
 
     return output, output_bias
 def around_row_forward(original, layer, *args, **kwargs):
-    extended = any(name in kwargs for name in ("use_fused_silu_mul_quant", "use_fused_silu_mul_fp8_quant", "input_quant_args", "swiglu_limit"))
+    extended = bool(kwargs) and (
+        "use_fused_silu_mul_quant" in kwargs
+        or "use_fused_silu_mul_fp8_quant" in kwargs
+        or "input_quant_args" in kwargs
+        or "swiglu_limit" in kwargs
+    )
     source_positional = len(args) > 4 or (len(args) == 4 and isinstance(args[3], (bool, type(None))))
-    if is_hcu() and (extended or source_positional):
+    if _IS_HCU and (extended or source_positional):
         return forward(layer, *args, **kwargs)
     return original(layer, *args, **kwargs)
 

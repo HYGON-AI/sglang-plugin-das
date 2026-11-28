@@ -369,6 +369,47 @@ def index_k_rope_pack(x: torch.Tensor, freqs: torch.Tensor, rope_dim: int, *, po
     return (payload, scale) if cache is None else None
 
 @triton.jit
+def _index_q_pack_weights_hcu_kernel(Q, F, Pos, Raw, Payload, Scale, Weights, weight_scale,
+                                     STRIDE: tl.constexpr, HEADS: tl.constexpr, FLOOR: tl.constexpr):
+    _index_k_rope_pack_kernel(
+        Q, F, Pos, Payload, Scale, Payload, Pos,
+        F_STRIDE=STRIDE, HEADS=HEADS, RD=0, INDEXED=False, STORE_CACHE=False,
+        PAGE_SIZE=0, CACHE_STRIDE=0, AMAX_FLOOR=FLOOR,
+    )
+    row = tl.program_id(0)
+    raw = tl.load(Raw + row).to(tl.float32)
+    tl.store(Weights + row, (raw * weight_scale).to(tl.bfloat16).to(tl.float32))
+
+
+def index_q_rope_pack_weights_hcu(q, freqs, positions, raw_weights, weight_scale):
+    """Pack RoPE Q and scaled head weights for the FP4 low-ratio decode indexer.
+
+    On HCU images without the AOT fake-quant operator, keep the torch complex
+    rotation order. The shared packer performs both distinct FP4 roundings.
+    """
+    from hcu_sglang.models.deepseek.current_v4.hcu_backend.dsv41_sparse import rope_tail
+
+    assert q.ndim == 3 and q.dtype == torch.bfloat16 and q.shape[-1] == 128
+    tokens, heads = q.shape[:2]
+    assert raw_weights.shape == (tokens, heads) and raw_weights.dtype == torch.bfloat16
+    assert positions.shape == (tokens,) and positions.dtype in (torch.int32, torch.int64)
+    assert freqs.ndim == 2 and freqs.shape[1] == 32 and freqs.dtype == torch.complex64
+    assert q.device == freqs.device == positions.device == raw_weights.device
+    rows = tokens * heads
+    payload = torch.empty((rows, 64), dtype=torch.int8, device=q.device)
+    scales = torch.empty(rows, dtype=torch.int32, device=q.device)
+    weights = torch.empty((tokens, heads), dtype=torch.float32, device=q.device)
+    if rows:
+        rotated = rope_tail(q, freqs[positions], 64)
+        f = torch.view_as_real(freqs)
+        _index_q_pack_weights_hcu_kernel[(rows,)](
+            rotated, f, positions, raw_weights.contiguous(), payload, scales, weights, float(weight_scale),
+            STRIDE=f.stride(0), HEADS=heads, FLOOR=FP4_AMAX_FLOOR, num_warps=4,
+        )
+    return payload, scales, weights
+
+
+@triton.jit
 def _e2m1_decode(code):
     e = code >> 1 & 3
     m = (code & 1).to(tl.float32)

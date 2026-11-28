@@ -114,7 +114,7 @@ from sglang.srt.models.deepseek_v4 import (
     wo_a_fp8_gemm_enabled,
 )
 from sglang.srt.models.deepseek_v4 import DeepseekV4Model as NativeDeepseekV4Model, DeepseekV4ForCausalLM as NativeDeepseekV4ForCausalLM
-from hcu_sglang.models.deepseek.current_v4.attention import MqaAttentionBase, MQALayer
+from hcu_sglang.models.deepseek.current_v4.attention import MQALayer
 from hcu_sglang.models.deepseek.current_v4.execution import mhc, hip as _hip, lazy_boundary as hc_boundary
 from hcu_sglang.models.deepseek.current_v4.execution.platform_stage import NonCudaDecoderMixin, forward_layer_fused_boundary
 from hcu_sglang.models.deepseek.current_v4.execution.replay_tail import DecoderReplayTail
@@ -152,31 +152,22 @@ def _can_defer_mhc_repeat_cp_split(
     cp_size: int,
     cp_rank: int,
 ) -> bool:
-    """Require an unpadded, equal-sized legacy RR split without device reads."""
+    """Check physical RR row consistency, including padded and ragged batches.
+
+    Hidden width, HC/CP sizes and equal per-rank lengths do not constrain the
+    fused copy. Layout/mode selection stays at the caller; other layouts must
+    retain their own sharding implementation.
+    """
     if (
         hidden_states.ndim != 2
-        or hidden_states.shape[1] == 0
         or hc_mult <= 0
-        or cp_size <= 1
+        or cp_size <= 0
         or not 0 <= cp_rank < cp_size
     ):
         return False
     num_tokens = hidden_states.shape[0]
-    if num_tokens == 0 or num_tokens % cp_size != 0:
-        return False
-    # Existing CPU batch metadata proves logical rows; no device-value reads.
-    extend_lens = getattr(forward_batch, "extend_seq_lens_cpu", None)
-    if not isinstance(extend_lens, (list, tuple)) or not all(
-        isinstance(length, int) and not isinstance(length, bool) and length >= 0
-        for length in extend_lens
-    ):
-        return False
-    if sum(extend_lens) != num_tokens:
-        return False
-    # None is the real ForwardBatch default, set only when padding is applied.
-    original_num_tokens = getattr(forward_batch, "_original_num_tokens", None)
-    if original_num_tokens is not None and original_num_tokens != num_tokens:
-        return False
+    # Shard the same physical rows as repeat-then-split. Logical request lengths
+    # and _original_num_tokens need not equal this padded physical row count.
     return all(
         tensor is not None and tensor.ndim > 0 and tensor.shape[0] == num_tokens
         for tensor in (
@@ -368,6 +359,10 @@ class DeepseekV4DecoderLayerBase(nn.Module):
             and not getattr(config, "language_model_only", False),
         )
 
+        if _is_hcu and config.model_type == "deepseek_v41":
+            from hcu_sglang.layers.row_fusion import configure_dsv41_shared_fp8
+            configure_dsv41_shared_fp8(self.mlp)
+
         self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = RMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
@@ -530,6 +525,10 @@ class DeepseekV4DecoderLayerBase(nn.Module):
                         )
         if self.hc_pre_from_prev_sublayer:
             self._init_hyper_connections()
+            if _is_hcu:
+                self._hcu_mhc_ffn_packed = mhc.prepare_hcu_mega_weight(
+                    self.ffn_hc, getattr(self, "_hcu_mhc_ffn_packed", None)
+                )
         # The fuse gates and boundaries snapshot load-time facts; weight updates
         # re-run this, so drop them and re-resolve on the next forward.
         self.__dict__.pop("_can_fuse_attn_mhc", None)
@@ -1741,25 +1740,28 @@ class DeepseekV4Model(NativeDeepseekV4Model):
         )
         if cp_gather_output:
             stream = torch.cuda.current_stream()
+            gather_output = cp_all_gather_rerange_output
+            if _is_hcu:
+                gather_output = functools.partial(gather_output, chunk_large_output=True)
             full_cp_metadata = forward_batch.attn_cp_metadata
             if hcu_cp_tail:
                 forward_batch.attn_cp_metadata = tail.cp_metadata
-            pre_hc_head = cp_all_gather_rerange_output(
+            pre_hc_head = gather_output(
                 pre_hc_head, self.cp_size, forward_batch, stream
             )
-            hidden_states = cp_all_gather_rerange_output(
+            hidden_states = gather_output(
                 hidden_states, self.cp_size, forward_batch, stream
             )
             if capture_dspark:
                 pd_aux_hidden = (
                     [
-                        cp_all_gather_rerange_output(
+                        gather_output(
                             aux, self.cp_size, forward_batch, stream
                         )
                         for aux in pd_aux_hidden
                     ]
                     if isinstance(pd_aux_hidden, list)
-                    else cp_all_gather_rerange_output(
+                    else gather_output(
                         pd_aux_hidden, self.cp_size, forward_batch, stream
                     )
                 )
@@ -2357,6 +2359,10 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
                 attn.wo_a.weight_scale_inv.format_ue8m0 = False
 
     def post_load_weights(self, is_nextn=False, weight_names=None):
+        if _is_hcu:
+            from hcu_sglang.models.deepseek.current_v4.hcu_backend.bf16_fp32 import prepare_hcu_nn_weights
+
+            prepare_hcu_nn_weights(self)
         if self.wo_a_fp8:
             self._setup_fp8_wo_a_scales(is_nextn)
 
@@ -2381,6 +2387,25 @@ class DeepseekV4ForCausalLM(NativeDeepseekV4ForCausalLM):
                 self_attn.indexer.compressor.apply_ape_hotfix()
             layer.refresh_mhc_norm_weight_cache()
         layers = self.model.layers
+        for i, layer in enumerate(layers):
+            if isinstance(layer, DeepseekV4PlatformDecoderLayer):
+                layer.bind_next(layers[i + 1] if i + 1 < len(layers) else None)
+
+    def post_ipc_weight_load(self):
+        """Rebuild process-local references after mapping the daemon's finished weights."""
+        from hcu_sglang.models.deepseek.current_v4.hcu_backend.bf16_fp32 import prepare_hcu_nn_weights
+
+        prepare_hcu_nn_weights(self)
+        # The daemon already produced norm/packed operands. extra_state installs
+        # them on the canonical layers before this hook. Rebuild the immutable
+        # HcSubLayer objects with those operands and this process's parameters.
+        for module in self.modules():
+            if isinstance(module, DeepseekV4PlatformDecoderLayer):
+                module._init_hyper_connections()
+
+        # The single NextN decoder has no successor. For target models use
+        # bind_next's normal Engram and PP boundaries, as on the disk load path.
+        layers = getattr(self.model, "layers", ())
         for i, layer in enumerate(layers):
             if isinstance(layer, DeepseekV4PlatformDecoderLayer):
                 layer.bind_next(layers[i + 1] if i + 1 < len(layers) else None)

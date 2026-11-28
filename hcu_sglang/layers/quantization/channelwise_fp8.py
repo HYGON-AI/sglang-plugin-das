@@ -21,6 +21,7 @@ from sglang.srt.layers.quantization.base_config import QuantizeMethodBase
 from hcu_sglang.layers.quantization.channelwise_fp8_checkpoint import (
     checkpoint_supports_channelwise_fp8,
 )
+from hcu_sglang.layers.quantization.fp8_linear import fast_fp8_gemm
 
 
 def configure_checkpoint(quant_config, hf_config):
@@ -84,7 +85,7 @@ def enabled(quant_config, *, model_path=None):
     return checkpoint_supports_channelwise_fp8(str(model_path))
 
 
-def linear(x, weight, scale, *, output_dtype=None):
+def linear(x, weight, scale, *, output_dtype=None, quantized=None):
     import deepgemm
     from lightop.quant import per_token_quant_fp8
 
@@ -98,7 +99,7 @@ def linear(x, weight, scale, *, output_dtype=None):
     out_features = weight.shape[-2]
     if x.numel() == 0:
         return x.new_empty((*x.shape[:-1], out_features), dtype=dtype)
-    xq, xs = per_token_quant_fp8(x.contiguous())
+    xq, xs = per_token_quant_fp8(x.contiguous()) if quantized is None else quantized
 
     # Split a wide local vocabulary into groups for hipBLASLt (same TP shard).
     tiles = (out_features + 16383) // 16384
@@ -113,21 +114,39 @@ def linear(x, weight, scale, *, output_dtype=None):
     # DTK 2604 requires individual FP32 GEMMs for grouped outputs.
     if dtype == torch.float32 and weight.ndim == 3:
         for group in range(weight.shape[0]):
-            deepgemm.fp8_gemm(
-                (xq[group], xs[group]), (weight[group], scale[group]), output[group]
-            )
+            fast_fp8_gemm(xq[group], xs[group], weight[group], scale[group], output[group])
     else:
         if tiled:
             xq, xs = xq.contiguous(), xs.contiguous()
-        deepgemm.fp8_gemm((xq, xs), (weight, scale), output)
+        fast_fp8_gemm(xq, xs, weight, scale, output)
     if tiled:
         return output.transpose(0, 1).reshape(x.shape[0], out_features)
     return output
 
 
+def _swap_group_token(t):
+    """Move a contiguous inner dimension in 8-byte words without converting values."""
+    words = 8 // t.element_size()
+    if t.is_contiguous() and t.size(-1) % words == 0 and t.storage_offset() % words == 0:
+        return t.view(torch.int64).transpose(0, 1).contiguous().view(t.dtype)
+    return t.transpose(0, 1).contiguous()
+
+
 def grouped(x, layer, groups, rank):
     weight = layer.weight.view(groups, rank, -1)
     scale = layer.weight_scale_inv.view(groups, rank, 1)
+    if (
+        x.ndim == 3 and x.is_contiguous() and x.numel()
+        and envs.SGLANG_DSV41_WO_A_QUANT_BEFORE_TRANSPOSE.get()
+    ):
+        from lightop.quant import per_token_quant_fp8
+
+        tokens, n_groups, width = x.shape
+        codes, scales = per_token_quant_fp8(x.view(tokens * n_groups, width))
+        codes = _swap_group_token(codes.view(tokens, n_groups, width))
+        scales = scales.view(tokens, n_groups, 1).transpose(0, 1).contiguous()
+        y = linear(codes, weight, scale, output_dtype=x.dtype, quantized=(codes, scales))
+        return _swap_group_token(y)
     y = linear(x.transpose(0, 1).contiguous(), weight, scale)
     return y.transpose(0, 1).contiguous()
 

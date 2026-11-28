@@ -184,6 +184,16 @@ def _topk_ids_logical_to_physical_probability(
         )
     from sglang.kernels.ops.lplb import cuda_solver
 
-    return cuda_solver.dispatch_probability(
-        topk_ids, log2phy_prob, info.partial_logical_to_all_physical_map
-    )
+    replica_map = info.partial_logical_to_all_physical_map
+    if replica_map.shape != log2phy_prob.shape:
+        # Both dynamic HIP water-filling and precomputed LP may omit padding
+        # columns. The integer map must have the exact same stride as the CDF.
+        from hcu_sglang.eplb.lplb_solver import get_global_lplb_solver
+
+        solver = get_global_lplb_solver(info.layer_id)
+        replica_map = getattr(solver, "dispatch_map", None)
+        if replica_map is None:
+            replica_map = getattr(solver, "static_dispatch_map", None)
+        if replica_map is None or replica_map.shape != log2phy_prob.shape:
+            raise ValueError("LP replica probabilities have no matching physical expert map")
+    return cuda_solver.dispatch_probability(topk_ids, log2phy_prob, replica_map)

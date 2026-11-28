@@ -125,21 +125,6 @@ def after_a2a_backend_overrides(result: dict[str, Any], view: Any):
     return result
 
 
-def around_validate_deepseek_v4_mega_moe_token_budget(
-    original: Callable[..., Any], server_args: Any
-):
-    from sglang.srt.environ import envs
-
-    if not envs.SGLANG_OPT_USE_DEEPGEMM_MEGA_MOE.get():
-        return original(server_args)
-    previous = server_args.moe_a2a_backend
-    server_args.moe_a2a_backend = "megamoe"
-    try:
-        return original(server_args)
-    finally:
-        server_args.moe_a2a_backend = previous
-
-
 def _declare_values(server_args, source, **values):
     if hasattr(server_args, "_declare"):
         server_args._declare(source, **values)
@@ -335,8 +320,10 @@ def around_check_mega_moe_compat(original, server_args):
         return original(server_args)
     if view.enable_two_batch_overlap or view.enable_single_batch_overlap:
         raise ValueError("HCU MegaMoE does not support two-batch or single-batch overlap")
-    if view.disaggregation_mode != "prefill":
-        raise ValueError("HCU standalone MegaMoE is supported for prefill disaggregation only")
+    if view.disaggregation_mode != "prefill" and not (
+        view.disaggregation_mode == "null" and view.enable_prefill_cp and view.attn_cp_size > 1
+    ):
+        raise ValueError("HCU MegaMoE requires prefill disaggregation or standalone prefill CP")
     provider = envs.SGLANG_HCU_MEGA_MOE_RUNTIME.get().strip().lower()
     if provider == "deep_gemm":
         if find_spec("deepgemm") is None:

@@ -23,6 +23,34 @@ from hcu_sglang.layers.quantization.fp8_scaled_mm import triton_scaled_mm
 
 _is_hcu = is_hcu()
 _sglang_enable_torch_compile = N.get_bool_env_var("SGLANG_ENABLE_TORCH_COMPILE")
+_DG_FP8_ALPHA = torch.tensor(1, dtype=torch.float32, device="cpu")
+_DG_FP8_BETA = torch.tensor(0, dtype=torch.float32, device="cpu")
+_DG_OP_FP8_GEMM = getattr(getattr(deepgemm, "op", None), "fp8_gemm", None)
+
+
+def fast_fp8_gemm(
+    a_q: torch.Tensor,
+    a_s: torch.Tensor,
+    b_q: torch.Tensor,
+    b_s: torch.Tensor,
+    out: torch.Tensor,
+) -> None:
+    if _DG_OP_FP8_GEMM is not None and a_q.dtype == torch.float8_e4m3fn:
+        if b_q.dim() == 3:
+            batch = b_q.shape[0]
+            m, k = a_q.shape[1], a_q.shape[2]
+            b1, b2 = b_q.shape[1], b_q.shape[2]
+        else:
+            batch = 1
+            m, k = a_q.shape[0], a_q.shape[1]
+            b1, b2 = b_q.shape[0], b_q.shape[1]
+        n = b1 if b2 == k else b2
+        _DG_OP_FP8_GEMM(
+            b_q, a_q, b_s, a_s, out, n, m, k, batch, "TN",
+            _DG_FP8_ALPHA, _DG_FP8_BETA, None,
+        )
+        return
+    deepgemm.fp8_gemm((a_q, a_s), (b_q, b_s), out)
 
 
 def apply_fp8_linear(
@@ -56,7 +84,7 @@ def apply_fp8_linear(
         if x_scale.dim() > 2:
             x_scale = x_scale.view(-1, x_scale.shape[-1])
         output = torch.empty((qinput.shape[0], weight.shape[1]), device=qinput.device, dtype=pre_quant_output_dtype or torch.bfloat16)
-        deepgemm.fp8_gemm((qinput, x_scale), (weight, weight_scale), output)
+        fast_fp8_gemm(qinput, x_scale, weight, weight_scale, output)
         if bias is not None:
             output += bias
 
@@ -182,7 +210,7 @@ def apply_fp8_linear(
         if x_scale.dim() > 2:
             x_scale = x_scale.view(-1, x_scale.shape[-1])
         output = torch.empty((qinput.shape[0], weight.shape[1]), device=input.device, dtype=output_dtype)
-        deepgemm.fp8_gemm((qinput, x_scale), (weight, weight_scale), output)
+        fast_fp8_gemm(qinput, x_scale, weight, weight_scale, output)
         output = torch.narrow(output, 0, 0, input_2d.shape[0])
         if bias is not None:
             output += bias
@@ -333,7 +361,7 @@ def apply_fp8_linear(
 
 
 def around_apply_fp8_linear(original, *args, **kwargs):
-    if not is_hcu():
+    if not _is_hcu:
         return original(*args, **kwargs)
     return apply_fp8_linear(*args, **kwargs)
 

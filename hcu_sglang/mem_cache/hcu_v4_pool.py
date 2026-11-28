@@ -420,6 +420,8 @@ class DeepSeekV4SingleKVPool(KVCache):
                 "a bf16 attention KV pool stores the finished value"
             )
             return self.set_key_buffer_bf16(layer_id, loc, cache_k, valid_mask)
+        if _is_hcu and self.kv_layout is KVLayout.V4 and freqs_cis is not None and valid_mask is not None:
+            loc = loc.masked_fill(~valid_mask, -1)
         return fused_store_cache(
             input=cache_k,
             cache=self.kv_buffer[layer_id],
@@ -1006,6 +1008,7 @@ class DeepSeekV4TokenToKVPool(BaseSWAKVPool):
     # object.__new__ stubs (disagg wire test) skip __init__; False is the env
     # default, so the fp8 PD/HiCache refuses don't AttributeError on them.
     _unified_kv_fp8 = False
+    supports_fp8_rope_fq_store = _is_hcu
 
     def __init__(
         self,
@@ -2484,9 +2487,9 @@ class DeepSeekV4TokenToKVPool(BaseSWAKVPool):
         _, compress_layer_id, compress_kv_pool = self.layer_mapping[layer_id]
         assert compress_kv_pool is not None
         if freqs_cis is not None:
-            assert compress_kv_pool.kv_layout is KVLayout.V41_FP4, (
-                "in-kernel RoPE is for the fp4 cache; fp8 caches take the finished value"
-            )
+            assert compress_kv_pool.kv_layout is KVLayout.V41_FP4 or (
+                self.supports_fp8_rope_fq_store and compress_kv_pool.kv_layout is KVLayout.V4
+            ), "This compressed KV layout requires already rotated inputs"
         return compress_kv_pool.set_key_buffer_fused(
             compress_layer_id, loc, cache_k, valid_mask, freqs_cis
         )

@@ -2434,3 +2434,157 @@ HCU CP 容量断言改用已有 CPU 长度/interleave 元数据；原生 produce
 原 TP 配方还启用了 LightOp paged KV 反量化。该版本 flat 接口只支持页大小 2、64、256。插件的两个 sparse-prefill 调用点分别按 SWA 与压缩 KV 的布局、物理页大小选择算子；其余页大小复用各入口已有的反量化实现并写入原 workspace 切片。对应路由回归见 `tests/runtime/test_flat_kv_dequant.py`。
 
 2026-11-26 实机验收使用 DTK 26.10、Torch 2.13 和单节点 TP8，目标为 `DeepSeek-V4.1-Flash-1017-Channel-FP8-w8a8-wo_a-markov_head-lm_head`。原配方保留 DSPARK block size 5 和 decode Graph。8 个 rank 均完成 wo_a、lm_head 与 Markov FP8 权重和逐行 scale 加载，生成请求和 Graph 回放通过。EvalScope 1.14.1 全量 HumanEval pass@1 为 161/164（98.17%），GSM8K 为 1286/1319（97.50%），两个数据集各覆盖全部题目且请求错误为 0。L0 和导览快照检查通过。固定官方 loader 检查中 662/662 个 Hook 已应用，目标清单仍有此前已知的 `DecodePreallocQueue._send_kv_metadata` 额外项；此次三个新增目标均在册。
+
+### DeepSeek V4.1 single P 的权重缓存
+
+`hcu_sglang.weight_cache` 扩展官方 v0.5.22 的 daemon 与 IPC loader。以相同 checkpoint、TP/CP/EP 拓扑、静态专家位置文件和冗余个数启动 daemon 及 client。先等待各 rank 的 Listening，再启动 client。检查各 rank 的 `Fetched … tensors from daemon`、`Loaded model via IPC` 和 daemon PID watchdog。核验专家位置文件内容摘要、量化配置和运行时拓扑，恢复非持久 buffer、后处理标志、host 表及层间别名。带互斥 host/进程句柄的模块通过 `export_ipc_host_state` 和 `attach_ipc_host_state` 转交。客户端在 meta 设备构造模型时直接生成 RoPE 形状占位张量，避免在进程缓存中留下 meta 张量。参考实现为 DAS fork 提交 `b5f3177a51`，入口和测试以本仓 weight_cache、`tests/runtime/test_weight_cache_channel_fp8.py` 为准。
+
+### DeepSeek V4.1 standalone prefill with LP replica dispatch
+
+The HCU MegaMoE admission hook accepts standalone prefill CP with `disaggregation_mode=null` and more than one CP rank. Overlap constraints and provider checks still apply. Target and empty MoE ranks share the same LP solver registry. Host and device water-filling return compact replica probabilities that the dispatch kernel must pair with the same integer map. LP solver coverage is in `tests/runtime/test_hcu_lplb_waterfill.py`. The BF16 NN transpose is engine-local. Model loading and post-IPC attachment prepare it again from current weights; graph replay does not build it.
+
+### 2026-11-27 · V4.1 CP prefill、投影与 Engram 权重缓存
+
+以 DAS `f4f913da31` 对照官方 `baa9befa38` 和 plugin `6af3b9b`。mHC 首层在 rank 按物理行拆分时延后 repeat。CP 输出只在 collective 已完成且缓冲区归当前消费者时运行 LightOp 重排。低比率 compressor 在完整等分的 4096 本地行上可先投影，同一个 gather 传输 KV（ratio 1）或 KV/score（ratio 2），后续状态写入仍由原 consumer 持有。带 encoder keep rows、非完整 chunk 的路径保留 gather-first。TF32/BF16x3 的行数切换和 DSpark prefill 草稿的 BF16 main projection 预打包见配置手册。
+
+Engram 复用官方 embedding 的 lookup、加载完成和设备回退入口。HCU shared 通过本机 TP 成员组、NUMA 策略保存/恢复、单份 HSA 可导出分配与 peer attach 实现。每台机器的本地成员合作填完完整词表。daemon 输出 handle、span、逻辑字节数。client 在 meta 设备上只记录行数/大小，检查描述后映射本地指针和 tensor views。映射依赖 daemon 的生命周期。多进程专项测试覆盖跨进程查表、越界行置零、大小/模式错配与本机 rank 划分。运行设备测试时从进程启动就设置 `HSA_USERPTR_FOR_PAGED_MEM=0`。
+
+HCU 的 CP 单 P 在非 speculative extend 的 attention→FFN 边界可使用 DeepGEMM Mega mHC。该实现同步生成 residual、供 FFN 使用的归一化输入和下一子层的 mixing stats。FFN 权重在磁盘加载时预打包，IPC client 从 daemon 的 extra state 恢复打包张量并重建本地引用；直接更新权重时保留已有缓冲区地址。`SGLANG_HCU_MEGA_MHC_OPT=0` 关闭打包并沿用 LightOp 路径。与 DAS `2362a51211` 一致，CP decode 和 target verify 不选择此分支。DAS 的 `SGLANG_HCU_FUSED_MHC_BOUNDARY` 是另一条 HCU decode/verify 路径，prefill extend 不消费该开关。
+
+### DeepSeek V4.1 single-P 的 C1/C2 KV、MQA 与候选行
+
+历史 DAS `73a7e0e7de` 按每个请求的实际压缩长度构造物理 ID，再用当前层的逻辑 TopK 去重。两条执行路径都保留注意力行内的顺序、重复索引和 SWA 后缀。全容量原位选择先完成 CP pool 的物理重映射；压缩布局携带 GPU int32 有效行计数，计数以后的容量不读写。Backend 仅在 eager HCU C1/C2 打开这个契约，原有 V4 页大小约束继续生效。
+历史 DAS `e82f09d4a7` 允许多个请求共享单次预算内 MQA 调用，保留当前 plugin 的可复用 logits 输出缓冲、CP 的 K 偏移及候选 kernel 的 65535 行上限。`b5f3177a51` 的候选快路处理全窗口和有界 tail 的发布与消费；candidate block 的因果 mask 仍由选中的内核负责。
+候选发布开关通过统一 typed EnvBool 消费，支持 0/1、false/true 和 no/yes。配置快关见 `docs/configuration.md`。专项测试 `tests/runtime/test_single_p_sparse.py` 对照跨请求的实际区间、空请求、padding、HCU C1/C2 的页表打包，以及 TopK 各路径与完整反量化的 BF16 结果。Hook 仍落在既有的 `DeepseekV4AttnBackend` 和 `SparsePrefillChunkCache`。这些算子/几何检查与模型精度、性能在不同层级验收。
+
+### DeepSeek V4.1 Engram prefill hashing
+
+The single-prefill model computes Engram hashes from global input IDs and positions
+before selecting rank-local CP rows. The plugin wraps the Engram module's hash
+call and its torch fallback because the adapter can select the official Triton
+branch on HCU. Both routes share the LightOp `lightop.engram.engram_hash_ids_hcu`
+export. The supported layout has two layers, four lookback columns and eight
+heads per n-gram size. The kernel receives the real token count separately from
+execution padding. The plugin passes scheduler-provided history directly or
+selects the current request slots from the persistent history table. Official
+`EngramHasher.forward` retains ownership of history commits, including pad rows.
+Hash IDs stay int64. The public kernel seam returns int32 predecessor tokens
+and the torch method returns int64 tokens. Target verification requires an
+export with the fixed-length `block` interface. Decode and the separately
+enabled official fused extend-and-commit path retain their original kernels.
+
+The gate hook extends the official fused Triton gate to supported contiguous HCU
+tensors when the official platform check would use torch. The combined adapter
+and plugin also supports the platform's existing fused path. Both routes keep
+the current effective hook target as their fallback.
+
+### DeepSeek V4 weight-cache client reconstruction
+
+On official v0.5.22 the HCU plugin installs the missing
+`DeepseekV4ForCausalLM.post_ipc_weight_load` on the **official** class used by
+the registry. After canonical parameters, host tables and extra state have been
+mapped, this callback binds the client’s immutable mHC descriptors to those
+parameters and their transferred packed operands. It reconstructs successor
+links using the same Engram boundaries as disk loading and builds any local NN
+operands. The daemon owns all checkpoint, quantization and layout rewrites.
+The IPC loader verifies each deferred alias against the exported shape, dtype
+and parameter/buffer role, then checks the deferred mHC tensors and scalars.
+These steps use the same daemon handles across client restarts.
+
+The native-class regression in `tests/runtime/v4_execution_current.py` replaces
+meta tensors with mapped parameters, verifies object identity across successor
+links and exercises the alias rejection paths.
+
+### DeepSeek V4.1 channel-FP8 MegaMoE
+
+For the compressed-tensors W8A8 FP8 MoE scheme, the existing post-load Hook
+selects the HCU MegaMoE packer for channel weights and dynamic per-token
+activation scales. The daemon packs each local expert once. The DeepGEMM
+layout interleaves gate/up weights and channel scales, packs them, and stores
+the resulting L1/L2 weight-scale pairs. The IPC client restores the tuples,
+layout, built flag and runtime before graph capture. Its layout fingerprint
+includes the packing revision and runtime. A daemon containing only the
+checkpoint layout must be rebuilt. The native FP8 quantization method and
+the compressed-tensors scheme have distinct post-load entry points.
+
+With attention DP=1, an eager text-only extend uses ordinary TopK. Capture,
+multimodal inputs and attention DP retain the vision-language gate. Under
+LP dispatch, an empty rank consuming an expert map participates exactly once
+in its layer's solve and still joins the MegaMoE collective. The implementation
+uses the existing MegaMoE dispatch targets. The focused contracts are
+`tests/runtime/test_weight_cache_channel_fp8.py` for packing and transfer and
+`tests/runtime/test_dsv41_mega_routing.py` for routing and collective ownership.
+
+The S4 launch diagnosed the original daemon with 40 unbuilt expert layers
+and no packed L1/L2 pair. The subsequent client-side layer-link repair
+reconstructed 12,783 aliases and 640 mHC tensors on each of the eight ranks
+before graph capture exposed this independent packing gap. With the CT packer
+enabled, metadata from all eight rebuilt daemon ranks showed 40 built expert
+layers per rank. Each layer exported two weight/scale pairs containing a packed
+FP8 device tensor and an FP32 channel-scale device tensor.
+
+### Single-P indexed query preparation and decode capture
+
+The dense V4.1 prefill indexer passes its full complex64 frequency table and
+the real query positions into the existing `_rope_fq4` seam. After the BF16
+query projection, LightOp rotates the final 64 channels, rounds to BF16, then
+returns the per-32 UE8M0/E2M1 fake-quantized BF16 result. The contiguous query
+has width 128. An unavailable export, a disabled switch or a different layout
+uses the existing path. Sparse candidate consumers retain their own packed query
+and C1/C2 compressed KV retains its separate per-16 E4M3 scale semantics.
+
+For batches with fewer than eight new tokens on CP8, the ordinary dense extend
+can read many cached keys from an earlier chunk, even with radix caching disabled.
+When the reusable CP
+query metadata is unavailable, the HCU indexer computes all request offsets and
+visible C1/C2 slots in request order, then gathers FP4 payload and UE8M0 scales
+from the existing index-K pool. The production cache API retains ownership of
+layer synchronization and page interpretation.
+
+Single P also captures decode batches. When the image lacks
+`sgl_kernel.rope_fp4_fake_quant`, the supported 32/64-head query uses the HCU
+two-stage FP4 pack from the DAS fork. It preserves torch complex multiplication
+and BF16 rounding before packing, plus the BF16 round-trip on scaled head weights.
+The result contains int8 payload, int32 UE8M0 scales and FP32 head weights. Kernels
+receive current positions and projected data during replay. Both switches and
+their supported geometries are documented in `docs/configuration.md`; the real
+HCU caller, numerical and graph regressions are in
+`tests/runtime/test_dsv41_indexer_q_prep.py`.
+
+### DeepSeek V4.1 FP8 权重模型的 decode FlashMLA
+
+独立 fork 的 `b5f3177a51` 在 HCU decode 时先读取 FP8 KV，在 BF16 输入上执行 FlashMLA。两个现有 V4 attention 后端入口共用同一配置与 workspace 生命周期。默认选用 V4 布局、每 token 584 字节的分页缓存，主池和压缩池按各自页步长读取。BF16 中间结果及紧凑索引仅属于本次 forward，eager 交给缓存分配器，捕获期间由 graph pool 跟随图生命周期保活。原始分页 KV 和逻辑输入位置继续由原池及 metadata 管理。
+
+变长和变索引验证使用 `tests/runtime/test_dsv41_decode_bf16_gather.py`，分别检查 LightOp 与 Triton 的有效行、BF16 值、索引、双池与三次变输入 graph replay。W4A8 以及其它模型保持原有显式启用路径。配置见 [配置说明](configuration.md)。专项算子验证与 HumanEval 的同配方服务对照分别记账。
+
+
+### DSV4.1 的 replicated FP8 shared MLP
+
+single P MegaMoE 的共享专家拥有独立 gate/up 和 down 权重。decoder 在构造 replicated shared MLP 时为具备 CT 预量化能力的 down_proj 选择 LightOp。每行先将 gate 的上界和 up 的双侧界限制到模型给出的 swiglu_limit，再由该算子执行 SiLU、相乘和量化；down_proj 消费 E4M3FN、每行 FP32 scale 和原 BF16 dtype。routed 输出沿原路径与共享输出相加。
+
+本模型默认在满足条件时启用。`SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT=0` 关闭该实例的自动选择；非 replicated、非 BF16、无 dense shared、缺少 clamp-capable LightOp 或不接受这种 FP8 tuple 的布局继续走已有分发。用于精度诊断时，同一 gate/up 张量应同时留存 fused、分步两种算法及 golden 的行 scale、编码和 down 输出。定位依据是同输入的 shared/routed 输出代换和真实模型复测。
+
+### DSV4.1 CP prefill 的 mHC residual 写回
+
+gfx938 上，使用前一子层 pre 系数的 HC4、hidden 5120 CP 路径对连续 BF16 激活和 FP32 混合系数调用 AITER mHC post，与参考 fork 使用相同的 BF16 写回舍入。设置 `SGLANG_OPT_USE_AITER_MHC_POST=0`，或显式选择 `SGLANG_OPT_USE_TILELANG_MHC_POST=1`，可沿用既有分发。修改配置后重启 client。
+
+### DSV4.1 channel-FP8 的 Q-LoRA 归一化
+
+gfx938 上的 MQALayer 在当前 WQ-B 压缩张量 scheme 声明支持动态 token 量化时使用 LightOp 的 RMSNorm + FP8。每个 rank 的 indexer 使用归一化后的 BF16 行，当前 WQ-B 单独接收 E4M3FN 行、每行一个 FP32 scale 和原激活 dtype。归一化先按 BF16 舍入，scale 下限为 `1/(448*512)`。压缩张量配置负责检查通道权重、动态输入与 AITER 权重布局。现有 CT consumer 负责选择 GEMM 并消费该组参数。
+
+`SGLANG_USE_FUSED_RMS_QUANT=0` 令新的服务进程使用已有 QNorm 和 WQ-B 分开处理的路径。该变量未显式设置时，本模型对满足条件的 WQ-B 默认启用融合；其他模型沿用各自配置。LightOp v2 可以直接读 packed Q 的带行间距视图，另写紧致的 BF16 结果。`SGLANG_HCU_OPT_QNORM_STRIDED=0` 或 v1 使用连续 Q 进行归一化。已连续的 Q 可原地写回，邻近 KV 保持原值。空、非 BF16、维度或对齐不支持、缺少可选 provider，以及 Megatron SP 的 gather 路径使用已有 QNorm。
+
+在设备空闲时分别设置 `SGLANG_USE_LIGHTOP_CHANNEL_FP8=0` 和 `=1`，以独立进程运行 `python tests/runtime/test_dsv41_qnorm_fp8.py -v`，覆盖归一化、量化和 CT GEMM。模型对照需在同一 checkpoint、输入、rank 和 attention 配置下，用新进程分别显式设定 `SGLANG_USE_FUSED_RMS_QUANT=0/1` 并复验目标分叉。
+
+V4.1 的 gfx938 HC4 / hidden 5120 CP 路径在 mHC combine 后对 BF16 行使用 HCU RMSNorm。显式设置 `SGLANG_USE_DPSKV4_LIGHTOP_RMSNORM=0` 可恢复原有 RMSNorm 分发。此处仅处理无额外量化、普通方差和乘权重约定的输入。
+
+
+### 单 P overlap 的请求准入
+
+`Scheduler.get_new_batch_prefill` 的 AROUND hook 仅在 DeepSeek-V4.1 HCU、CP prefill、DP1/PP1、普通 overlap 生成生效。先利用框架的在途结果队列和长度判据剔除已产生最后一个 token 的请求，同时清理已完成的运行请求，重新开放请求槽位。分块中间步仍可继续 prefill，beam 请求沿用框架的在途过滤条件。待交付采样结果使用原队列快照，KV 释放与流式交付仍由结果处理器完成。快关为 `SGLANG_DSV41_CP_PRUNE_FINISHING_PREFILL=0`。
+
+
+DeepSeek-V4.1 的 channelwise wo_a 对连续的 token-major 输入先按每个 token、每个 group 量化，随后将 FP8 编码和 FP32 scale 分别转换为 group-major。权重分组、DeepGEMM 和输出张量布局沿用原契约。8 字节对齐的内维重排使用整字搬运，非连续输入和快关沿用原实现。该路径针对 TP8/CP8 trace 中逆 RoPE 后的 BF16 转置开销。
+
+
+有界 SWA replay 的 CP 尾段从 CPU 已知的每请求 extend 长度和尾段长度推导轮转归属，并把每个 rank 的起点与本 rank 的每请求有效行数合并为一次异步传输。GPU 用固定输出大小选取行，保留 gather 顺序和每 rank 的独立 padding 行。常规尾段长度可由已有设备端 extend 长度截取得到，完整隐藏状态等要求保留全段时继续使用实际尾长。稀疏索引已知的 host 长度同样异步传输。尾段请求索引的 repeat_interleave 直接传入各请求实际尾长之和，避免 PyTorch 为推导输出尺寸同步读取设备标量。

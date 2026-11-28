@@ -1,4 +1,5 @@
 """Legacy prefill CP helpers retained for HIP, NPU, and MUSA callers."""
+import functools
 from dataclasses import dataclass
 from itertools import accumulate
 from typing import List
@@ -173,14 +174,66 @@ def cp_all_gather_rerange_launch(input_tensor, cp_size, comm_stream, event_key):
         event.record(comm_stream)
     return (output_tensor, input_tensor, event, cp_size)
 
+@functools.lru_cache(maxsize=4096)
+def _cp_interleave_cycle_within(rows, cp_size, limit):
+    """True when no cycle of the rank-major -> token-major row permutation
+    exceeds ``limit`` rows.
+
+    The permutation maps row i to i * (rows // cp_size) mod (rows - 1), so its
+    longest cycle is the multiplicative order of cp_size modulo rows - 1.
+    """
+    modulus = rows - 1
+    if modulus <= 1:
+        return True
+    value = cp_size % modulus
+    for _ in range(limit):
+        if value == 1:
+            return True
+        value = value * cp_size % modulus
+    return False
+
+def _use_inplace_cp_output(tensor, rows=None, cp_size=None):
+    from sglang.srt.environ import envs
+    from hcu_sglang.utils.detection import is_hcu
+
+    if not (
+        envs.SGLANG_DSV4_CP_OUTPUT_INPLACE.get()
+        and is_hcu()
+        and tensor.is_cuda
+        and not torch.cuda.is_current_stream_capturing()
+    ):
+        return False
+    limit = envs.SGLANG_DSV4_CP_OUTPUT_INPLACE_MAX_CYCLE.get()
+    if limit > 0 and rows is not None and cp_size:
+        return _cp_interleave_cycle_within(int(rows), int(cp_size), int(limit))
+    return True
+
+def _interleave_cp_output(output_tensor, cp_size):
+    """Reorder an exclusively owned, completed gather without a second buffer.
+
+    The optional LightOp kernel rotates disjoint row cycles in place. The
+    communication must finish before mutation; no consumer may retain the
+    original rank-major layout. Only the ordinary equal-share interleave path
+    uses this helper. Bounded-replay gather_index retains its compact selection.
+    """
+    if _use_inplace_cp_output(output_tensor, output_tensor.shape[0], cp_size):
+        from lightop.attention.cp_output import interleave_cp_output_
+
+        return interleave_cp_output_(output_tensor, cp_size)
+    out_shape = output_tensor.shape
+    return (
+        output_tensor.view(cp_size, out_shape[0] // cp_size, *out_shape[1:])
+        .transpose(0, 1)
+        .reshape(out_shape)
+    )
+
 def cp_all_gather_rerange_finish(handle):
     """Wait for a launched gather on the current stream, then rerange."""
     (output_tensor, _keepalive, event, cp_size) = handle
     torch.cuda.current_stream().wait_event(event)
-    out_shape = output_tensor.shape
-    return output_tensor.view(cp_size, -1, *out_shape[1:]).transpose(0, 1).reshape(out_shape)
+    return _interleave_cp_output(output_tensor, cp_size)
 
-def cp_all_gather_rerange_output(input_tensor, cp_size, forward_batch, stream):
+def cp_all_gather_rerange_output(input_tensor, cp_size, forward_batch, stream, *, chunk_large_output=False):
     """
     # for in-seq-split
     |   +-----------before allgather------------+|
@@ -209,15 +262,34 @@ def cp_all_gather_rerange_output(input_tensor, cp_size, forward_batch, stream):
     """
     from hcu_sglang.models.deepseek.current_v4.hcu_backend.compat import is_dsa_prefill_cp_round_robin_split
     if is_dsa_prefill_cp_round_robin_split():
+        gather_index = getattr(forward_batch.attn_cp_metadata, "gather_index", None)
+        if (
+            chunk_large_output
+            and input_tensor.ndim == 2
+            and gather_index is None
+            and not _use_inplace_cp_output(
+                input_tensor, input_tensor.shape[0] * cp_size, cp_size
+            )
+        ):
+            from .interleave import (
+                _gather_interleaved_tensor_chunked,
+                _HCU_GATHER_CHUNK_THRESHOLD_BYTES,
+            )
+
+            rows = input_tensor.shape[0]
+            if input_tensor.numel() * cp_size * input_tensor.element_size() >= (
+                _HCU_GATHER_CHUNK_THRESHOLD_BYTES
+            ):
+                # Legacy shards already include CP padding; preserve every row.
+                return _gather_interleaved_tensor_chunked(
+                    input_tensor, cp_size, rows, rows, rows * cp_size
+                )
         with use_symmetric_memory(get_parallel().attn_cp_group, disabled=not is_allocation_symmetric()):
             output_tensor = input_tensor.new_empty((input_tensor.shape[0] * cp_size, *input_tensor.shape[1:]))
         attn_cp_all_gather_into_tensor(output_tensor, input_tensor)
-        gather_index = getattr(forward_batch.attn_cp_metadata, 'gather_index', None)
         if gather_index is not None:
             return output_tensor[gather_index]
-        out_shape = output_tensor.shape
-        output_tensor = output_tensor.view(cp_size, -1, *out_shape[1:]).transpose(0, 1).reshape(out_shape)
-        return output_tensor
+        return _interleave_cp_output(output_tensor, cp_size)
     (bs_seq_len, hidden_size) = input_tensor.shape
     output_tensor = cp_all_gather_reorganized_into_tensor(input_tensor, cp_size, forward_batch, stream)
     outputs_list = list(torch.split(output_tensor, forward_batch.attn_cp_metadata.reverse_split_len, dim=0))

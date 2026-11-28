@@ -177,6 +177,8 @@ class NonCudaDecoderMixin:
                 next=self.local_boundary,
                 world_size=world_size,
                 precomputed=precomputed,
+                mode=forward_batch.forward_mode,
+                fn_packed=getattr(self, "_hcu_mhc_ffn_packed", None),
             )
 
         def run_ffn_hc(state: mhc.HcState) -> mhc.HcState:

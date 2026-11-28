@@ -22,6 +22,8 @@ from lightop.quant import per_token_quant_fp8 as lightop_per_token_quant_fp8
 from sglang.kernels.ops.quantization import fp8_kernel as native_quant
 from hcu_sglang.utils.detection import is_hcu
 
+_IS_HCU = is_hcu()
+
 
 def _native_dynamic_per_token_quant_fp8(output, input, scale):
     """Native PyTorch fallback for dynamic per-token FP8 quantization when AITER is disabled."""
@@ -104,7 +106,7 @@ def scaled_fp8_quant(
 
 
 def around_scaled_fp8_quant(original, *args, **kwargs):
-    if not is_hcu():
+    if not _IS_HCU:
         return original(*args, **kwargs)
     return scaled_fp8_quant(*args, **kwargs)
 

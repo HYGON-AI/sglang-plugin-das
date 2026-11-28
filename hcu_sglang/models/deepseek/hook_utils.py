@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import functools
 import importlib
 import logging
 import sys
@@ -19,12 +18,13 @@ _POST_APPLY_REGISTERED = False
 def lazy_function(module_name: str, function_name: str):
     """Return a proxy that imports an extracted method only on first call."""
 
-    @functools.lru_cache(maxsize=1)
-    def resolve():
-        return getattr(importlib.import_module(module_name), function_name)
+    resolved = None
 
     def proxy(*args, **kwargs):
-        return resolve()(*args, **kwargs)
+        nonlocal resolved
+        if resolved is None:
+            resolved = getattr(importlib.import_module(module_name), function_name)
+        return resolved(*args, **kwargs)
 
     proxy.__name__ = function_name
     proxy.__qualname__ = function_name
