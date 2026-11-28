@@ -50,7 +50,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
     def test_diffusion_callback_uses_only_its_owned_registry(self):
         multimodal_gen.register()
         self.assertEqual(self.srt_calls, [])
-        self.assertEqual(len(self.diffusion_calls), 39)
+        self.assertEqual(len(self.diffusion_calls), 42)
         targets = {call[0] for call in self.diffusion_calls}
         self.assertEqual(targets, {
             'sglang.kernels.ops.diffusion.rope.qknorm_rope_jit.can_use_fused_inplace_qknorm_rope',
@@ -66,9 +66,11 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.layers.attention.backends.sparse_linear_attn._initialize_linear_attention',
             'sglang.multimodal_gen.runtime.layers.attention.backends.subblock_sparse_attn.SubBlockSparseAttentionImpl._build_dense_impl',
             'sglang.multimodal_gen.runtime.layers.attention.backends.subblock_sparse_attn._get_subblock_sparse_attention_runner',
+            'sglang.multimodal_gen.runtime.layers.attention.layer.LocalAttention.forward',
             'sglang.multimodal_gen.runtime.layers.attention.layer.USPAttention._forward_with_replicated_kv_prefix_split',
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.__init__',
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
+            'sglang.multimodal_gen.runtime.layers.quantization.fp8.Fp8LinearMethod.apply',
             'sglang.multimodal_gen.runtime.loader.component_loaders.transformer_loader.TransformerLoader.load_state_dict_model',
             'sglang.multimodal_gen.runtime.loader.component_loaders.transformer_loader.inspect_minimax_h3_safetensors',
             'sglang.multimodal_gen.runtime.loader.component_loaders.transformer_loader.resolve_transformer_quant_load_spec',
@@ -88,6 +90,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.klvae.AutoencoderKL.setup_forward',
             'sglang.multimodal_gen.runtime.models.vaes.minimax_h3_video_vae.processor.VAEProcessor.convert_numpy_to_tensor',
             'sglang.multimodal_gen.runtime.pipelines_core.executors.pipeline_executor.PipelineExecutor.profile_execution',
+            'sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.ltx_2.text_connector.LTX2TextConnectorStage.forward',
             'sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.stages.denoising.MiniMaxH3DenoisingStage._run_full_loop',
             'sglang.multimodal_gen.runtime.platforms.cuda.CudaPlatformBase.get_attn_backend_cls_str',
             'sglang.multimodal_gen.runtime.platforms.rocm.RocmPlatform.get_attn_backend_cls_str',
@@ -184,7 +187,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
             'sglang.multimodal_gen.runtime.layers.attention.turbo_layer.MinimalA2AAttnOp.forward',
             targets,
         )
-        self.assertEqual(len(targets), 37)
+        self.assertEqual(len(targets), 40)
         self.assertEqual(self.srt_calls, [])
 
     def test_registry_reset_allows_registration_again(self):
@@ -192,7 +195,7 @@ class DiffusionPluginRegistrationTests(unittest.TestCase):
         self.diffusion.HookRegistry._hooks.clear()
         self.diffusion_calls.clear()
         multimodal_gen.register()
-        self.assertEqual(len(self.diffusion_calls), 39)
+        self.assertEqual(len(self.diffusion_calls), 42)
 
     def test_foreign_hooks_on_the_same_target_are_preserved(self):
         target = 'sglang.multimodal_gen.runtime.models.dits.minimax_h3._apply_qk_norm'
