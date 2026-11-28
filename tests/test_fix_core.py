@@ -69,6 +69,14 @@ class SourceHardwareDecisionTests(unittest.TestCase):
             self.assertFalse(module.is_hcu())
         self.assertFalse(module.is_hcu_native_fp8_supported())
 
+    def test_visible_device_detection_failure_is_not_silently_reclassified(self):
+        for query in (Mock(side_effect=RuntimeError('device query failed')),
+                      Mock(return_value=SimpleNamespace(gcnArchName=''))):
+            with self.subTest(query=query):
+                module = load_detection('6.4', query, available=True)
+                with self.assertRaisesRegex(RuntimeError, 'Cannot determine the architecture'):
+                    module.is_hcu()
+
     def test_detection_failure_on_a_visible_hip_device_is_surfaced(self):
         # #113: a device is visible but does not answer. That is not "not HCU"
         # and must reach the caller instead of selecting the non-HCU paths.

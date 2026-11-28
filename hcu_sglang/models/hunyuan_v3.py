@@ -707,27 +707,60 @@ class HYV3Attention(nn.Module):
                 self.attn.layer_id
             )
             kv_cache_dtype = self.kv_cache_dtype or k_buffer.dtype
-            q, k, v = rms_rotary_embedding_fuse_with_kv_store(
-                positions,
-                q,
-                k,
-                v,
-                cos_sin_cache,
-                self.head_dim,
-                self.page_size,
-                k_buffer,
-                v_buffer,
-                forward_batch.out_cache_loc,
-                is_neox=True,
-                weight_q=self.q_norm.weight,
-                weight_k=self.k_norm.weight,
-                output_dtype=kv_cache_dtype,
-                residual_q=None,
-                residual_k=None,
-                k_scale=None,
-                v_scale=None,
-                epsilon=self.q_norm.variance_epsilon,
-            )
+            try:
+                from lightop import (
+                    split_qkv_rms_rotary_embedding_fuse_with_kv_store_quant,
+                )
+            except ImportError:
+                split_qkv_rms_rotary_embedding_fuse_with_kv_store_quant = None
+
+            if split_qkv_rms_rotary_embedding_fuse_with_kv_store_quant is not None:
+                if get_bool_env_var("SGLANG_KV_LAYOUT_HCU_FA", default="false"):
+                    v_buffer = v_buffer.transpose(-1, -2)
+                q, k, v = split_qkv_rms_rotary_embedding_fuse_with_kv_store_quant(
+                    positions,
+                    qkv.contiguous(),
+                    self.q_size,
+                    self.kv_size,
+                    cos_sin_cache,
+                    head_dim=self.head_dim,
+                    page_size=self.page_size,
+                    k_buffer=k_buffer,
+                    v_buffer=v_buffer,
+                    kv_cache_loc=forward_batch.out_cache_loc,
+                    is_neox=True,
+                    weight_q=self.q_norm.weight,
+                    weight_k=self.k_norm.weight,
+                    output_dtype=qkv.dtype,
+                    kv_cache_dtype=kv_cache_dtype,
+                    residual_q=None,
+                    residual_k=None,
+                    k_scale=None,
+                    v_scale=None,
+                    epsilon=self.q_norm.variance_epsilon,
+                )
+            else:
+                q, k, v = rms_rotary_embedding_fuse_with_kv_store(
+                    positions,
+                    q,
+                    k,
+                    v,
+                    cos_sin_cache,
+                    self.head_dim,
+                    self.page_size,
+                    k_buffer,
+                    v_buffer,
+                    forward_batch.out_cache_loc,
+                    is_neox=True,
+                    weight_q=self.q_norm.weight,
+                    weight_k=self.k_norm.weight,
+                    output_dtype=kv_cache_dtype,
+                    residual_q=None,
+                    residual_k=None,
+                    k_scale=None,
+                    v_scale=None,
+                    epsilon=self.q_norm.variance_epsilon,
+                )
             q = q.reshape(qkv.shape[0], self.q_size)
             used_fused_hunyuan_rotary_kv_store = True
         else:

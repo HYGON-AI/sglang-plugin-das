@@ -4457,6 +4457,8 @@ S7 容器 Python 3.12 / PyTorch 2.11.0、官方 SGLang
 在后续渲染时报错；该已有缺陷未在本次扩大修改范围。
 `fix_attention_models.py` 仅运行 HY3 两项，其他模型没有在本轮验收。
 
+
+
 ## 2026-11-20 Qwen-Image 2.1 四卡 Ulysses 直收
 
 在 `release/sglang_v0.5.22`（基线 `8b730e0`）将实验插件的 Ulysses 直收迁入
@@ -4478,7 +4480,6 @@ Graph 和 compile 下的端到端行为未单独测量。
 
 离线结构检查通过。全量 unittest 的 1 项失败和 2 项错误在未修改的
 `8b730e0` 基线上同样复现。
-
 ## GLM-5.3 CT W4A8 四节点 P/D 配方回移（SGLang 0.5.22）
 
 同步主线 #23 的 `SGLANG_HCU_W8A8_USE_LIGHTOP` 注册项。GLM-5.3 的 CT checkpoint 同时包含 channel INT4 专家和 W8A8 Linear。P、D 配方显式设为 `1` 时，Linear 的 `quant_ops.triton_scaled_mm` 将输入、scale、bias 和调优参数交给 `lightop.gemm_ops.triton_scaled_mm`。默认值为 false，保留原有小 M 调优。专家继续由 `HCUW4A8Int8DeepEPMoEMethod` 处理，normal 与 low-latency 的 dispatcher 输出均为 INT8。
@@ -4561,6 +4562,57 @@ Plugin 定向 66 项、HY3 RoPE 2 项、INT8 postload 1 项通过，无跳过；
 ## 2026-11-23 PR 拆分检查
 
 LightOP MQA planner 修复独立分支重新通过4项接线测试（CPU张量、设备可见）和3项gfx938 GPU/变输入Graph回归。隐藏设备时接线测试收集遇到上游 cutlass_fp8_supported 的 NoneType 比较错误，原失败保留，不记作通过。完整CPU unittest复测195项，仍为3项导入错误、13项跳过。L0与导览快照检查通过；未执行浏览器视觉验收。adapter节点门禁与triage失败另列于两仓PR说明，未以模型精度结果覆盖这些失败。仅准备Draft评审，未重复提交已有RoPE/TopK实现。
+
+## 2026-11-25 HY3 FP8 融合 KV 写入与 Graph 显存复用
+
+HY3 FP8 TP8、融合 RoPE 和 HCU FA cache layout 组合在预填充抓图时触发
+`v must have the same head_size as query and key`。检查 LightOp 源码发现，断言读取的是
+V cache 的倒数第二维：旧接口要求 `[block, head, dim, page]`，当前 cache pool 存储为
+`[block, head, page, dim]`。当前每个 token 的 Q/K/V 宽度分别为 `1024/128/128`；此前
+仅凭报错将其归因于 QKV 非连续视图的判断不成立。
+
+运行时改用 LightOp 的 `split_qkv_rms_rotary_embedding_fuse_with_kv_store_quant`，传入
+完整 QKV、q_size、kv_size 和 cache 地址。该接口支持 V cache 的 stride；HCU FA layout
+开启时，给 V cache 传末两维转置的 view，与原存储共享地址，按 stride 写回，无整份 cache
+复制。Q/K/V 输出保持 BF16，cache 保持 E4M3，融合后不重复写入。旧版 LightOp 没有该
+接口时保留原路径；旧包回退未在本轮复测。
+
+Adapter 同时补回 main 已有的 Torch 非拥有存储构造路径。release 原有 vendor 路径不变；
+vendor 不可用时，原 `view_as` 回退会继续持有各抓图桶的显存，阻止共享图池复用，导致逐桶
+累积。两个 Torch 构造入口存在时改用非拥有别名，入口检查不初始化设备；入口缺失才保留
+view 回退。两项修改均在本地 release 分支工作区，未提交或推送。
+
+S7 `lzj_1103`，official `baa9bef`、Plugin `1095795` 和 Adapter `42dbfd4` 加上述补丁，
+使用 FP8 TP8、FA3、E4M3、NEXTN 2/1/3、radix cache disabled、显存比例 `0.9`。
+全部 58 档 prefill Graph 捕获成功，额外显存约 2.12 GiB，捕获后可用约 10.88 GiB；
+此前仅修 layout 的同配置在前几档后 OOM。服务请求正常返回 `42` 和 `巴黎`，两次均为
+`finish_reason=stop`。框架会把启动参数 NEXTN 规范化为内部 EAGLE，实际步数仍为 2/1/3。
+
+真实 LightOp 探针覆盖 BF16/E4M3 和两种 V view，共 4 组：Q 与独立 RMSNorm/RoPE
+参考对拍，整份 K/V cache 逐值检查，更换位置后 Graph replay 通过。Plugin 3 项 HY3
+RoPE 回归、Adapter 3 项 weak-ref GPU 回归通过，无跳过。两仓 L0、导览快照和空白检查
+通过；未重做导览浏览器视觉验收。验证后本任务服务已停止。完整数据集精度与性能对齐未
+在本轮验收范围内。
+
+2026-11-26 继续用同一代码组合验证包内 YAML：INT8 TP8 E4M3 原显存比例 0.8，
+FP8 TP8/DP8 E4M3 与 INT8 TP8/DP8 E4M3 原比例 0.9，均完成抓图并正常输出
+`42` 和 `巴黎`（INT8 带句号）。两组 DP8 保留 DeepEP auto、融合 RoPE、NEXTN
+2/1/3，另通过两条并发重复请求，均 `finish_reason=stop`。Adapter 配方分别补齐
+FP8 DP8 的 vendor FA 和 INT8 DP8 的 HCU KV layout=1；UI 与配置测试同步。
+官方将旧 DP attention 参数规范化为 attn_dp_size=8、dp_size=1，实际八路调度已核对。
+全部任务服务已停止，未做数据集精度或性能验收。末次清理脚本在子进程退出前检查
+产生断言，后续独立检查确认无残留任务进程、每卡显存约 2MB。
+
+2026-11-26 补充提交检查：S7 gfx938 与 10.8 gfx936 分别运行 Linux 全量工具测试，
+开启 layer 与 GPU 测试开关后均执行 219 项，无跳过，暴露两项设备探测替身缺少
+`is_available()` 和一项 MoriDAS 导入前未注册环境项的错误。补齐既有测试初始化，
+并增加显卡可见但架构查询失败时必须报错的断言；没有修改设备探测或 MoriDAS 运行代码。
+两节点的 GPU 显存别名/抓图池复用 3 项、HY3 RoPE 接线 3 项、Adapter 配置与 FA
+选择 53 项、Plugin HY3 相关 66 项均通过；S7 另完成 BF16/E4M3 与两种 V cache
+视图的 4 组真实 LightOp 数值和变位置 Graph 重放。10.8 本轮没有重启完整 E5M2
+模型服务，短输出证据来自当天此前单独的 E5M2 模型实验。补齐初始化后，两节点分别
+重新执行全量测试，均为 234 项通过、无跳过；包含真实 GPU 上的 INT8 custom-op
+数值比较和变输入 Graph 重放。两节点源码按文件哈希核对，检查期间未修改模型参数。
 
 ## MiniMax-H3 参考视频预处理
 
