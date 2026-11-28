@@ -42,7 +42,7 @@ from sglang.srt.model_executor.runner import compile_in_capture_mode
 from sglang.srt.models.deepseek_v2 import MoEOutput
 from sglang.srt.runtime_context import get_parallel, get_platform
 from sglang.srt.utils import is_gfx95_supported, get_bool_env_var, is_hip, is_npu, is_xpu
-from hcu_sglang.utils.detection import is_hcu as is_hcu
+from hcu_sglang.utils.detection import is_hcu, is_hcu_native_fp8_supported
 
 _is_hcu = is_hcu()
 _use_lightop = get_bool_env_var("SGLANG_USE_LIGHTOP")
@@ -359,7 +359,9 @@ def _mix_stats_impl(hc: HcSubLayer, x: torch.Tensor) -> HcTriplet:
         and not is_batch_invariant_mode_enabled()
     ):
         parts, bf16_parts = hc.tf32_parts, hc.bf16_parts
-        use_bf16x3 = 4096 <= x_flat.shape[0] <= 65536
+        use_bf16x3 = (
+            envs.SGLANG_DSV4_HC_BF16X3_MIN_ROWS.get() <= x_flat.shape[0] <= 65536
+        )
         if parts is not None and (not use_bf16x3 or bf16_parts is not None):
             from lightop import (
                 hc_mix_stats_sinkhorn_bf16x3,
@@ -489,7 +491,19 @@ def _combine(
         from sglang.kernels.ops.layernorm.hc_combine_norm import hc_combine_norm
 
         return hc_combine_norm(x_flat, apply_pre, norm.weight, norm.variance_epsilon)
-    return norm(hc_combine(x_flat, apply_pre, cfg.mult, x.dtype))
+    combined = hc_combine(x_flat, apply_pre, cfg.mult, x.dtype)
+    if (
+        _is_hcu and cfg.cp_prefill and cfg.pre_from_prev
+        and cfg.mult == 4 and cfg.hidden == 5120 and is_hcu_native_fp8_supported()
+        and combined.is_cuda and combined.dtype == norm.weight.dtype == torch.bfloat16
+        and not norm.cast_x_before_out_mul and norm.variance_size_override is None
+        and not quantize and not is_batch_invariant_mode_enabled()
+    ):
+        use_lightop = envs.SGLANG_USE_DPSKV4_LIGHTOP_RMSNORM
+        if not use_lightop.is_set() or use_lightop.get():
+            # The HCU RMSNorm provider uses the fork's FP32 reduction order.
+            return norm.forward_hip(combined)
+    return norm(combined)
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +570,26 @@ def post(
         from flashinfer.mhc import mhc_post
 
         return mhc_post(x, residual, post_mix, comb)
+
+    # The V4.1 CP reference writes the four accumulated streams through
+    # AITER's gfx938 BF16 conversion. The generic TileLang store rounds differently.
+    reference_cp_post = (
+        _is_hcu
+        and cfg.cp_prefill and cfg.pre_from_prev and cfg.mult == 4 and cfg.hidden == 5120
+        and x.is_cuda and is_hcu_native_fp8_supported()
+        and x.dtype == residual.dtype == torch.bfloat16
+        and post_mix.dtype == comb.dtype == torch.float32
+        and all(t.is_contiguous() for t in (x, residual, post_mix, comb))
+        and envs.SGLANG_OPT_USE_AITER_MHC_POST.get()
+        and not (envs.SGLANG_OPT_USE_TILELANG_MHC_POST.is_set()
+                 and envs.SGLANG_OPT_USE_TILELANG_MHC_POST.get())
+    )
+    if reference_cp_post:
+        from aiter.ops.mhc import mhc_post as aiter_post
+
+        result = torch.empty_like(residual)
+        aiter_post(result, x, residual, post_mix, comb)
+        return result
 
     if envs.SGLANG_OPT_USE_TILELANG_MHC_POST.get():
         if (
@@ -643,6 +677,38 @@ def _can_use_mega_mhc(cfg: HcConfig) -> bool:
     )
 
 
+def prepare_hcu_mega_weight(hc: HcSubLayer, previous: Optional[torch.Tensor]):
+    from sglang.srt.batch_invariant_ops import is_batch_invariant_mode_enabled
+    from sglang.srt.runtime_context import get_exec
+
+    # Resolve framework policy and BF16 RMSNorm compatibility before capture.
+    # Tensor contracts are checked by the native backend. CP shards token rows,
+    # not the hidden dimension: the packed FFN weight is shared across shards.
+    if not (
+        _is_hcu
+        and envs.SGLANG_HCU_MEGA_MHC_OPT.get()
+        and hc.cfg.pre_from_prev
+        and hc.fn.shape == (24, 20480)
+        and not hc.norm.cast_x_before_out_mul
+        and hc.norm.variance_size_override is None
+        and hc.norm.weight.dtype == torch.bfloat16
+        and not is_batch_invariant_mode_enabled()
+        and not get_exec().deterministic.enable_deterministic_inference
+    ):
+        return None
+    from hcu_sglang.kernels.mhc import hcu_mega_mhc_backend
+
+    backend = hcu_mega_mhc_backend()
+    if backend is None:
+        return None
+    packed = backend.mega_mhc_prepare_fn(hc.fn.detach())
+    if previous is not None and previous.device == packed.device:
+        # Captured graphs retain the original address across weight updates.
+        previous.copy_(packed)
+        return previous
+    return packed
+
+
 def _post_fusion(
     hc: HcSubLayer,
     y: torch.Tensor,
@@ -716,6 +782,8 @@ def run_attn_post(
     next: Optional[HcNextBoundary],
     world_size: int,
     precomputed: Optional[HcTriplet] = None,
+    mode=None,
+    fn_packed=None,
 ) -> HcState:
     """The attention post. An `AttnOutput` rides the collective kernel (which also
     folds ``next``'s norm); the attention may decline the handover even when asked,
@@ -739,6 +807,37 @@ def run_attn_post(
         )
         return HcState(updated, pre, HcNormed(normalized))
     coefficients = _compute_triplet(hc, residual, stats_stream, precomputed)
+    next_hc = next.hc if next is not None else None
+    if (
+        _is_hcu
+        and next_hc is not None
+        and fn_packed is not None
+        and mode is not None
+        and (mode.is_extend() or mode.is_decode())
+        and (not hc.cfg.cp_prefill or mode.is_extend_without_speculative())
+        and out.shape[0] > 0
+        and out.dtype == residual.dtype == torch.bfloat16
+    ):
+        from hcu_sglang.kernels.mhc import hcu_mhc_mega_boundary
+
+        pre, post_mix, comb = coefficients
+        updated, normalized, stats = hcu_mhc_mega_boundary(
+            out,
+            residual,
+            pre,
+            post_mix,
+            comb,
+            next_hc.fn,
+            next_hc.scale,
+            next_hc.base,
+            next_hc.norm.weight,
+            next_hc.cfg.rms_eps,
+            next_hc.cfg.eps,
+            next_hc.norm.variance_epsilon,
+            next_hc.cfg.sinkhorn_iters,
+            fn_packed=fn_packed,
+        )
+        return HcState(updated, pre, HcNormed(normalized), stats)
     return _post_fusion(hc, out, residual, coefficients, next)
 
 

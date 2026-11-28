@@ -80,6 +80,75 @@ class V4ExecutionTests(unittest.TestCase):
             with self.assertRaises(ConstructionStopped):self.public_causal_init(obj,config)
         self.assertEqual(len(calls),1)
 
+    def test_native_ipc_rebinds_mapped_parameters_and_validates_aliases(self):
+        from hcu_sglang.weight_cache.client import ChannelwiseIpcLoader
+        from hcu_sglang.weight_cache.extra_state import export_extra_state
+
+        def model_on(device):
+            m = object.__new__(C.NativeDeepseekV4ForCausalLM)
+            torch.nn.Module.__init__(m)
+            m.model = torch.nn.Module()
+            m.model.layers = torch.nn.ModuleList()
+            for index in range(3):
+                layer = object.__new__(C.DeepseekV4PlatformDecoderLayer)
+                torch.nn.Module.__init__(layer)
+                layer.hc_cfg = None
+                layer.hc_pre_from_prev_sublayer = True
+                layer.engram = torch.nn.Identity() if index == 2 else None
+                layer._next_layer = None
+                for stage in ("attn", "ffn"):
+                    for key in ("fn", "scale", "base"):
+                        value = torch.full((2,), index + 1, dtype=torch.float32, device=device)
+                        setattr(layer, f"hc_{stage}_{key}", torch.nn.Parameter(value))
+                    setattr(layer, f"_hc_{stage}_tf32_parts", None)
+                    setattr(layer, f"_hc_{stage}_bf16_parts", None)
+                layer.input_layernorm = torch.nn.LayerNorm(2, device=device)
+                layer.post_attention_layernorm = torch.nn.LayerNorm(2, device=device)
+                layer.register_buffer("row_offsets", torch.arange(2, device=device))
+                layer._init_hyper_connections()
+                m.model.layers.append(layer)
+            return m
+
+        daemon, engine = model_on("cpu"), model_on("meta")
+        first, second, _ = daemon.model.layers
+        first.bind_next(second)
+        second.bind_next(daemon.model.layers[2])
+        second._hc_attn_bf16_parts = (torch.zeros(3), torch.ones(2))
+        second._init_hyper_connections()
+        payload = export_extra_state(daemon, lambda t: t)
+        loader = object.__new__(ChannelwiseIpcLoader)
+        loader._transport_backend = SimpleNamespace(import_extra_tensor=lambda t: t)
+        loader._deferred_alias_entries = {}
+        all_tensors = (
+            [(n, t, True) for n, t in daemon.named_parameters(remove_duplicate=False)]
+            + [(n, t, False) for n, t in daemon.named_buffers(remove_duplicate=False)]
+        )
+        for name, t, is_param in all_tensors:
+            if "._next_layer." in name:
+                loader._deferred_alias_entries[name] = {
+                    "shape": list(t.shape), "dtype": str(t.dtype).removeprefix("torch."),
+                    "is_param": is_param,
+                }
+            else:
+                loader._set_module_tensor(engine, name, t.detach().clone(), is_param)
+        self.assertTrue(loader._deferred_alias_entries)
+        self.assertEqual(engine.model.layers[0].attn_hc.fn.device.type, "meta")
+        with patch.object(engine, "post_load_weights", side_effect=AssertionError("disk rewrite")):
+            loader._apply_extra_state(engine, payload)
+        first, second, third = engine.model.layers
+        self.assertIs(first._next_layer, second)
+        self.assertIsNone(second._next_layer)  # An Engram boundary stops the chain.
+        self.assertIsNone(third._next_layer)
+        self.assertIs(first._next_layer.row_offsets, second.row_offsets)
+        self.assertIs(first._next_layer.attn_hc.fn, second.hc_attn_fn)
+        self.assertIs(second.attn_hc.bf16_parts, second._hc_attn_bf16_parts)
+        self.assertFalse(loader._deferred_alias_entries)
+        for field, wrong in (("dtype", "int32"), ("is_param", False)):
+            entry = {"shape": [2], "dtype": "float32", "is_param": True, field: wrong}
+            loader._deferred_alias_entries = {"model.layers.0._next_layer.hc_attn_fn": entry}
+            with self.assertRaisesRegex(RuntimeError, "1 of 1"):
+                loader._check_deferred_aliases(engine)
+
 class MhcSharedTypesTests(unittest.TestCase):
     def test_target_attention_and_execution_share_state_identity(self):
         from sglang.srt.models import deepseek_v4_mhc as native

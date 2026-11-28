@@ -71,7 +71,7 @@ SAFE_AROUND_PAIRS: dict[str, str] = {
     "sglang.srt.layers.quantization.compressed_tensors.schemes."
     "compressed_tensors_w8a8_fp8_moe.CompressedTensorsW8A8Fp8MoE."
     "process_weights_after_loading":
-        "lightop channelwise gate vs aiter gate, both fall through to original",
+        "MegaMoE owns its expert packing before LightOp/DeepEP preprocessing; other routes delegate",
     "sglang.srt.arg_groups.parallel_hook.handle_eplb_and_dispatch":
         "placement and integration each call original(server_args) first, then "
         "apply their own validation; neither can skip the other",

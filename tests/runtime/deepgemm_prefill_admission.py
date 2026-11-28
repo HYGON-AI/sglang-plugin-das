@@ -31,6 +31,14 @@ class DeepGemmPrefillAdmission(unittest.TestCase):
             self.assertIsNone(alias.__spec__)
             self.assertIsNone(function(original, view))
             self.assertEqual(names, ["deepgemm"])
+            view.disaggregation_mode = "null"
+            view.enable_prefill_cp = True
+            view.attn_cp_size = 8
+            self.assertIsNone(function(original, view))
+            view.attn_cp_size = 1
+            with self.assertRaises(ValueError):
+                function(original, view)
+            view.disaggregation_mode = "prefill"
             for runtime in ["deep_gemm", "megamoe"]:
                 active.update(hcu=True, runtime=runtime, provider=True)
                 self.assertIsNone(function(original, view))

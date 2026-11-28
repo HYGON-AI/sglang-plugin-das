@@ -753,6 +753,37 @@ class _ModelMethods:
             params_dict=params_dict, loaded_params=loaded_params
         )
 
+        self._maybe_prepack_bf16_main_proj()
+
+    def _maybe_prepack_bf16_main_proj(self) -> None:
+        if not (
+            _is_hcu
+            and envs.SGLANG_HCU_DSV41_BF16_MAIN_PROJ_PREPACK.get()
+            and get_disagg().disaggregation_mode == "prefill"
+        ):
+            return
+        from sglang.srt.layers.quantization.unquant import UnquantizedLinearMethod
+
+        main_proj = self.stages[0].main_proj
+        weight = main_proj.weight
+        if not (
+            isinstance(main_proj.quant_method, UnquantizedLinearMethod)
+            and weight.is_cuda
+            and weight.dtype == torch.bfloat16
+            and weight.ndim == 2
+            and weight.is_contiguous()
+        ):
+            return
+        # Keep the logical [out, in] parameter and loader attributes, replacing
+        # its storage once before KV allocation. F.linear then uses an NN GEMM
+        # without a per-forward transpose or a second persistent weight copy.
+        weight.data = weight.data.t().contiguous().t()
+        logger.info(
+            "DSV4.1 BF16 main_proj prepacked: shape=%s stride=%s bytes=%d",
+            tuple(weight.shape), tuple(weight.stride()),
+            weight.numel() * weight.element_size(),
+        )
+
     def _remap_dspark_weight_name(self, name: str) -> Optional[str]:
         if name.startswith(("embed.", "embed_tokens.", "head.", "lm_head.")):
             return None
@@ -2468,7 +2499,7 @@ def register_hooks():
     W._is_hcu = is_hcu()
     W.resolve_single_owner_pp_rank = resolve_single_owner_pp_rank
     W._is_context_only_pp_prefill_rank = _is_context_only_pp_prefill_rank
-    for name, decorators in [('__init__', []), ('prune_to_ctx_projection', []), ('project_target_hidden', []), ('prepare_target_hidden_partial', []), ('project_target_hidden_partial', []), ('write_target_hidden_kv', []), ('write_projected_context_kv', []), ('_write_context_hidden_kv', []), ('forward', []), ('_forward_impl', []), ('load_weights', []), ('_remap_dspark_weight_name', [])]:
+    for name, decorators in [('__init__', []), ('prune_to_ctx_projection', []), ('project_target_hidden', []), ('prepare_target_hidden_partial', []), ('project_target_hidden_partial', []), ('write_target_hidden_kv', []), ('write_projected_context_kv', []), ('_write_context_hidden_kv', []), ('forward', []), ('_forward_impl', []), ('load_weights', []), ('_maybe_prepack_bf16_main_proj', []), ('_remap_dspark_weight_name', [])]:
         raw = vars(_ModelMethods)[name]
         setattr(M.DeepseekV4ForCausalLMDSpark, name, _bind(raw, M, M.DeepseekV4ForCausalLMDSpark, name, decorators))
     for name, decorators in [('swa_ring_size', ['property']), ('inject_target_hidden', []), ('_record_cuda_event', ['staticmethod']), ('inject_projected_context', []), ('_inject_mla', []), ('_ring_inject_loc', []), ('inject_ragged', [])]:
