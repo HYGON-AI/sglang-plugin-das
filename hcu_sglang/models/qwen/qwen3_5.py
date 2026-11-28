@@ -12,7 +12,7 @@ from hcu_sglang.models.fused_rotary import (
     use_fused_rms_rotary,
 )
 from hcu_sglang.layers import qwen_rms_fp8, qwen_rms_int8
-from hcu_sglang.models.qwen import gdn_int8
+from hcu_sglang.models.qwen import gdn_int8, qwen3_5_mtp
 from hcu_sglang.utils.detection import is_hcu
 from hcu_sglang.utils.module_patch import get_original_attr
 
@@ -24,6 +24,11 @@ _GDN_INIT_TARGET = _MODULE + ".Qwen3_5GatedDeltaNet.__init__"
 
 
 def register() -> None:
+    HookRegistry.register(
+        "sglang.srt.models.qwen3_5_mtp.Qwen3_5ForCausalLMMTP.__init__",
+        qwen3_5_mtp.around_init,
+        HookType.AROUND,
+    )
     if get_bool_env_var("SGLANG_HCU_QWEN_GDN_RMS_FP8_FUSION"):
         from hcu_sglang.models.qwen import gdn_fp8
 
