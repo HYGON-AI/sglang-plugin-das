@@ -194,6 +194,10 @@ class MiniMaxHiSparseVerify:
         )
 
         self.page_slots = self._allocate_page_slots(layers)
+        self.commit_offsets = torch.arange(self.width, device=coordinator.device)
+        self.commit_batch_sizes = torch.arange(
+            request_slots + 1, dtype=torch.int32, device=coordinator.device
+        )
 
     def bind_host_commit_buffers(self) -> None:
         if not self.fused_commit:
@@ -265,7 +269,7 @@ class MiniMaxHiSparseVerify:
         from hcu_sglang.layers.attention.minimax_hisparse_jit import copy_cache_planned_mha
 
         c = self.coordinator
-        positions = prefix[:, None] + torch.arange(self.width, device=reqs.device)
+        positions = prefix[:, None] + self.commit_offsets
         host_locs = c.req_to_host_pool[reqs[:, None], positions].to(torch.int32)
         scratch = self._scratch_slots(reqs).contiguous()
         counts = accepted.to(torch.int32).contiguous()
@@ -277,9 +281,7 @@ class MiniMaxHiSparseVerify:
                     scratch, host_locs, counts, *buffers, c.item_size_bytes
                 )
         else:
-            real_reqs = torch.full(
-                (1,), reqs.numel(), device=reqs.device, dtype=torch.int32
-            )
+            real_reqs = self.commit_batch_sizes.narrow(0, reqs.numel(), 1)
             for i in range(c.mem_pool_device.layer_num):
                 layer = c.mem_pool_device.start_layer + i
                 copy_cache_planned_mha(

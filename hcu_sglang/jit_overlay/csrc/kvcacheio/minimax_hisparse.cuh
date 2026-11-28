@@ -175,6 +175,22 @@ __device__ __forceinline__ BallotMask ballot_mask(bool predicate) {
 #endif
 }
 
+__device__ __forceinline__ int shuffle_up(int value, int delta) {
+#ifdef USE_ROCM
+  return __shfl_up(value, delta, WARP_SIZE);
+#else
+  return __shfl_up_sync(FULL_WARP_MASK, value, delta, WARP_SIZE);
+#endif
+}
+
+__device__ __forceinline__ int shuffle_lane(int value, int source_lane) {
+#ifdef USE_ROCM
+  return __shfl(value, source_lane, WARP_SIZE);
+#else
+  return __shfl_sync(FULL_WARP_MASK, value, source_lane, WARP_SIZE);
+#endif
+}
+
 __device__ __forceinline__ int popc_mask(BallotMask mask) {
 #ifdef USE_ROCM
   return __popcll(mask);
@@ -294,14 +310,14 @@ __device__ __forceinline__ int warp_inclusive_scan(int* s_data, int lane_id, int
 
 #pragma unroll
   for (int i = 1; i < WARP_SIZE; i *= 2) {
-    int n = __shfl_up_sync(FULL_WARP_MASK, val, i);
+    int n = shuffle_up(val, i);
     if (lane_id >= i) val += n;
   }
   val += accumulator;
   if (idx < count) {
     s_data[idx] = val;
   }
-  accumulator = __shfl_sync(FULL_WARP_MASK, val, WARP_SIZE - 1);
+  accumulator = shuffle_lane(val, WARP_SIZE - 1);
   return accumulator;
 }
 
@@ -925,7 +941,7 @@ __global__ __launch_bounds__(BLOCK_SIZE, 1) void copy_cache_planned_kernel(
     const int cnt_lane = (r_lane < real) ? miss_counts[r_lane] : 0;
     const int window = (real - base < WARP_SIZE) ? (real - base) : WARP_SIZE;
     for (int j = 0; j < window; ++j) {
-      const int cnt = __shfl_sync(FULL_WARP_MASK, cnt_lane, j);
+      const int cnt = shuffle_lane(cnt_lane, j);
       if (cnt == 0) continue;
       int m0 = (warp_global - start) % total_warps;
       if (m0 < 0) m0 += total_warps;

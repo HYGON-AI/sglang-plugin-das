@@ -61,8 +61,10 @@ def register() -> None:
 
     if os.getenv("HCU_PLUGIN_MINIMAX_M31_DEEPEP", "0") == "1":
         from hcu_sglang import deepep_graph
+        from hcu_sglang.eplb import recording
         from hcu_sglang.layers.moe import deepep_current, deepep_fp8, minimax_m31_shared_overlap
 
+        recording.register_hooks()
         deepep_current.register_hooks()
         deepep_fp8.register_ep_runtime_hooks()
         deepep_graph.register_minimax_hooks()
