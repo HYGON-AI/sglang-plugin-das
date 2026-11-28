@@ -137,6 +137,57 @@ LightOp 自行选择 launch，不套用旧 sgl_kernel 的 256-thread head 分块
 
 ## DeepSeek V4.1 的逐通道 FP8 特殊投影
 
+`SGLANG_DSV41_WO_A_QUANT_BEFORE_TRANSPOSE=1` 使连续的分组 wo_a 输入先按行量化，再移动 FP8 行和 scale。设为 0 使用原始 BF16 转置顺序。
+
 `SGLANG_DSV41_CHANNELWISE_FP8_RUNTIME` 默认为 `auto`。插件根据 HCU、量化方案和本地 checkpoint 的 safetensors 元数据选择路径。目标与独立草稿各自检查自己的 checkpoint。符合条件的 wo_a、Markov 输出投影和 lm_head 保留 E4M3 权重及每输出行的 FP32 scale，Markov 的 BF16 embedding 沿用原加载器。要求 FP32 logits 时，lm_head 直接输出 FP32。
 
 `0` 关闭此路径。`1` 用于显式选择兼容量化方案的自定义加载器，权重类型、scale 形状和加载完整性仍由 loader 校验。修改环境变量后重新启动服务。FP8 lm_head 与 lm_head LoRA 的组合会在初始化时报告不支持。
+
+For HCU LP expert dispatch, `SGLANG_LPLB_HIP_SOLVER=device` selects the on-device water-filling solver. The default `host` solver also uses the compact replica layout. `SGLANG_LPLB_HOST_PASSES` (4) and `SGLANG_LPLB_HOST_MIN_PAIRS` (6144) control the iteration count and the threshold below which replicas are split evenly. Rank-local empty inputs still contribute to the EP count reduction. `SGLANG_HCU_ROCBLAS_NN` (default true) prepares contiguous transposes for eligible BF16 target projections after loading or IPC attachment. Set it to 0 before launch to use the original weight layout.
+
+### DeepSeek V4.1 的 HCU CP prefill 和 Engram 共享表
+
+| 环境变量 | 默认值 | 生效条件 |
+|---|---:|---|
+| `SGLANG_DSV4_HCU_USE_BF16_FLASH_MLA` | 自动 | HCU V4.1 的 FP8 routed experts、584 字节 V4 FP8 KV 启用 BF16 FlashMLA 读取。普通 decode、target verify、draft extend v2 在读取时反量化；常规 prefill 使用现有路径。置 0 恢复 FP8 FlashMLA。 |
+| `SGLANG_DSV4_HCU_USE_LIGHTOP_BF16_GATHER` | 自动 | 上述默认路径使用 LightOp 的单池或双池 gather。置 0 使用 Triton。自动选择时缺少任一基础导出会使用 Triton；显式置 1 时缺少导出或禁用 BF16 FlashMLA 会报错。 |
+| `SGLANG_USE_FUSED_SILU_MUL_FP8_QUANT` | DSV4.1 独立共享专家自动 | HCU 上单 P 的 replicated BF16 shared MLP 在 down_proj 支持动态 token／逐通道 FP8 时，使用 LightOp 的 SiLU、clamp 和 FP8 量化。显式设为 0 后继续按原有配置分发。修改后重启服务。 |
+| `SGLANG_USE_FUSED_RMS_QUANT` | DSV4.1 WQ-B 自动 | gfx938 的 DSV4.1 动态 token／逐通道 W8A8-FP8 WQ-B 使用 LightOp 合并 QNorm 和激活量化。设为 0 后，原 QNorm 和 CT GEMM 分别处理 BF16 输入。其他量化方案和模型继续使用各自的默认设置。 |
+| `SGLANG_HCU_OPT_QNORM_STRIDED` | 1 | LightOp v2 可以直接读取 packed Q。设为 0 时先复制成连续 Q 行，再执行同一融合。该开关在构造 attention 时读取。 |
+| `SGLANG_HCU_OPT_DSV41_CP_POOL_NORM` | 1 | C2 的 CP prefill 在 KV 宽 512、FP32 输入以及连续 BF16/FP32 norm 权重时使用 LightOp 合并成对池化与归一化。关闭后由 compressor 分步完成。 |
+| `SGLANG_HCU_OPT_INDEXER_PREP` | 1 | V4.1 稠密 prefill indexer 对连续 BF16 [T,H,128] 查询直接消费 complex64 频率表和 int32/int64 位置，在一次 LightOp 调用中完成 RoPE64 与每 32 通道 UE8M0/E2M1 fake quant。关闭后先 gather 频率并沿用原算子。 |
+| `SGLANG_HCU_INDEX_Q_ROPE_PACK` | 1 | single P 的 decode graph 在 HCU 缺少 AOT RoPE 算子且有 32/64 个 index heads 时，沿用 torch complex 旋转，再用 Triton 同时计算两阶段 FP4 pack 和 head weights。关闭后分别执行查询、量化和权重缩放。 |
+| `SGLANG_HCU_OPT_DSV41_ROPE_FQ_STORE` | 1 | 支持融合写入的分页 V4 FP8 池在连续 BF16 latent（宽 512、RoPE 宽 64）上合并 RoPE、量化与写回。关闭后由原 KV 写入流程完成，V4.1 FP4 的路径独立。 |
+| `SGLANG_DSV4_FUSE_MHC_REPEAT_CP_SPLIT` | 1 | 旧版 round-robin CP 在非 speculative extend 的首个 PP rank 直接复制本 rank 的 mHC 输入行，TBO 保留完整行。 |
+| `SGLANG_DSV41_CP_PRUNE_FINISHING_PREFILL` | 1 | DeepSeek-V4.1 CP 单 P 的 overlap 调度在 prefill 准入前移除已完成或最后一个输出已排队的请求。0 沿用当前框架调度。 |
+| `SGLANG_DSV4_CP_OUTPUT_INPLACE` | 1 | 已完成的等长 round-robin all-gather 在独占输出上重排。带显式 gather index 的 tail 和 graph capture 保留原路径。 |
+| `SGLANG_DSV4_CP_OUTPUT_INPLACE_MAX_CYCLE` | 128 | 置 0 取消排列周期上限。正值限制 LightOp 就地重排的最长周期，超限的大规模二维模型输出可分块还原。 |
+| `SGLANG_DSV4_HC_BF16X3_MIN_ROWS` | 128 | 连续 BF16 mHC 投影在此行数至 65536 行间可使用 BF16x3，同时要求已加载拆分权重并关闭 batch invariant。 |
+| `SGLANG_OPT_DSV41_CP_LOCAL_COMPRESSOR_PROJECTION` | 0 | 本地完整 4096 行、全局长度恰为本地长度乘 CP 宽度、无 encoder replay 过滤时，可先投影再 gather。 |
+| `SGLANG_HCU_DSV41_BF16_MAIN_PROJ_PREPACK` | 0 | PD prefill 的 DSpark 草稿在加载完成后重排连续 BF16 main_proj。single P 的 DSPARK=0 不创建该层。 |
+| `SGLANG_HCU_ENABLE_DSV41_ENGRAM_HOST_TABLE` | 1 | HCU 可使用 Engram 主机表，也可由官方 `SGLANG_ENABLE_DSV41_ENGRAM_HOST_TABLE` 请求。 |
+| `SGLANG_HCU_DSV41_ENGRAM_HOST_TABLE_LAYOUT` | shared | `shared` 每个主机组共享一份 HSA IPC 表，要求在 HIP 初始化前设置 `HSA_USERPTR_FOR_PAGED_MEM=0`。未满足此条件时使用设备分片。`per_rank` 使用各 rank 的主机分片，weight-cache IPC 需要 shared。 |
+
+`SGLANG_HCU_MEGA_MHC_OPT`（默认 true）控制 DeepSeek V4.1 attention→FFN 的 DeepGEMM Mega mHC 打包与融合。在 CP 配置下仅用于非 speculative extend；设置为 0 可按相同输入对照普通 mHC 边界。进程需重新加载模型以应用配置。
+
+### DeepSeek V4.1 single-P 稀疏注意力
+
+- `SGLANG_DSV41_PREFILL_TOPK_KV_WORKSPACE=1` 默认在 HCU eager EXTEND 的 C1/C2 使用当前层 TopK 所选 KV。全容量 V4 在 gfx936/gfx938 按所选位置反量化，其他可压缩情况按 GPU 有效行计数解包。设为 `0` 可对照逐行 gather。Graph、TBO、request-window replay 及 decode 保留原路径。
+- `SGLANG_DSV41_PAGED_MQA_LOGITS_FREE_MEM_FRACTION` 沿用已有 MQA 显存预算；触发切块时将各请求的有效 Q 行合并填充每块，并保留各自的 K 偏移和 candidate 数据。
+- `SGLANG_HCU_OPT_DSV41_PREFILL_CONSUMER_40352=1` 默认跳过覆盖全部历史的候选筛选，按 late-layer tail 实际需要的行发布候选。设为 `0` 可对照完整候选发布。gfx938 默认使用 dense 候选消费者；显式设置 `SGLANG_HCU_PREFILL_PAGED_SPARSE` 可覆盖此选择。
+
+#### DeepSeek V4.1 Engram
+
+| Environment variable | Default | Scope |
+|---|---|---|
+| `SGLANG_HCU_OPT_ENGRAM_HASH_IDS` | `1` | Enable LightOp hashing for the supported EXTEND and fixed-block TARGET_VERIFY layouts. Set to `0` to call the active official provider. |
+| `SGLANG_HCU_OPT_ENGRAM_GATE` | `1` | Enable the additional HCU fused-gate route where the official platform check selects torch. Set to `0` to follow the official gate dispatch. |
+
+The official `SGLANG_OPT_ENGRAM_EXTEND_HASH` selects a separate fused
+extend-and-commit kernel and takes precedence for eligible batches.
+
+### DSV4.1 CP prefill 的 mHC residual 写回
+
+gfx938 上，使用前一子层 pre 系数的 HC4、hidden 5120 CP 路径对连续 BF16 激活和 FP32 混合系数调用 AITER mHC post，与参考 fork 使用相同的 BF16 写回舍入。设置 `SGLANG_OPT_USE_AITER_MHC_POST=0`，或显式选择 `SGLANG_OPT_USE_TILELANG_MHC_POST=1`，可沿用既有分发。修改配置后重启 client。
+
+V4.1 的 gfx938 HC4 / hidden 5120 CP 路径在 mHC combine 后对 BF16 行使用 HCU RMSNorm。显式设置 `SGLANG_USE_DPSKV4_LIGHTOP_RMSNORM=0` 可恢复原有 RMSNorm 分发。此处仅处理无额外量化、普通方差和乘权重约定的输入。
