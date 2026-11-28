@@ -2661,8 +2661,10 @@ def _post_process_topk_ids(
         lplb_solver = get_global_lplb_solver(layer_id)
         if lplb_solver is not None:
             log2phy_prob = (
-                lplb_solver.solve(topk_ids, num_token_non_padded)
-                if dispatch_algorithm == "load_aware"
+                lplb_solver.solve(topk_ids, num_token_non_padded=num_token_non_padded)
+                if dispatch_algorithm == "load_aware" or (
+                    skip_deepep_padded_tokens and not use_per_rank_shared_slots
+                )
                 else lplb_solver.solve(topk_ids)
             )
     if _is_cuda:

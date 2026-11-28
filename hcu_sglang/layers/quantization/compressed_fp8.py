@@ -12,7 +12,7 @@ from sglang.srt.layers.quantization import fp8_utils as U
 from sglang.srt.layers.quantization.compressed_tensors.schemes import compressed_tensors_w8a8_fp8 as Q
 from sglang.srt.utils import get_bool_env_var
 from hcu_sglang.utils.detection import is_hcu
-from hcu_sglang.layers.quantization import fp8_block as B
+from hcu_sglang.layers.quantization import fp8_block as B, fp8_linear as L
 
 _is_hcu = is_hcu()
 _use_lightop_channel_fp8 = get_bool_env_var("SGLANG_USE_LIGHTOP_CHANNEL_FP8") and _is_hcu
@@ -233,7 +233,7 @@ def apply_weights(
             # token. Preserve the pair so apply_fp8_linear selects its
             # DeepGEMM prequantized-input path instead of the generic
             # scalar-scale path (which only accepts scale.numel() == 1).
-            return Q.apply_fp8_linear(
+            return L.apply_fp8_linear(
                 input=(qx, x_scale),
                 weight=layer.weight,
                 weight_scale=layer.weight_scale,
@@ -271,7 +271,7 @@ def apply_weights(
             compressed_tensor_quant=True,
         )
     else:
-        return Q.apply_fp8_linear(
+        return (L.apply_fp8_linear if _is_hcu else Q.apply_fp8_linear)(
             input=x,
             weight=layer.weight,
             weight_scale=layer.weight_scale,
@@ -323,21 +323,22 @@ _SCHEME_APPLY_PARAMETERS = frozenset(inspect.signature(apply_weights).parameters
 
 
 def around_linear_apply(original, self, layer, x, bias=None, input_quant_args=None, silu_quant_args=None):
-    if not is_hcu():
+    if not _is_hcu:
         return original(self, layer, x, bias)
     if type(layer.scheme) is Q.CompressedTensorsW8A8Fp8:
         layer.scheme._apply_weights_supported_kwargs = _SCHEME_APPLY_PARAMETERS
+        return apply_weights(layer.scheme, layer, x, bias, input_quant_args, silu_quant_args)
     return linear_apply(self, layer, x, bias, input_quant_args, silu_quant_args)
 
 
 def around_process_weights(original, self, layer):
-    if not is_hcu():
+    if not _is_hcu:
         return original(self, layer)
     return process_weights_after_loading(self, layer)
 
 
 def around_apply_weights(original, self, layer, x, bias=None, input_quant_args=None, silu_quant_args=None):
-    if not is_hcu():
+    if not _is_hcu:
         return original(self, layer, x, bias)
     return apply_weights(self, layer, x, bias, input_quant_args, silu_quant_args)
 

@@ -120,6 +120,20 @@ def around_apply_fp8(original, quant_method, layer, dispatch_output):
 
 
 def around_compressed_process_weights(original, quant_method, layer):
+    if is_hcu():
+        from sglang.srt.layers.moe import get_moe_a2a_backend
+
+        if get_moe_a2a_backend().is_megamoe():
+            from compressed_tensors.quantization import QuantizationStrategy
+            from hcu_sglang.layers.moe.mega_moe import build_hcu_w8a8_mega_moe_experts_weights
+
+            if not (
+                quant_method.weight_quant.strategy == QuantizationStrategy.CHANNEL
+                and quant_method.input_quant.strategy == QuantizationStrategy.TOKEN
+                and quant_method.input_quant.dynamic
+            ):
+                raise ValueError("HCU FP8 MegaMoE requires channel weights and dynamic per-token activation scales")
+            return build_hcu_w8a8_mega_moe_experts_weights(layer)
     result = original(quant_method, layer)
     if not _requested_lightop():
         return result

@@ -38,7 +38,7 @@ from sglang.srt.layers.moe.mega_moe_sm90 import (
 from sglang.srt.layers.moe.utils import get_moe_a2a_backend
 from sglang.srt.model_executor.runner import get_is_capture_mode
 from sglang.srt.models.deepseek_common.utils import _device_sm
-from sglang.srt.runtime_context import get_disagg, get_exec
+from sglang.srt.runtime_context import get_disagg, get_exec, get_parallel
 from sglang.srt.utils import is_hip, is_sm100_supported
 from hcu_sglang.utils.detection import is_hcu
 
@@ -652,11 +652,25 @@ def _run_mega_routed(
             if forward_batch is not None
             else None
         )
-        dispatch_info = ExpertLocationDispatchInfo.init_new(layer_id=moe.layer_id)
-        if (
+        dispatch_info = (
+            None if getattr(moe.experts, "_skip_expert_location", False)
+            else ExpertLocationDispatchInfo.init_new(layer_id=moe.layer_id)
+        )
+        use_vision_topk = (
             not moe.is_hash
             and getattr(moe.gate, "e_score_correction_bias_vl", None) is not None
-        ):
+        )
+        if use_vision_topk and _is_hcu and forward_batch is not None:
+            if (
+                forward_batch.forward_mode.is_extend_without_speculative()
+                and get_parallel().attn_dp_size == 1
+                and not get_is_capture_mode()
+                and forward_batch.input_embeds is None
+                and forward_batch.mm_input_embeds is None
+                and not forward_batch.contains_mm_inputs()
+            ):
+                use_vision_topk = False
+        if use_vision_topk:
             from hcu_sglang.multimodal.dsv41.vl_routing import vision_topk
 
             topk_output = vision_topk(
@@ -677,6 +691,10 @@ def _run_mega_routed(
         topk_ids = topk_output.topk_ids
         topk_weights = topk_output.topk_weights
     else:
+        if get_exec().moe.ep_dispatch_algorithm == "lp" and not getattr(
+            moe.experts, "_skip_expert_location", False
+        ):
+            moe.topk.empty_topk_output(hidden_states.device, layer_id=moe.layer_id)
         topk_ids = None
         topk_weights = None
 
@@ -730,7 +748,6 @@ def run_mega_routed_experts(
     shared_l2_weights=None,
 ) -> torch.Tensor:
     # Rows are this rank's tokens; the returned rows are fully combined.
-    from sglang.srt.runtime_context import get_parallel
 
     ep_group = get_parallel().moe_ep_group.device_group
     num_experts = experts.num_experts

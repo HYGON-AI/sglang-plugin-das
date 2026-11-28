@@ -1,14 +1,17 @@
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
+from hcu_sglang.environ import register_envs
 from hcu_sglang.layers.quantization import channelwise_fp8 as runtime
 
 
 @unittest.skipUnless(torch.version.hip and torch.cuda.is_available(), "HCU required")
 class TestProjection(unittest.TestCase):
     def setUp(self):
+        register_envs()
         torch.manual_seed(616)
 
     def reference(self, x, weight, scale):
@@ -48,6 +51,28 @@ class TestProjection(unittest.TestCase):
         y = runtime.linear(x, w[256:], s[256:], output_dtype=torch.float32)
         ref = self.reference(x, w, s)[:, 256:]
         torch.testing.assert_close(y, ref, rtol=1e-4, atol=1e-4)
+
+    def test_grouped_quant_order_and_graph_replay(self):
+        w, s = self.tensors(128, 256, (8,))
+        layer = SimpleNamespace(weight=w.flatten(0, 1), weight_scale_inv=s.flatten(0, 1))
+        x = torch.randn(128, 8, 256, device="cuda", dtype=torch.bfloat16)
+        fast = runtime.envs.SGLANG_DSV41_WO_A_QUANT_BEFORE_TRANSPOSE
+        with patch.object(fast, "get", return_value=True):
+            runtime.grouped(x, layer, 8, 128)
+            graph = torch.cuda.CUDAGraph()
+            with torch.cuda.graph(graph):
+                captured = runtime.grouped(x, layer, 8, 128)
+        for magnitude in (1.0, 0.01):
+            x.copy_(torch.randn_like(x) * magnitude)
+            graph.replay()
+            with patch.object(fast, "get", return_value=False):
+                reference = runtime.grouped(x, layer, 8, 128)
+            self.assertTrue(torch.equal(captured, reference))
+            self.assertEqual(captured.stride(), reference.stride())
+
+    def test_group_swap_fallback_for_misaligned_offset(self):
+        x = torch.arange(49, device="cuda", dtype=torch.int16)[1:].view(2, 3, 8)
+        self.assertTrue(torch.equal(runtime._swap_group_token(x), x.transpose(0, 1)))
 
     def test_grouped_wo_a(self):
         x = torch.randn(5, 2, 256, device="cuda", dtype=torch.bfloat16)

@@ -189,3 +189,58 @@ def fused_mla_qkv_a_rms_norm_per_token_quant(
         q_epsilon=q_epsilon,
         kv_epsilon=kv_epsilon,
     )
+
+
+@lru_cache(maxsize=1)
+def _fp8_qnorm_provider():
+    try:
+        from lightop import rmsnorm
+    except (ImportError, OSError, RuntimeError):
+        return None, False
+    if not hasattr(getattr(rmsnorm, "op", None), "rms_norm_fp8_quant"):
+        return None, False
+    return (
+        getattr(rmsnorm, "rms_norm_per_token_fp8_quant", None),
+        getattr(rmsnorm, "RMS_NORM_FP8_QUANT_VERSION", 1) >= 2,
+    )
+
+
+def dsv41_qnorm_fp8_operand(q, norm, use_strided):
+    weight = norm.weight
+    if (
+        not q.is_cuda
+        or q.ndim != 2
+        or q.numel() == 0
+        or q.dtype != torch.bfloat16
+        or weight.dtype != q.dtype
+        or weight.device != q.device
+        or weight.shape != (q.shape[1],)
+        or not weight.is_contiguous()
+        or q.shape[1] % 16
+        or q.shape[1] > 8192
+        or q.stride(1) != 1
+        or q.stride(0) < q.shape[1]
+        or q.stride(0) % 8
+        or q.shape[0] * q.stride(0) > 2147483647
+        or q.data_ptr() % 16
+        or weight.data_ptr() % 16
+        or not math.isfinite(norm.variance_epsilon)
+        or norm.variance_epsilon <= 0
+    ):
+        return None
+    op, supports_strided = _fp8_qnorm_provider()
+    if op is None:
+        return None
+    if use_strided and supports_strided and not q.is_contiguous():
+        normalized = torch.empty(q.shape, device=q.device, dtype=q.dtype)
+        codes, scales = op(
+            q, weight, epsilon=norm.variance_epsilon, fp8type=0,
+            update_input=False, norm_output=normalized,
+        )
+    else:
+        normalized = q.contiguous()
+        codes, scales = op(
+            normalized, weight, epsilon=norm.variance_epsilon,
+            fp8type=0, update_input=True,
+        )
+    return normalized, (codes, scales, q.dtype)
