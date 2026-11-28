@@ -76,6 +76,8 @@ def register() -> None:
     from hcu_sglang.models.deepseek import register_hooks as register_deepseek
     from hcu_sglang.models.qwen import qwen2, qwen3, qwen3_5, qwen3_moe
 
+    from hcu_sglang import weight_cache
+    weight_cache.register_hooks()
     jit_overlay_loader.register_hooks()
     configs.register_hooks()
     from hcu_sglang import configs_mamba
