@@ -197,6 +197,9 @@ def register() -> None:
     swa.register_hooks()
     hcu_host_pool.register_hooks()
     hcu_mha_pool.register_hooks()
+    from hcu_sglang.mem_cache import qwen_direct_linker
+
+    qwen_direct_linker.register_hooks()
     mla.register_hooks()
     dsa.register_hooks()
     dsv4.register_hooks()

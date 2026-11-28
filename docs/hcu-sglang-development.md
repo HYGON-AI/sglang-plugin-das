@@ -5039,6 +5039,90 @@ audio Q、video Q、video MLP up 三种权重形状和合成 FP8 数据从空缓
 独立反量化调用的 `torch.compile(fullgraph=True)` 三组尺寸对拍通过。
 本轮验证覆盖算子数值、JIT 复用和编译冒烟，整模型冷启动与端到端性能沿用此前各自的测量记录。
 
+## 2026-11-19: Qwen GQA/GDN Direct L3 Linker
+
+Baseline: official `baa9befa381511cd4d56f83980951e5a45fffc6d`, adapter
+`79ba0bd`, plugin `e472e89`. Only the plugin is changed. Official SGLang,
+adapter, model weights and the user's launch script are not edited.
+
+Five narrow AROUND hooks register automatically on HCU through the existing
+plugin entry point and are included in the default registration contract.
+`SGLANG_HCU_QWEN_L3_DIRECT` is no longer read; neither `1` nor `0` changes
+registration. Non-HCU registration is a no-op. Enable the official
+`--enable-unified-cache-external-linker` with backend `mooncake`, not HiCache L2
+or `--hicache-storage-backend`. Supply the existing Mooncake connection settings.
+
+Scope: HCU BHSD page-major GQA plus physical, unquantized GDN state slots,
+TP sharding, and packed MTP K/V pools (including the Qwen HybridLinearKVPool
+wrapper sharing the target's GDN state). PP/CP/DCP, unified
+memory, separately allocated draft GDN, scaled KV side buffers, quantized state
+checkpoints and auxiliary short-conv/ngram state fail closed. Quantized model
+weights are independent of these KV/state storage restrictions. The GDN's own
+convolution state is included with its temporal state.
+
+Implementation: page-addressed K/V entries include target and draft buffers;
+draft buffers are transferred at the final target layer and their reader waits
+for that layer. GDN entries use state-slot addressing and trailing-page hit
+semantics. Loaded request-private GDN state replaces deferred clear/CoW and
+resets the replay cursor; refused loads return their allocated slot. A packed
+Mamba object uses one storage key. HCU layout, logical dtype, geometry, layer
+mapping, draft presence and TP size form a separate storage namespace. Capacity
+changes do not change the namespace. The existing plugin Rust tree provider
+already contains the Mamba external-linker offload producer.
+
+References: official SGLang PR #41343 supplies the Mamba transfer lifecycle and
+packed object semantics; PRs #46422 and #47293 inform the GQA/MTP pool assembly.
+The HCU page addressing, hooks, namespace and tests are local adaptations,
+not a claim that those PRs were cherry-picked or that all their model modes work.
+
+Validation on f14r2n02, container
+`sglang_shangxl_dpsk_v4.1_20261105-2314`: twelve focused unit tests passed, including
+byte-for-byte CPU buffer round trips through real DevicePoolEntry address/range
+metadata, invalid layouts, checkpoint allocation/cancellation, key naming and
+draft readiness, shared-state MTP wrappers, sparse GDN checkpoint boundaries and
+the original opt-in registration contract. All five hooks were resolved and applied
+against the installed official modules. Syntax checks passed.
+
+Real-model TP2/EAGLE validation used page size 64, FP8 E5M2 KV, BF16 GDN state,
+16K context/capacity, four running-request slots, chunk size 4096 and disabled
+graphs. Both ranks loaded 64 layers and one packed draft. After `/flush_cache`,
+an 8434-token prompt restored 8384 tokens (131 pages) from Mooncake and computed
+50 tokens. `cached_tokens_details` reported device=0 and host=8384; "host" is
+the external-linker hit accounting field here, not proof of an L2 host pool.
+
+The container could not open its RDMA HCAs (permission denied), so Mooncake
+fell back to TCP. This validates the direct-linker cache path, not GPUDirect/RDMA
+transport or performance. A temporary master used port 50191, test server 30191,
+with 2 GiB total embedded store capacity. Only test-created processes are cleaned
+up. The user's launch script and other services are not changed.
+
+`20261119-161311-results.json` records a strict cold-versus-restored output
+comparison that failed: both responses start with 12345, but their 32-token
+continuations differ. Both were length-limited, not complete-answer accuracy
+tests. The follow-up `20261119-162230-results.json` compares cold generation,
+L1 reuse, then two L3 restores with a successful GPU cache flush before each.
+L1 reports device=8384/host=0, and L3 reports device=0/host=8384. L1 and both L3
+restores have identical 32 output token IDs; cold generation differs from L1 as
+well. The test passed this L1-versus-L3 equivalence check, not strict cold-versus-
+cached equivalence or complete-answer accuracy. The cold/cache discrepancy is
+not specific to L3 in this probe; its root cause is not established.
+
+All temporary processes were cleaned up. Official and adapter tracked working
+trees remain clean. No commit or push was made. Long-context, graphs, multi-node
+transport, strict recompute equivalence, complete-answer accuracy and broad load
+testing remain unvalidated. Validation assets and logs are in
+`../.codex-qwen-l3-1119/`, outside the plugin repository.
+
+Follow-up: removed the extra environment gate at the user's request. The twelve
+focused tests pass with the variable unset; registration subtests also cover
+legacy values `0` and `1`, and non-HCU registration leaves the registry and
+supported-component set untouched. A separate process calls the actual plugin
+entry point and applies all five hooks with the variable absent. Results are in
+`../.codex-qwen-l3-1119/default-gate-validation.log`. `git diff --check` passes;
+official and adapter tracked trees remain clean. Layout/topology guards and
+official external-linker enablement are unchanged. Existing services need a
+restart; no model service was started or stopped for this follow-up. Full-model
+generation was not rerun, and the precision/transport limitations above remain.
 
 ## 2026-11-27 Qwen3.5 MTP 输入投影 INT8 加载
 
